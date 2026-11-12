@@ -3,6 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as St from './strategy.ts';
 import type { Leg, Analysis, Div } from './strategy.ts';
 import { addDaysStr, closeMs, defaultExpiry, etDate, expirations } from './usmarket.ts';
+import type { Chain, ProviderId, Quote } from './market/types.ts';
+import { mid, nearest } from './market/index.ts';
 
 export type DateMode = 'today' | 'mid' | 'exp' | 'custom';
 export interface Scenario { target: number; dateMode: DateMode; date: string | null; ivShift: number }
@@ -15,6 +17,8 @@ export interface AppState {
   autoStrikes: boolean;                        // strike'lar fiyatı takip etsin mi (elle değiştirilene kadar)
   legs: Leg[]; scn: Scenario;
   now: number; today: string;                  // ET
+  // piyasa verisi
+  provider: 'auto' | ProviderId; apiKey: string; quote: Quote | null; src: ProviderId | null; marketExps: string[];
 }
 
 export const DEFAULT_RATE = 4.2; // 3 aylık T-bill (Kasım 2026 ≈ %4,1–4,2)
@@ -69,6 +73,7 @@ export function defaultState(now = Date.now()): AppState {
     legs: buildLegs('longCall', 100, expiry, 30, 1),
     scn: { target: 110, dateMode: 'exp', date: null, ivShift: 0 },
     now, today: etDate(now),
+    provider: 'auto', apiKey: '', quote: null, src: null, marketExps: [],
   };
 }
 function fix(o: any): AppState | null {
@@ -80,6 +85,7 @@ function fix(o: any): AppState | null {
   const first = expirations(now)[0]?.date || d.expiry;
   s.legs.forEach(l => { if (closeMs(l.expiry) <= now) l.expiry = first; });
   if (closeMs(s.expiry) <= now) s.expiry = d.expiry;
+  s.marketExps = (s.marketExps || []).filter(e => closeMs(e) > now);
   return s;
 }
 export async function loadState(): Promise<AppState | null> {
@@ -117,4 +123,31 @@ export function priceRange(s: AppState, an: Analysis): [number, number] {
   let lo = Math.min(S - em, ...ks.map(k => k - em * .35)), hi = Math.max(S + em, ...ks.map(k => k + em * .35));
   lo = Math.min(lo, s.scn.target * 0.97); hi = Math.max(hi, s.scn.target * 1.03);
   return [Math.max(lo, S * 0.01), hi];
+}
+
+/**
+ * Zinciri bacaklara uygula. mode 'snap': otomatik/canlı bacakları en yakın gerçek strike'a oturt + mid prim + kendi Amerikan IV'miz;
+ * 'refresh': sadece canlı bacakların primini/IV'sini aynı strike'ta güncelle.
+ */
+export function applyChain(d: AppState, ch: Chain, mode: 'snap' | 'refresh') {
+  const g = G(d);
+  d.legs = d.legs.map(l => {
+    if (l.kind === 'stock' || l.expiry !== ch.expiry) return l;
+    const list = l.kind === 'call' ? ch.calls : ch.puts;
+    const canSnap = mode === 'snap' && (l.live || (d.autoStrikes && d.strat !== 'custom') || l.premium == null);
+    if (!canSnap && !(mode === 'refresh' && l.live)) return l;
+    const o = canSnap ? nearest(list, l.strike) : list.find(x => Math.abs(x.strike - l.strike) < 1e-9) || null;
+    if (!o) return l;
+    return fillFromQuote(l, o, g);
+  });
+}
+/** Kontrattan bacak: strike, mid prim, IV (önce kendi Amerikan IV'miz, olmazsa sağlayıcınınki) */
+export function fillFromQuote(l: Leg, o: { strike: number; bid: number; ask: number; last: number; iv: number | null; type: 'call' | 'put' }, g: St.Globals): Leg {
+  const p = +mid(o as any).toFixed(2);
+  const nl: Leg = { ...l, strike: o.strike, premium: p > 0 ? p : null, live: p > 0 };
+  if (p > 0) {
+    const v = St.legIV(nl, g, p);
+    if (isFinite(v)) nl.iv = +v.toFixed(2); else if (o.iv) nl.iv = +(o.iv * 100).toFixed(2);
+  } else if (o.iv) nl.iv = +(o.iv * 100).toFixed(2);
+  return nl;
 }

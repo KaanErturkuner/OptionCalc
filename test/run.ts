@@ -2,6 +2,13 @@ import * as BS from '../src/lib/bs.ts';
 import * as St from '../src/lib/strategy.ts';
 import * as A from '../src/lib/american.ts';
 import * as M from '../src/lib/usmarket.ts';
+// @ts-ignore — Node yerleşik modülü (test yalnızca Node'da çalışır)
+import { readFileSync } from 'node:fs';
+import * as MD from '../src/lib/market/index.ts';
+import * as MDT from '../src/lib/market/types.ts';
+import * as CB from '../src/lib/market/cboe.ts';
+import * as YH from '../src/lib/market/yahoo.ts';
+import * as TR from '../src/lib/market/tradier.ts';
 import { fmt, parseNum, parseTrDate } from '../src/lib/format.ts';
 let fail = 0;
 function eq(name: string, got: number, exp: number, tol = 1e-3) { const ok = Math.abs(got - exp) <= tol; if (!ok) fail++; console.log((ok ? 'OK  ' : 'FAIL') + ' ' + name + ' = ' + (+got).toFixed(6) + ' (beklenen ' + exp + ')'); }
@@ -127,6 +134,58 @@ eq('Primden IV, sonra teorik = prim', St.legTheo({ ...lp, iv: ivp }, gl), 11.2, 
 // Temettü: covered call hisse bacağı, alınan temettüyü sayar
 const gd: St.Globals = { ...gl, divs: [{ date: '2026-11-20', amount: 1 }] };
 eq('Hisse bacağı: ex-tarih sonrası değer = fiyat + temettü', St.legValue({ kind: 'stock', side: 1, qty: 100, premium: 100, strike: 0, expiry: exp, iv: 0 }, gd, 99, '2026-11-25'), 100, 1e-12);
+
+// ===================== PİYASA VERİSİ (kayıtlı fixture'lar) =====================
+console.log('\n— Piyasa verisi ayrıştırıcıları —');
+{
+  const fx = (f: string) => JSON.parse(readFileSync(new URL('./fixtures/' + f, import.meta.url), 'utf8'));
+  const occ = MDT.parseOcc('SPXW261218P05825000');
+  chk0('OCC sembolü', JSON.stringify(occ), JSON.stringify({ root: 'SPXW', expiry: '2026-12-18', type: 'put', strike: 5825 }));
+  chk0('CBOE ET saati → UTC', new Date(CB.etNaive('2026-11-11T15:59:59')).toISOString(), '2026-11-11T20:59:59.000Z');
+  const cj = fx('cboe-AAPL.json'), cq = CB.parseCboeQuote(cj, 'AAPL', now0);
+  eq('CBOE fiyat (seans kapalı → resmi kapanış)', cq.price, 355.63, 1e-9); eq('CBOE seans dışı fiyat', cq.extPrice!, 356.2062, 1e-9);
+  eq('CBOE fiyat (seans açık → güncel)', CB.parseCboeQuote(cj, 'AAPL', Date.parse('2026-11-12T18:00:00Z')).price, 356.2062, 1e-9); eq('CBOE değişim %', cq.changePct, 2.043, 1e-9); chk0('CBOE gecikme', cq.delayedMin, 15);
+  const ch = CB.parseCboeChains(cj, 'AAPL', now0);
+  chk0('CBOE: geçmiş vade (11.11) atıldı, kalan vadeler', [...ch.keys()].join(','), '2026-12-18');
+  const dec = ch.get('2026-12-18')!, c355 = dec.calls.find(o => o.strike === 355)!;
+  chk0('CBOE 355C bid/ask', `${c355.bid}/${c355.ask}`, '11/11.3'); eq('CBOE 355C IV', c355.iv!, 0.2268, 1e-9); chk0('CBOE 355C OI', c355.oi, 5463);
+  eq('Mid fiyat', MDT.mid(c355), 11.15, 1e-9);
+  ok('CBOE strike sıralı', dec.calls.every((o, i, a) => !i || a[i - 1].strike < o.strike));
+  // SPX/SPXW aynı gün → PM (SPXW) tercih; düzeltilmiş kök (AAPL1) atılır
+  const syn = { data: { current_price: 5800, options: [
+    { option: 'SPX261218C05800000', bid: 1, ask: 2, iv: .2, open_interest: 10, volume: 0, last_trade_price: 1.5 },
+    { option: 'SPXW261218C05800000', bid: 3, ask: 4, iv: .21, open_interest: 20, volume: 0, last_trade_price: 3.5 },
+    { option: 'SPX1261218C05800000', bid: 9, ask: 9, iv: .3, open_interest: 1, volume: 0, last_trade_price: 9 } ] } };
+  const sc = CB.parseCboeChains(syn, 'SPX', now0).get('2026-12-18')!;
+  chk0('SPX/SPXW tekilleştirme (PM tercih), düzeltilmiş kök atıldı', `${sc.calls.length}:${sc.calls[0].bid}`, '1:3');
+  // Yahoo
+  const yj = fx('yahoo-KO.json'), yp = YH.parseYahooOptions(yj);
+  eq('Yahoo fiyat', yp.quote.price, 97.57, 1e-9); eq('Yahoo temettü verimi % (2,12/97,57)', yp.quote.divYield!, 2.12 / 97.57 * 100, 1e-9);
+  chk0('Yahoo vade listesi (UTC gece yarısı → tarih)', yp.expirations.slice(0, 3).join(','), '2026-11-13,2026-11-20,2026-11-27');
+  chk0('Yahoo zincir vadesi', yp.chain!.expiry, '2026-11-13');
+  ok('Yahoo bid/ask=0 iken sahte IV (1e-5) atıldı', yp.chain!.calls.every(o => o.iv === null || o.iv > 0.005));
+  const y95 = yp.chain!.calls.find(o => o.strike === 95)!;
+  eq('Yahoo bid/ask yoksa mid = son işlem', MDT.mid(y95), y95.bid > 0 && y95.ask > 0 ? (y95.bid + y95.ask) / 2 : y95.last, 1e-9);
+  // Tradier (dokümandaki biçim)
+  const tq = TR.parseTradierQuote({ quotes: { quote: { symbol: 'AAPL', description: 'Apple Inc', last: 355.6, change: 7.1, change_percentage: 2.04, prevclose: 348.5, bid: 355.5, ask: 355.7, trade_date: 1794430801000 } } });
+  eq('Tradier fiyat', tq.price, 355.6, 1e-9); chk0('Tradier gerçek zamanlı', tq.delayedMin, 0);
+  const tc = TR.parseTradierChain({ options: { option: [
+    { symbol: 'AAPL261218C00355000', option_type: 'call', strike: 355, bid: 11, ask: 11.3, last: 11.2, volume: 1649, open_interest: 5463, greeks: { delta: .54, mid_iv: .2268 } },
+    { symbol: 'AAPL261218P00355000', option_type: 'put', strike: 355, bid: 9, ask: 9.3, last: 9.1, volume: 10, open_interest: 50, greeks: { delta: -.46, mid_iv: .231 } } ] } }, '2026-12-18');
+  chk0('Tradier zincir', `${tc.calls.length}/${tc.puts.length} ${tc.calls[0].iv}`, '1/1 0.2268');
+  chk0('Tradier tek kontrat (dizi değil) da çalışır', TR.parseTradierChain({ options: { option: { option_type: 'put', strike: 1, bid: 0, ask: 0, last: 0 } } }, 'x').puts.length, 1);
+  // Yardımcılar
+  chk0('En yakın strike', MD.nearest(dec.calls, 356.2)!.strike, 355);
+  chk0('ATM çevresi 2+1+2', MD.around(dec.calls, 356.2, 2).map(o => o.strike).join(','), '345,350,355,360,365');
+  chk0('Hedefe en yakın gerçek vade', MD.closestExpiry(['2026-12-11', '2026-12-18', '2027-01-15'], '2026-12-20'), '2026-12-18');
+  chk0('Piyasa açık mı (Perşembe 15:00 ET)', MD.marketOpen(Date.parse('2026-11-12T20:00:00Z')), true);
+  chk0('Piyasa kapalı (Thanksgiving)', MD.marketOpen(Date.parse('2026-11-26T17:00:00Z')), false);
+  // Zincir primi → Amerikan IV → teorik prim (uygulamanın akışı)
+  const gA: St.Globals = { S: cq.price, r: 4.2, q: 0.3, divs: [], now: now0 };
+  const legA: St.Leg = { kind: 'call', side: 1, strike: 355, expiry: '2026-12-18', iv: 30, qty: 1, premium: MDT.mid(c355) };
+  const ivA = St.legIV(legA, gA, legA.premium!);
+  ok(`Kendi Amerikan IV'miz (mid 11,15'ten) %${ivA.toFixed(2)} ≈ CBOE IV %22,68 (±0,5 puan)`, Math.abs(ivA - 22.68) < 0.5);
+}
 // Biçimlendirme / ayrıştırma
 const chk = (name: string, got: unknown, exp: unknown) => { const ok = got === exp; if (!ok) fail++; console.log((ok ? 'OK  ' : 'FAIL') + ' ' + name + ' = ' + String(got) + ' (beklenen ' + String(exp) + ')'); };
 chk('fmt 1234567,891', fmt(1234567.891, 2), '1.234.567,89');

@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, AppState as RNAppState, Platform, Pressable, ScrollView, Share, Switch, Text, View, useWindowDimensions, type ScrollViewInstance } from 'react-native';
+import { ActivityIndicator, Alert, Animated, AppState as RNAppState, Platform, Pressable, RefreshControl, ScrollView, TextInput, Share, Switch, Text, View, useWindowDimensions, type ScrollViewInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Slider from '@react-native-community/slider';
 import * as St from '@/lib/strategy';
 import type { Leg } from '@/lib/strategy';
 import {
-  G, STRATS, buildLegs, clearState, defaultState, loadState, mkLeg, priceRange, priceStep, roundK, saveState, scnDate, scnWhen,
+  G, STRATS, applyChain, buildLegs, fillFromQuote, clearState, defaultState, loadState, mkLeg, priceRange, priceStep, roundK, saveState, scnDate, scnWhen,
   strikeStep, stratName, type AppState, type StratId,
 } from '@/lib/state';
-import { expirations, etDate } from '@/lib/usmarket';
+import { expirations, etDate, etOffset, isMonthly } from '@/lib/usmarket';
+import * as MD from '@/lib/market';
+import ChainPicker from '@/ui/ChainPicker';
 import { num, pct, shortDate, trDate, usd } from '@/lib/format';
-import { Btn, Card, Chip, DateField, NumField, Seg, StepField, TextField, s, tap } from '@/ui/controls';
+import { Btn, Card, Chip, DateField, NumField, Seg, StepField, s, tap } from '@/ui/controls';
 import { C, plColor } from '@/ui/theme';
 import Chart from '@/ui/Chart';
 import Heatmap from '@/ui/Heatmap';
@@ -19,6 +21,7 @@ const PCTS = [-20, -10, -5, 5, 10, 20];
 const IVS = [-20, -10, -5, 0, 5, 10];
 const AY = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
 const dLabel = (d: string) => `${+d.slice(8, 10)} ${AY[+d.slice(5, 7) - 1]}${d.slice(0, 4) !== new Date().getFullYear().toString() ? ' ' + d.slice(2, 4) : ''}`;
+const etStamp = (ms: number) => { const et = new Date(ms + etOffset(ms) * 3600000), p2 = (x: number) => String(x).padStart(2, '0'); return `${p2(et.getUTCDate())}.${p2(et.getUTCMonth() + 1)} ${p2(et.getUTCHours())}:${p2(et.getUTCMinutes())}`; };
 const legName = (l: Leg) => l.kind === 'stock' ? `${l.side > 0 ? 'Long' : 'Short'} hisse` : `${l.side > 0 ? 'Long' : 'Short'} ${l.kind === 'call' ? 'Call' : 'Put'}`;
 
 export default function Home() {
@@ -36,8 +39,15 @@ export default function Home() {
   const [toastA] = useState(() => new Animated.Value(0));
   const scrollRef = useRef<ScrollViewInstance>(null);
   const scnY = useRef(0);
+  const [chains, setChains] = useState<Record<string, MD.Chain>>({});
+  const [loading, setLoading] = useState(false);
+  const [mdErr, setMdErr] = useState('');
+  const [picker, setPicker] = useState<number | null>(null);
+  const [tick, setTick] = useState<string | null>(null);
+  const stRef = useRef(state);
+  const chainsRef = useRef(chains);
+  useEffect(() => { stRef.current = state; chainsRef.current = chains; });
 
-  useEffect(() => { loadState().then(s0 => { if (s0) setState(s0); setReady(true); }); }, []);
   useEffect(() => {
     if (!ready) return;
     const t = setTimeout(() => saveState(state), 300);
@@ -71,7 +81,10 @@ export default function Home() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.legs, state.S, state.r, state.q, state.now, state.divAmt, state.divDate, state.divRepeat]);
-  const exps = useMemo(() => expirations(state.now), [state.now]);
+  const exps = useMemo(() => {
+    if (state.src && state.marketExps.length) return state.marketExps.map(e => ({ date: e, monthly: isMonthly(e), days: St.daysBetween(state.today, e) }));
+    return expirations(state.now);
+  }, [state.now, state.src, state.marketExps, state.today]);
   const scnD = scnDate(state);
   const T = state.scn.target, iv = state.scn.ivShift;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,20 +111,80 @@ export default function Home() {
     up(d => {
       const ratio = d.scn.target / d.S; d.S = x;
       if (isFinite(ratio)) d.scn.target = +(x * ratio).toFixed(2);
-      if (d.autoStrikes && d.strat !== 'custom') d.legs = buildLegs(d.strat, x, d.expiry, d.iv, d.contracts);
+      if (d.autoStrikes && d.strat !== 'custom') {
+        d.legs = buildLegs(d.strat, x, d.expiry, d.iv, d.contracts);
+        const ch = d.src ? chainsRef.current[d.expiry] : undefined; if (ch) applyChain(d, ch, 'snap');
+      }
     });
   };
   const setTarget = (x: number) => up(d => { d.scn.target = +x.toFixed(2); });
   const pickStrat = (id: StratId) => up(d => {
     d.strat = id;
-    if (id !== 'custom') { d.legs = buildLegs(id, d.S, d.expiry, d.iv, d.contracts); d.autoStrikes = true; }
+    if (id !== 'custom') {
+      d.legs = buildLegs(id, d.S, d.expiry, d.iv, d.contracts); d.autoStrikes = true;
+      const ch = d.src ? chainsRef.current[d.expiry] : undefined; if (ch) applyChain(d, ch, 'snap');
+    }
     setIvNote({}); toast(stratName(id));
   });
-  const pickExpiry = (e: string) => up(d => {
-    d.expiry = e;
-    d.legs.forEach(l => { if (l.kind !== 'stock' && l.expiry !== e) { l.expiry = e; l.premium = null; } });
-    if (d.scn.dateMode === 'custom') d.scn.dateMode = 'exp';
-  });
+  const pickExpiry = (e: string) => {
+    up(d => {
+      d.expiry = e;
+      d.legs.forEach(l => { if (l.kind !== 'stock' && l.expiry !== e) { l.expiry = e; if (!l.live) l.premium = null; } });
+      if (d.scn.dateMode === 'custom') d.scn.dateMode = 'exp';
+    });
+    if (stRef.current.src) getChain(e, 'snap');
+  };
+
+  // ——— piyasa verisi ———
+  const getChain = async (e: string, mode: 'snap' | 'refresh', force = false, src = stRef.current.src, ticker = stRef.current.ticker) => {
+    if (!src || !ticker) return;
+    try {
+      const ch = !force && chainsRef.current[e] ? chainsRef.current[e] : await MD.loadChain(src, ticker, e, stRef.current.apiKey || undefined);
+      setChains(c => ({ ...c, [e]: ch }));
+      up(d => { if (d.ticker === ticker) applyChain(d, ch, mode); });
+    } catch (err: any) { setMdErr('Zincir alınamadı: ' + (err?.message || 'hata')); }
+  };
+  const fetchTicker = async (raw: string, refresh = false, silent = false) => {
+    const sym = raw.trim().toUpperCase();
+    if (!sym) return;
+    setLoading(true); setMdErr('');
+    if (refresh) MD.clearCaches();
+    try {
+      const s0 = stRef.current;
+      const r = await MD.loadSymbol(sym, s0.provider, s0.apiKey || undefined);
+      const changed = sym !== s0.ticker || r.provider !== s0.src;
+      if (changed) setChains({});
+      const exp = r.expirations.includes(s0.expiry) ? s0.expiry : (MD.closestExpiry(r.expirations, s0.expiry) || s0.expiry);
+      up(d => {
+        const ratio = d.scn.target / d.S;
+        d.ticker = sym; d.src = r.provider; d.quote = r.quote; d.marketExps = r.expirations;
+        d.S = +r.quote.price.toFixed(2);
+        d.scn.target = changed ? +(d.S * 1.05).toFixed(2) : +(d.S * (isFinite(ratio) ? ratio : 1)).toFixed(2);
+        if (r.quote.divYield != null && !(d.divAmt > 0)) d.q = +r.quote.divYield.toFixed(2);
+        d.expiry = exp;
+        d.legs.forEach(l => { if (l.kind !== 'stock') l.expiry = exp; });
+        if (changed && d.strat !== 'custom') d.autoStrikes = true;
+        if (d.autoStrikes && d.strat !== 'custom') d.legs = buildLegs(d.strat, d.S, exp, d.iv, d.contracts);
+        if (changed) d.legs.forEach(l => { if (l.kind === 'stock') l.premium = null; });
+      });
+      setTick(null);
+      await getChain(exp, 'snap', true, r.provider, sym);
+      if (!silent) toast(`${sym} ${num(r.quote.price, 2)} $ · ${r.quote.source}`);
+    } catch (err: any) {
+      setMdErr(`${sym}: ${err?.message || 'Veri alınamadı'}${stRef.current.quote ? ' — son alınan veriler gösteriliyor' : ' — fiyatı elle girebilirsin'}`);
+    } finally { setLoading(false); }
+  };
+  useEffect(() => {
+    loadState().then(s0 => {
+      if (s0) setState(s0); setReady(true);
+      if (s0?.ticker && s0.src) setTimeout(() => fetchTicker(s0.ticker, false, true), 50);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const pickContract = (i: number, o: MD.OptQuote) => {
+    up(d => { d.legs[i] = fillFromQuote(d.legs[i], o, G(d)); d.autoStrikes = false; });
+    setPicker(null);
+  };
   const setContracts = (n: number | null) => {
     if (n == null || !(n >= 1)) return;
     const k = Math.round(n);
@@ -170,6 +243,7 @@ export default function Home() {
         ref={scrollRef}
         stickyHeaderIndices={[0]}
         scrollEnabled={!scrub}
+        refreshControl={state.ticker ? <RefreshControl refreshing={loading} onRefresh={() => fetchTicker(state.ticker, true)} tintColor={C.muted} /> : undefined}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets
@@ -198,8 +272,33 @@ export default function Home() {
           {/* 1. Hisse */}
           <Card>
             <View style={[s.row, { alignItems: 'flex-end' }]}>
-              <TextField label="Hisse / ETF" value={state.ticker} onChange={v => up(d => { d.ticker = v.toUpperCase(); })} placeholder="AAPL" style={{ flex: 0.9 }} />
-              <StepField label="Fiyat ($)" value={state.S} onValue={setS} step={tStep} min={tStep} digits={2} style={{ flex: 2 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.label}>Hisse / ETF sembolü</Text>
+                <View style={s.inputWrap}>
+                  <TextInput value={tick ?? state.ticker} onChangeText={v => setTick(v.toUpperCase().replace(/[^A-Z0-9.\-$]/g, ''))}
+                    onFocus={() => setTick(state.ticker)} placeholder="AAPL, SPY, TSLA…" placeholderTextColor="#55617a"
+                    autoCapitalize="characters" autoCorrect={false} keyboardAppearance="dark" returnKeyType="search" maxLength={10}
+                    onSubmitEditing={() => fetchTicker(tick ?? state.ticker)} style={[s.input, { fontSize: 20, fontWeight: '800', letterSpacing: 1 }]} />
+                </View>
+              </View>
+              <Pressable onPress={() => { tap(); fetchTicker(tick ?? state.ticker, tick == null || tick === state.ticker); }} disabled={loading}
+                style={({ pressed }) => [st.fetch, pressed && { opacity: .6 }]} accessibilityLabel="Fiyatı getir">
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>{state.src && (tick == null || tick === state.ticker) ? '↻' : 'Getir'}</Text>}
+              </Pressable>
+            </View>
+            {state.quote && state.src ? (
+              <Text style={{ color: C.muted, fontSize: 12.5, marginTop: 8, lineHeight: 18 }}>
+                {state.quote.name ? state.quote.name + ' · ' : ''}<Text style={{ color: C.text, fontWeight: '800' }}>{num(state.quote.price, 2)} $</Text>{' '}
+                <Text style={{ color: plColor(state.quote.changePct), fontWeight: '700' }}>{pct(state.quote.changePct / 100, 2)}</Text>
+                {'\n'}{MD.marketOpen(state.now) ? '' : 'Piyasa kapalı · '}son işlem {isFinite(state.quote.time) ? etStamp(state.quote.time) : '—'} ET · {state.quote.delayedMin ? `${state.quote.delayedMin} dk gecikmeli` : 'gerçek zamanlı'} · {state.quote.source}
+                {state.quote.extPrice ? ` · seans dışı ${num(state.quote.extPrice, 2)} $` : ''}{state.quote.iv30 ? ` · IV30 %${num(state.quote.iv30, 1)}` : ''}{state.quote.divYield ? ` · temettü %${num(state.quote.divYield, 2)}` : ''}
+              </Text>
+            ) : (
+              <Text style={[s.hint, { marginTop: 8 }]}>Sembolü yaz, Getir’e bas: fiyat, gerçek vadeler ve opsiyon zinciri (bid/ask, IV) gelir.</Text>
+            )}
+            {mdErr ? <Text style={{ color: C.neg, fontSize: 12.5, marginTop: 6 }}>{mdErr}</Text> : null}
+            <View style={{ marginTop: 10 }}>
+              <StepField label="Hisse fiyatı ($)" value={state.S} onValue={setS} step={tStep} min={tStep} digits={2} />
             </View>
           </Card>
 
@@ -279,6 +378,20 @@ export default function Home() {
                     )}
                   </View>
                   <StepField label="Strike ($)" value={l.strike} onValue={v => setStrike(i, v)} step={kStep} min={kStep} digits={2} />
+                  {chains[l.expiry] ? (() => {
+                    const ch = chains[l.expiry], q = (l.kind === 'call' ? ch.calls : ch.puts).find(x => Math.abs(x.strike - l.strike) < 1e-9);
+                    return (
+                      <>
+                        <Pressable onPress={() => { tap(); setPicker(picker === l.id ? null : l.id!); }} style={st.chainBtn}>
+                          <Text style={{ color: C.blue, fontWeight: '700', fontSize: 14 }}>{picker === l.id ? 'Zinciri kapat ▲' : 'Zincirden seç ▼'}</Text>
+                          {q ? <Text style={{ color: C.muted, fontSize: 12.5, fontVariant: ['tabular-nums'] }}>
+                            {num(q.bid, 2)} / {num(q.ask, 2)}{q.iv ? ` · IV %${num(q.iv * 100, 1)}` : ''}
+                          </Text> : <Text style={{ color: C.warn, fontSize: 12.5 }}>bu strike listede yok</Text>}
+                        </Pressable>
+                        {picker === l.id ? <ChainPicker chain={ch} type={l.kind as 'call' | 'put'} strike={l.strike} spot={state.S} onPick={o => pickContract(i, o)} /> : null}
+                      </>
+                    );
+                  })() : null}
                   <View style={[s.row, { marginTop: 10 }]}>
                     <NumField label={short ? 'Alınan prim ($/hisse)' : 'Ödenen prim ($/hisse)'} value={l.premium} allowEmpty digits={2}
                       placeholder={'teorik ' + num(theo, 2)} onValue={v => setPremium(i, v)} style={{ flex: 1.3 }} />
@@ -399,7 +512,7 @@ export default function Home() {
 
           {/* 9. Ayarlar */}
           <Pressable onPress={() => { tap(); setShowSettings(v => !v); }} style={[s.card, s.row, { justifyContent: 'space-between' }]}>
-            <Text style={{ color: C.text, fontWeight: '700', fontSize: 15 }}>⚙︎ Faiz ve temettü</Text>
+            <Text style={{ color: C.text, fontWeight: '700', fontSize: 15 }}>⚙︎ Faiz, temettü, veri</Text>
             <Text style={{ color: C.muted, fontSize: 13 }}>
               Faiz %{num(state.r, 2)} · {state.divAmt > 0 && state.divDate ? `Temettü ${num(state.divAmt, 2)} $` : state.q > 0 ? `Temettü %${num(state.q, 2)}` : 'Temettü yok'} {showSettings ? '▲' : '▼'}
             </Text>
@@ -420,6 +533,19 @@ export default function Home() {
                 <Text style={{ color: C.text, fontSize: 14 }}>Her çeyrek tekrarla (~91 gün)</Text>
                 <Switch value={state.divRepeat} onValueChange={v => up(d => { d.divRepeat = v; })} />
               </View>
+              <Text style={[s.label, { marginTop: 16 }]}>Veri kaynağı</Text>
+              <Seg small value={state.provider} onChange={v => up(d => { d.provider = v; })}
+                options={[['auto', 'Otomatik'], ['cboe', 'CBOE'], ['yahoo', 'Yahoo'], ['tradier', 'Tradier']]} />
+              {state.provider === 'tradier' || state.apiKey ? (
+                <View style={{ marginTop: 10 }}>
+                  <Text style={s.label}>Tradier API anahtarı (gerçek zamanlı; Otomatik modda önce bu denenir)</Text>
+                  <View style={s.inputWrap}>
+                    <TextInput value={state.apiKey} onChangeText={v => up(d => { d.apiKey = v.trim(); })} secureTextEntry autoCapitalize="none" autoCorrect={false}
+                      placeholder="Bearer token" placeholderTextColor="#55617a" keyboardAppearance="dark" style={s.input} />
+                  </View>
+                </View>
+              ) : null}
+              <Text style={s.hint}>Otomatik: CBOE (anahtarsız, ~15 dk gecikmeli, bid/ask + IV + Greek) → olmazsa Yahoo. Veri 60 sn önbellekte tutulur; aşağı çekerek yenile.</Text>
               <Text style={s.hint}>Nakit temettü varsa sürekli verimi 0 bırak. Covered call / short call’da ex-tarih öncesi erken atanma riski bu bilgiyle hesaplanır.</Text>
             </Card>
           ) : null}
@@ -481,6 +607,8 @@ const st = {
   expS: { color: C.muted, fontSize: 11.5, marginTop: 2 },
   leg: { backgroundColor: C.card2, borderRadius: 14, padding: 12, marginBottom: 10, borderLeftWidth: 4 },
   legName: { fontWeight: '800' as const, fontSize: 16 },
+  fetch: { minWidth: 76, height: 46, borderRadius: 12, alignItems: 'center' as const, justifyContent: 'center' as const, backgroundColor: C.accent, paddingHorizontal: 14 },
+  chainBtn: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const, minHeight: 40, marginTop: 8, paddingHorizontal: 10, borderRadius: 10, backgroundColor: C.input },
   del: { width: 42, height: 42, borderRadius: 10, alignItems: 'center' as const, justifyContent: 'center' as const, backgroundColor: C.input },
   info: { color: C.muted, fontSize: 12.5, marginTop: 8 },
   b: { color: C.text, fontWeight: '700' as const, fontVariant: ['tabular-nums' as const] },

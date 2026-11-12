@@ -7,6 +7,7 @@ export type LegKind = 'call' | 'put' | 'stock';
 export interface Leg {
   id?: number; kind: LegKind; side: number; strike: number; expiry: string;
   iv: number; qty: number; premium: number | null;
+  live?: boolean; // prim piyasa zincirinden geldi (yenilemede güncellenir)
 }
 export interface Div { date: string; amount: number }
 /** S $, r ve q yüzde (4.2 = %4,2), divs nakit temettüler (ex-tarih), now = değerleme anı (ms) */

@@ -96,3 +96,9 @@ export function defaultExpiry(now: number): string {
   const ex = expirations(now);
   return (ex.find(e => e.monthly && e.days >= 21) || ex[0]).date;
 }
+
+/** Normal seans açık mı (09:30–16:00 ET, işlem günü) */
+export function marketOpen(now = Date.now()): boolean {
+  const d = etDate(now); if (!isTradingDay(d)) return false;
+  return now >= closeMs(d) - 6.5 * 3600000 && now < closeMs(d);
+}
