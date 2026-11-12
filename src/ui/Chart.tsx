@@ -3,7 +3,8 @@ import { Platform, View, Text, type GestureResponderEvent } from 'react-native';
 import Svg, { Circle, ClipPath, Defs, G as SG, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import * as St from '@/lib/strategy';
 import type { Analysis } from '@/lib/strategy';
-import { G, type AppState } from '@/lib/state';
+import { G, scnWhen, type AppState } from '@/lib/state';
+import { closeMs } from '@/lib/usmarket';
 import { compact, niceTicks, num, pct, shortDate, usd } from '@/lib/format';
 import { C } from './theme';
 
@@ -21,12 +22,13 @@ export default function Chart({ state, an, width, range, scnD, onPickTarget, onS
   const g = G(state), exp = an.expiry, iv = state.scn.ivShift;
   const showS = !(scnD === exp && !iv);
 
+  const tE = closeMs(exp), tS = scnWhen(state, scnD, exp);
   const geo = useMemo(() => {
-    const N = 160, xs: number[] = [], ye: number[] = [], ys: number[] = [];
+    const N = 90, xs: number[] = [], ye: number[] = [], ys: number[] = [];
     for (let i = 0; i <= N; i++) {
       const S = lo + (hi - lo) * i / N; xs.push(S);
-      ye.push(St.pnl(state.legs, g, S, exp, 0));
-      ys.push(showS ? St.pnl(state.legs, g, S, scnD, iv) : 0);
+      ye.push(St.pnl(state.legs, g, S, tE, 0, 'fast'));
+      ys.push(showS ? St.pnl(state.legs, g, S, tS, iv, 'fast') : 0);
     }
     let ymin = Math.min(...ye, ...(showS ? ys : []), 0), ymax = Math.max(...ye, ...(showS ? ys : []), 0);
     if (ymax - ymin < 1) { ymax += 1; ymin -= 1; }
@@ -36,7 +38,7 @@ export default function Chart({ state, an, width, range, scnD, onPickTarget, onS
     const area = `M${X(xs[0])},${Y(0)}` + xs.map((S, i) => `L${X(S).toFixed(1)},${Y(ye[i]).toFixed(1)}`).join('') + `L${X(xs[N])},${Y(0)}Z`;
     return { xs, ye, ys, X, Y, ymin, ymax, lineE: line(ye), lineS: showS ? line(ys) : '', area };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.legs, state.S, state.r, state.q, state.today, lo, hi, scnD, iv, pw, ph, exp, showS]);
+  }, [state.legs, state.S, state.r, state.q, state.now, state.divAmt, state.divDate, state.divRepeat, lo, hi, scnD, iv, pw, ph, exp, showS]);
 
   const { X, Y, ymin, ymax } = geo;
   const y0 = Math.min(Math.max(Y(0), Tp), Tp + ph);
@@ -57,7 +59,7 @@ export default function Chart({ state, an, width, range, scnD, onPickTarget, onS
 
   let tip: React.ReactNode = null;
   if (hx != null) {
-    const S = priceAt(hx), x = X(S), pe = St.pnl(state.legs, g, S, exp, 0), ps = St.pnl(state.legs, g, S, scnD, iv);
+    const S = priceAt(hx), x = X(S), pe = St.pnl(state.legs, g, S, tE, 0, 'fast'), ps = St.pnl(state.legs, g, S, tS, iv, 'fast');
     tip = (
       <>
         <Line x1={x} y1={Tp} x2={x} y2={Tp + ph} stroke="rgba(230,235,245,.45)" strokeWidth={1} />
@@ -67,7 +69,7 @@ export default function Chart({ state, an, width, range, scnD, onPickTarget, onS
     );
   }
   const hoverInfo = hx != null ? (() => {
-    const S = priceAt(hx), pe = St.pnl(state.legs, g, S, exp, 0), ps = St.pnl(state.legs, g, S, scnD, iv);
+    const S = priceAt(hx), pe = St.pnl(state.legs, g, S, tE, 0, 'fast'), ps = St.pnl(state.legs, g, S, tS, iv, 'fast');
     return { S, pe, ps };
   })() : null;
 

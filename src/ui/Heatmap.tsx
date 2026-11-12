@@ -2,14 +2,14 @@ import { memo } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import * as St from '@/lib/strategy';
 import type { Analysis } from '@/lib/strategy';
-import { G, type AppState } from '@/lib/state';
+import { G, scnWhen, type AppState } from '@/lib/state';
 import { num, pct, shortDate, usd } from '@/lib/format';
 import { C } from './theme';
 
 const CW = 62, RH = 34, LW = 78;
 
-function Heatmap({ state, an, range, scnD, onPick }: {
-  state: AppState; an: Analysis; range: [number, number]; scnD: string; onPick: (S: number, d: string) => void;
+function Heatmap({ state, an, range, scnD, onPick, unit }: {
+  state: AppState; an: Analysis; range: [number, number]; scnD: string; onPick: (S: number, d: string) => void; unit: 'usd' | 'pct' | 'val';
 }) {
   const g = G(state), iv = state.scn.ivShift, [lo, hi] = range, pb = St.pctBase(an);
   const total = Math.max(St.daysBetween(state.today, an.expiry), 0);
@@ -22,9 +22,9 @@ function Heatmap({ state, an, range, scnD, onPick }: {
   for (let p = Math.ceil(hi / step) * step; p >= lo - 1e-9; p -= step) prices.push(+p.toFixed(6));
   [state.S, state.scn.target].forEach(x => { if (!prices.some(p => Math.abs(p - x) < 1e-6)) prices.push(x); });
   prices.sort((a, b) => b - a);
-  const cells = prices.map(S => dates.map(d => { const v = St.value(state.legs, g, S, d, iv); return { v, pl: v - an.cost }; }));
+  const cells = prices.map(S => dates.map(d => { const v = St.value(state.legs, g, S, scnWhen(state, d, an.expiry), iv, 'fast'); return { v, pl: v - an.cost }; }));
   const maxAbs = Math.max(...cells.flat().map(c => Math.abs(c.pl)), 1);
-  const u = state.unit;
+  const u = unit;
 
   return (
     <View style={{ flexDirection: 'row' }}>

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { C, mono } from './theme';
-import { editStr, parseNum } from '@/lib/format';
+import { editStr, parseNum, parseTrDate, trDate } from '@/lib/format';
 
 export const tap = () => { if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {}); };
 
@@ -62,9 +62,10 @@ export function Chip({ label, onPress, active }: { label: string; onPress: () =>
 }
 
 /** Sayı kutusu: Türkçe virgüllü giriş, odaktayken dışarıdan üzerine yazmaz */
-export function NumField({ label, value, onValue, placeholder, digits = 6, big, style, suffix, keyboard = 'decimal-pad', allowEmpty }: {
+export function NumField({ label, value, onValue, placeholder, digits = 6, big, style, suffix, keyboard = 'decimal-pad', allowEmpty, textColor, center }: {
   label?: string; value: number | null; onValue: (v: number | null) => void; placeholder?: string; digits?: number;
   big?: boolean; style?: StyleProp<ViewStyle>; suffix?: string; keyboard?: 'decimal-pad' | 'numbers-and-punctuation' | 'number-pad'; allowEmpty?: boolean;
+  textColor?: string; center?: boolean;
 }) {
   const [text, setText] = useState(editStr(value, digits));
   const [focused, setFocused] = useState(false);
@@ -85,9 +86,57 @@ export function NumField({ label, value, onValue, placeholder, digits = 6, big, 
             if (t.trim() === '' && allowEmpty) onValue(null);
             else if (isFinite(x)) onValue(x);
           }}
-          style={[s.input, big && s.inputBig, mono]}
+          style={[s.input, big && s.inputBig, mono, textColor ? { color: textColor } : null, center ? { textAlign: 'center' } : null]}
         />
         {suffix ? <Text style={[s.suffix, big && { fontSize: 18 }]}>{suffix}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+
+/** − [sayı] + : büyük dokunma alanlı adım kutusu, ortadaki sayıya dokunup yazılabilir */
+export function StepField({ label, value, onValue, step, min = 0, digits = 2, suffix, big, style, allowEmpty, placeholder, color }: {
+  label?: string; value: number | null; onValue: (v: number | null) => void; step: number; min?: number; digits?: number;
+  suffix?: string; big?: boolean; style?: StyleProp<ViewStyle>; allowEmpty?: boolean; placeholder?: string; color?: string;
+}) {
+  const bump = (dir: number) => {
+    const base = value ?? 0;
+    const nv = +(Math.round((base + dir * step) / step) * step).toFixed(6);
+    if (nv >= min) onValue(nv);
+  };
+  return (
+    <View style={[{ flex: 1, minWidth: 0 }, style]}>
+      {label ? <Text style={s.label} numberOfLines={1}>{label}</Text> : null}
+      <View style={s.row}>
+        <Pressable onPress={() => { tap(); bump(-1); }} hitSlop={6} style={({ pressed }) => [s.stepBtn, big && s.stepBtnBig, pressed && { opacity: .5 }]}
+          accessibilityLabel={(label || '') + ' azalt'}>
+          <Text style={s.stepBtnT}>−</Text>
+        </Pressable>
+        <NumField value={value} onValue={onValue} digits={digits} big={big} suffix={suffix} allowEmpty={allowEmpty} placeholder={placeholder}
+          textColor={color} center />
+        <Pressable onPress={() => { tap(); bump(1); }} hitSlop={6} style={({ pressed }) => [s.stepBtn, big && s.stepBtnBig, pressed && { opacity: .5 }]}
+          accessibilityLabel={(label || '') + ' artır'}>
+          <Text style={s.stepBtnT}>+</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+export function DateField({ label, value, onValue, flex = 1 }: { label: string; value: string; onValue: (d: string) => void; flex?: number }) {
+  const [t, setT] = useState(trDate(value));
+  const [bad, setBad] = useState(false);
+  const [prev, setPrev] = useState(value);
+  if (value !== prev) { setPrev(value); setT(trDate(value)); setBad(false); }
+  return (
+    <View style={{ flex, minWidth: 0 }}>
+      <Text style={s.label}>{label}</Text>
+      <View style={[s.inputWrap, bad && { borderColor: C.neg }]}>
+        <TextInput value={t} onChangeText={x => { setT(x); const d = parseTrDate(x); setBad(!d && x.length >= 8); if (d) onValue(d); }}
+          onBlur={() => { setT(trDate(value)); setBad(false); }}
+          placeholder="gg.aa.yyyy" placeholderTextColor="#55617a" keyboardType="numbers-and-punctuation" keyboardAppearance="dark"
+          selectTextOnFocus returnKeyType="done" style={[s.input, { fontVariant: ['tabular-nums'] }]} />
       </View>
     </View>
   );
@@ -148,4 +197,7 @@ export const s = StyleSheet.create({
   statS: { color: C.muted, fontSize: 12, marginTop: 3 },
   hint: { color: C.muted, fontSize: 12.5, lineHeight: 18, marginTop: 10 },
   muted: { color: C.muted },
+  stepBtn: { width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.card2, borderWidth: 1, borderColor: C.border },
+  stepBtnBig: { width: 56, height: 56, borderRadius: 14 },
+  stepBtnT: { color: C.text, fontSize: 26, fontWeight: '600', lineHeight: 30 },
 });
