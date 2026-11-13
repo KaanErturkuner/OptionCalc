@@ -17,6 +17,9 @@ import { C, plColor } from '@/ui/theme';
 import Chart from '@/ui/Chart';
 import Heatmap from '@/ui/Heatmap';
 import { flowKeyOf } from '@/lib/flow/client';
+import { legsToItems } from '@/lib/watchlist/build';
+import { isExpired } from '@/lib/watchlist/model';
+import { watch } from '@/ui/watchStore';
 
 const PCTS = [-20, -10, -5, 5, 10, 20];
 const MAIN: StratId[] = ['longCall', 'longPut'];
@@ -187,6 +190,16 @@ export default function Calc() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Takip listesine ekle: kurulu opsiyon bacakları; giriş primi = zincir mid / girilen / teorik (ekleme anı)
+  const addToWatch = () => {
+    if (!state.ticker) { Alert.alert('Sembol yok', 'Önce hisse sembolünü getir.'); return; }
+    const news = legsToItems(state.legs, state.ticker, state.S, l => St.legEntry(l, G(state)));
+    if (!news.length) { Alert.alert('Opsiyon yok', 'Takip listesine eklenecek opsiyon bacağı yok.'); return; }
+    const now = Date.now(), fresh = news.filter(n => !isExpired(n.expiry, now));
+    if (!fresh.length) { Alert.alert('Vadesi dolmuş', 'Seçili vadeler dolmuş; takip listesine eklenmedi.'); return; }
+    const r = watch.add(fresh, now);
+    toast(r.added ? `${r.added} kontrat takip listesine eklendi${r.dup ? ` · ${r.dup} zaten vardı` : ''}` : 'Zaten takip listesinde');
+  };
   const pickContract = (i: number, o: MD.OptQuote) => {
     up(d => { d.legs[i] = fillFromQuote(d.legs[i], o, G(d)); d.autoStrikes = false; });
     setPicker(null);
@@ -445,6 +458,9 @@ export default function Calc() {
               </View>
             ) : null}
             <Text style={s.hint}>Primi yazınca IV otomatik çözülür (Amerikan model). Boş bırakırsan teorik fiyat kullanılır.</Text>
+            {state.legs.some(l => l.kind !== 'stock') ? (
+              <Btn label="★ Takip listesine ekle" style={{ marginTop: 10 }} onPress={addToWatch} />
+            ) : null}
           </Card>
 
           {!an ? (

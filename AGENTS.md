@@ -13,7 +13,7 @@ Read this, then `docs/TASKS.md`, before you change anything. User-facing text in
 - Three tabs (`src/app/index.tsx` switches screens):
   - **Hesapla** (`src/screens/Calc.tsx`) — American option pricer (Leisen-Reimer + Richardson, cash dividends), Greeks, P/L chart (pinch-zoom), price × date heatmap, strategies (Long Call/Put + "Diğer").
   - **0DTE** (`src/screens/Odte.tsx`) — scans a watchlist every N minutes, runs the signal engine, local notifications, "✓ Aldım" → position.
-  - **Geçmiş** (`src/screens/Journal.tsx`) — journal of signals/positions (paper by default), exit-time and target/stop alerts.
+  - **Menü** (`src/screens/Menu.tsx`, sekme eskiden Geçmiş) — kart kaydı: **Geçmiş** (`src/screens/Journal.tsx`: signals/positions, paper by default, exit-time and target/stop alerts) and **Takip Listesi** (`src/screens/Watchlist.tsx`: Hesapla'dan eklenen opsiyonların canlı K/Z'si).
 - **No proven edge.** Backtests so far show negative expectancy for the in-app engine. Treat signals as paper-only until `docs/PLAN.md` criteria pass. Never present them as advice.
 
 ## 2. Architecture map
@@ -26,6 +26,7 @@ src/lib/american.ts      American pricer (LR tree + Richardson), dividends, Amer
 src/lib/strategy.ts      multi-leg strategy payoff
 src/lib/usmarket.ts      NYSE calendar/holidays, ET time helpers, closeMs, marketOpen
 src/lib/state.ts         persisted UI state, price step, table rows
+src/lib/watchlist/       takip listesi: model (kalem, OCC, vade), pl (K/Z), refresh, build (bacak→kalem), view; src/ui/watchStore.ts (depo)
 src/lib/journal.ts       journal model;  src/lib/alerts.ts  target/stop/exit alert logic
 src/lib/market/          providers: cboe.ts (default, keyless), yahoo.ts, tradier.ts, marketdata.ts (token; mdMode live|cached), bars.ts (1-min bars: Yahoo first, MarketData fallback), index.ts (loadSymbol/loadChain), types.ts
 src/lib/odte/analytics.ts  OI walls, max pain, GEX + gamma flip, P/C, unusual volume, expected move, VWAP, ORB, momentum

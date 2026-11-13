@@ -5,7 +5,7 @@
 This repo is shared between **Claude** and **Grok** (both work for Kaan). The full guide is `AGENTS.md` (imported above) — if your
 environment doesn't expand `@AGENTS.md`, open it directly. Essentials:
 
-- **What:** Expo SDK 58 TypeScript iPhone app "Opsiyon" (tabs Hesapla / 0DTE / Geçmiş) + `backtest/` (Node 24 `.mts`) strategy research.
+- **What:** Expo SDK 58 TypeScript iPhone app "Opsiyon" (tabs Hesapla / 0DTE / Menü: Geçmiş, Takip Listesi) + `backtest/` (Node 24 `.mts`) strategy research.
 - **Check before every commit:** `npm run check` (= `npm test`, `npm run typecheck`, `npm run lint`, `npm run bt:selftest`).
 - **Tasks:** `docs/TASKS.md` — claim one (Owner: Claude, Status: doing), finish it, mark done, add a `docs/CHANGELOG.md` entry.
 - **Commits:** `[claude] <area>: <what>`. Never commit tokens, `.env*`, data under `/workspace/backtest/`, `node_modules`, `dist*`.

@@ -2,6 +2,29 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-14 — Grok — [grok] Takip listesi + Menü sekmesi (TASKS #32)
+
+Kaan'ın talebi: Hesapla'da kurulan opsiyonu takip listesine ekle, ekleme gününden beri K/Z'yi gör. "Geçmiş" sekmesi "Menü" oldu; Menü kartları: Geçmiş (mevcut Journal) ve Takip Listesi.
+
+**Ne:**
+- **Hesapla:** "★ Takip listesine ekle" (opsiyon bacakları). Kayıt: sembol, vade, strike, C/P, adet, ekleme primi (zincir mid / girilen / teorik), ekleme anı (ISO), hisse fiyatı. Aynı kontrat+yön tekrar eklenmez (yineleme sayısı bildirilir); vadesi dolmuş kontrat eklenmez.
+- **Takip Listesi** (Menü kartı): her kalem için canlı prim, K/Z $ ve %, giriş/şimdi prim, hisse ekleme→şimdi, adet, vade (kalan gün), eklenme (İstanbul saati, kaç gün önce), toplam K/Z. Takipten çıkar (onaylı).
+- **Yenileme:** ekran açılınca (60 sn'den eskiyse), ⟳ / çekip yenile, ve 60 sn'de bir YALNIZ seans açıkken + uygulama öndeyken. Sembol+vade başına **tek** zincir isteği (cached mod, 1 kredi); vadesi dolanlara istek yok, son bilinen fiyat gösterilir. Veri katmanı mevcut `MD.loadChain` (sunucu proxy'si); yeni doğrudan MarketData yolu YOK, yeni native bağımlılık YOK.
+- **Menü:** `src/screens/Menu.tsx` kart kaydı (`CARDS` + `SCREENS`); alt ekranlardan "‹ Menü" ile dönüş. 0DTE'den Geçmiş'e geçiş artık Menü › Geçmiş'i açar.
+- **Saf mantık** `src/lib/watchlist/`: `model.ts` (kalem, OCC sembolü, vade durumu, İstanbul damgası, yineleme anahtarı, ekleme), `pl.ts` (K/Z: long (şimdi−giriş)×adet×100, short işaret ters), `refresh.ts` (sembol+vade gruplu yenileme eşlemesi), `build.ts` (Hesapla bacakları → kalem), `view.ts` (satır görünümü, toplam).
+- **Depo** `src/ui/watchStore.ts` (AsyncStorage `watchlist-v1`).
+- **Dosyalar:** `src/lib/watchlist/*`, `src/ui/watchStore.ts`, `src/screens/{Menu,Watchlist,Calc}.tsx`, `src/app/index.tsx`, `test/watchlist.test.ts`, `package.json` (test zinciri), `docs/{TASKS,CHANGELOG}.md`.
+
+**Nasıl doğrulandı:**
+- `npm test` (yeni `test/watchlist.test.ts`: OCC, K/Z long/short, vade/İstanbul saati, ekleme/yineleme, sahte zincirle yenileme (tek istek, vadesi dolan atlanır, 0 fiyat korunur, hata korunur), bacak→kalem, satır/toplam), `npm run typecheck`, `npx expo lint` — yeşil.
+- MarketData/ağ çağrısı YOK; ekran yalnız kod okuma ile doğrulandı (görsel Expo testi yapılmadı).
+
+**Açık sorular / notlar:**
+- Zincir isteği `strikeLimit=80` ile; çok uzak strike gerekirse artırılır (cached modda kredi etkilenmez).
+- Sağlayıcı: sunucu anahtarı varsa MarketData (cached), yoksa CBOE. Tradier/Yahoo kullanılmıyor.
+- Görsel test (Menü kartları, K/Z satırları) Expo Go'da yapılmalı. Yayın yok.
+- Commit öneki kullanıcı isteğiyle `[grok]`; TASKS sahibi (Claude) ile çelişebilir — Kaan'a not.
+
 ## 2026-11-14 — Grok — [grok] FLOW: Akış son 3 işlem gününü gösterir (gün başlıklı liste, saklama 5 işlem günü)
 
 Kaan'ın talebi: “olağandışı akışta geçmiş 3 günde görünsün”. Yalnız bugün değil, son 3 **işlem** günü (hafta sonu ve NYSE tatilleri atlanır).

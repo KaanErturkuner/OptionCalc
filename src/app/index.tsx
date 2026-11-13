@@ -3,7 +3,7 @@ import { AppState, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Calc from '@/screens/Calc';
 import Odte from '@/screens/Odte';
-import Journal from '@/screens/Journal';
+import Menu, { type CardId } from '@/screens/Menu';
 import Radar from '@/screens/Radar';
 import Firsat from '@/screens/Firsat';
 import Akis from '@/screens/Akis';
@@ -17,15 +17,18 @@ import { runSignalScan } from '@/ui/signalScan';
 import { marketOpen } from '@/lib/usmarket';
 import { nextRefresh, setExpected } from '@/lib/freshness';
 
-type Tab = 'calc' | 'radar' | 'firsat' | 'odte' | 'akis' | 'journal';
-const TABS: [Tab, string, string][] = [['calc', '∑', 'Hesapla'], ['radar', '◎', 'Radar'], ['firsat', '◆', 'Fırsat'], ['odte', '⚡', '0DTE'], ['akis', '≋', 'Akış'], ['journal', '☰', 'Geçmiş']];
+type Tab = 'calc' | 'radar' | 'firsat' | 'odte' | 'akis' | 'menu';
+const TABS: [Tab, string, string][] = [['calc', '∑', 'Hesapla'], ['radar', '◎', 'Radar'], ['firsat', '◆', 'Fırsat'], ['odte', '⚡', '0DTE'], ['akis', '≋', 'Akış'], ['menu', '☰', 'Menü']];
 const RADAR_EVERY_MS = 5 * 60000;
 
 export default function Home() {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>('calc');
   // 0DTE ekranı baştan bağlı: bildirimler açıksa sinyal taraması diğer sekmelerdeyken de sürer
-  const [seen, setSeen] = useState<Record<Tab, boolean>>({ calc: true, radar: false, firsat: false, odte: true, akis: false, journal: false });
+  const [seen, setSeen] = useState<Record<Tab, boolean>>({ calc: true, radar: false, firsat: false, odte: true, akis: false, menu: false });
+  // Menü'nün açılış kartı (Odte'den Geçmiş'e geçişte) ve yeniden bağlama anahtarı
+  const [menuStart, setMenuStart] = useState<CardId | null>(null);
+  const [menuKey, setMenuKey] = useState(0);
   // Hesapla'ya Radar'dan kontrat aktarımında Calc yeniden bağlanır (durumu mount'ta okur)
   const [calcKey, setCalcKey] = useState(0);
   // Uygulama açıkken: açık pozisyonları 2 dk'da bir kontrol et (hedef/stop bildirimi); arka plan görevini eşitle
@@ -84,9 +87,9 @@ export default function Home() {
       <View style={{ flex: 1, display: tab === 'calc' ? 'flex' : 'none' }}><Calc key={calcKey} /></View>
       {seen.radar ? <View style={{ flex: 1, display: tab === 'radar' ? 'flex' : 'none' }}><Radar onOpenCalc={() => { setCalcKey(k => k + 1); go('calc'); }} /></View> : null}
       {seen.firsat ? <View style={{ flex: 1, display: tab === 'firsat' ? 'flex' : 'none' }}><Firsat /></View> : null}
-      {seen.odte ? <View style={{ flex: 1, display: tab === 'odte' ? 'flex' : 'none' }}><Odte active={tab === 'odte'} onJournal={() => go('journal')} /></View> : null}
+      {seen.odte ? <View style={{ flex: 1, display: tab === 'odte' ? 'flex' : 'none' }}><Odte active={tab === 'odte'} onJournal={() => { setMenuStart('journal'); setMenuKey(k => k + 1); go('menu'); }} /></View> : null}
       {seen.akis ? <View style={{ flex: 1, display: tab === 'akis' ? 'flex' : 'none' }}><Akis active={tab === 'akis'} /></View> : null}
-      {seen.journal ? <View style={{ flex: 1, display: tab === 'journal' ? 'flex' : 'none' }}><Journal active={tab === 'journal'} /></View> : null}
+      {seen.menu ? <View style={{ flex: 1, display: tab === 'menu' ? 'flex' : 'none' }}><Menu key={menuKey} active={tab === 'menu'} start={menuStart} /></View> : null}
       <View style={{ flexDirection: 'row', backgroundColor: '#0d1426', borderTopWidth: 0.5, borderTopColor: C.border, paddingBottom: insets.bottom }}>
         {TABS.map(([id, icon, label]) => {
           const on = tab === id;
