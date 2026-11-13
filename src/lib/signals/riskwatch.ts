@@ -3,7 +3,7 @@
 import type { Bar } from '../odte/analytics.ts';
 import type { OpenPosition, PaperMode, ExitReason } from '../paper/types.ts';
 
-export const PRIM_STOP_MAX = 0.67;      // Kaan onayladı (§6.1, K5)
+export const PRIM_STOP_MAX = 0.67;      // Kaan kararı (§6.1, K5, D8)
 export const RANGE_BODY_MIN = 0.6;      // T1: gövde/aralık
 export const VOL_SPIKE = 2;             // T1 ve §7.3 hacim oranı
 export const IV_DROP = 0.15;            // T5
