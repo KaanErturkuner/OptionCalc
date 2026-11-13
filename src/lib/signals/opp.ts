@@ -3,7 +3,7 @@
 import type { Dir, SetupId } from './types.ts';
 import type { StrikePick } from './strikes.ts';
 import { scoreSignal, type ScoreInput, type Component, type Label } from './confidence.ts';
-import { effectiveStopPrem } from './riskwatch.ts';
+import { effectiveStopPrem, modeTargetR } from './riskwatch.ts';
 import { eligibility, signalModeFor, MODE_RULES, type SignalMode } from '../paper/account.ts';
 import { sizePosition } from '../paper/sizing.ts';
 import type { Kademe, PaperMode } from '../paper/types.ts';
@@ -76,6 +76,11 @@ export function buildOpp(i: OppInput): Opp {
   const type = i.dir === 'bull' ? 'call' : 'put';
   const fill = q.entry;                                      // ask + kayma (optionRR)
   const stopPrem = effectiveStopPrem(fill, q.primStop, 0.67);
+  // Kaan tanımı (D12): hedef = giriş + N × risk, risk = giriş − stop (150, 50 → risk 100; 1:5 → 650). N: sinyal modunun hedef çarpanı.
+  const riskPrem = fill - stopPrem;
+  const modeN = signalModeFor(i.account.mode, q.rr);
+  const N = modeN ? modeTargetR(modeN, q.rr) : MODE_RULES.AGRESIF.minRR;
+  const primTarget = fill + N * riskPrem;
   const needMove = Math.abs(i.und.target - i.spot);
   const pTouch = pTouchApprox(needMove, i.emRemain);
   const minRr = minRrFor(i.account.mode);
@@ -104,7 +109,7 @@ export function buildOpp(i: OppInput): Opp {
 
   // Uygunluk: veto yok, mod var, skor ≥ mod asgarisi, adet ≥ 1 (§7.7)
   let reason = '';
-  const mode = signalModeFor(i.account.mode, q.rr);
+  const mode = modeN;
   const el = eligibility(i.account.mode, q.rr, conf.score);
   if (conf.vetoes.length) reason = `veto: ${conf.vetoes[0]}`;
   else if (!el.ok) reason = el.reason;
@@ -117,7 +122,7 @@ export function buildOpp(i: OppInput): Opp {
     `Başkan, ${i.reasons[0] ?? SETUP_AD[i.setup]}.`,
     `Güven ${conf.score}/100 (${conf.label}, doğrulanmamış 0/30).`,
     `RR 1:${trNum(q.rr, 1)}.`,
-    `Giriş ${trNum(fill)} $, stop ${trNum(stopPrem)} $, hedef ${trNum(q.primTarget)} $.`,
+    `Giriş ${trNum(fill)} $, stop ${trNum(stopPrem)} $, hedef ${trNum(primTarget)} $ (1:${trNum(N, 0)}).`,
     sizing ? `Kâğıt: %${kPct} kademe, ${sizing.contracts} kontrat, ${trNum(sizing.cost, 0)} $ + komisyon.` : 'Kâğıt: sermaye yetmiyor.',
     eligible ? `${i.ttlMin} dk içinde Onayla.` : `Bekliyorum: ${reason}.`,
   ].join(' ');
@@ -125,7 +130,7 @@ export function buildOpp(i: OppInput): Opp {
   return {
     key: `${i.ticker}|${i.setup}|${type}|${i.pick.strike}|${i.expiry}`,
     ticker: i.ticker, setup: i.setup, dir: i.dir, type, expiry: i.expiry, dte: i.dte, strike: i.pick.strike, delta: i.pick.delta,
-    bid: i.quote.bid, ask: i.quote.ask, fill, stopPrem, primTarget: q.primTarget, rr: q.rr,
+    bid: i.quote.bid, ask: i.quote.ask, fill, stopPrem, primTarget, rr: q.rr,
     und: i.und, spot0: i.spot, createdAt: i.now, score: conf.score, label: conf.label, components: conf.components, vetoes: conf.vetoes,
     pTouch, mode, eligible, reason, sizing, overnightOk, reasons: i.reasons,
     text: { title: `${i.ticker} ${type === 'call' ? 'Call' : 'Put'} ${i.pick.strike} · ${i.setup}`, body },

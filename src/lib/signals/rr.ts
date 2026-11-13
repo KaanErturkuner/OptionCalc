@@ -5,7 +5,7 @@ export const MIN_PER_YEAR = 252 * 390;   // işlem dakikası
 export const RATE = 0.04;
 export const COMMISSION = 1.5;            // kontrat başına, açılış ve kapanışta ayrı (Kaan 2026-11-13)
 export const SLIPPAGE = 0.01;
-export const PRIM_STOP_MAX = 0.67;        // Kaan onayladı
+export const PRIM_STOP_MAX = 0.67;        // Kaan kararı: prim stopu tavanı (D10/D12)
 export const TAU_STOP_MIN = 15;
 export const TAU_TARGET_MIN_MIN = 20;
 
@@ -39,14 +39,15 @@ export function optionRR(i: RRInput, pricer: Pricer = defaultPricer): RRResult {
   const left = Math.max(0, i.sessionLeftMin);
   const tau1 = Math.min(left, Math.max(TAU_TARGET_MIN_MIN, left * ratio * ratio));
   const tau2 = Math.min(left, 2 * tau1);
-  // Kaan tanımı (2026-11-13, onaylı): RR = çıkış primi / giriş primi (1:N → N katı). Komisyon iki uçta da düşülür.
+  // Kaan tanımı (D12, 2026-11-13): 1:N RİSK BAZLI. Hedef prim = giriş + N × risk (150 giriş, 50 stop, risk 100 → 1:5 = 650).
+  // RR = (model net çıkış primi − net giriş primi) / risk, yani hedefe ulaşıldığında kazanılan R. Komisyon iki uçta da düşülür.
   const cIn = entry + comm / 100;                        // net giriş (açılış komisyonu dâhil)
-  const multipleAt = (tau: number) => (valueAt(i.und.target, tau, i.ivTargetMult ?? 1.0) - comm / 100) / cIn;
-  const rr = Math.min(multipleAt(tau1), multipleAt(tau2));
-  const reward = (rr - 1) * cIn;                         // net kazanç, kontrat başına prim ($/hisse)
-  const primTarget = valueAt(i.und.target, tau1, i.ivTargetMult ?? 1.0);
   const risk = entry - Math.max(primStop, entry * (1 - pmax)) + 2 * comm / 100;   // R (kontrat başına, komisyon dâhil)
-  const valid = risk > 0 && rr > 1;
-  return { entry, primStop, primTarget, risk, reward, rr: valid ? rr : 0, tauTargetMin: tau1, valid,
-    reason: !(risk > 0) ? 'risk ≤ 0' : !(rr > 1) ? 'çıkış primi giriş primini geçmiyor (komisyon ve teta sonrası)' : undefined };
+  const rrAt = (tau: number) => (valueAt(i.und.target, tau, i.ivTargetMult ?? 1.0) - comm / 100 - cIn) / risk;
+  const rrRaw = risk > 0 ? Math.min(rrAt(tau1), rrAt(tau2)) : 0;
+  const valid = risk > 0 && rrRaw > 0;
+  const primTarget = valueAt(i.und.target, tau1, i.ivTargetMult ?? 1.0);
+  const rr = valid ? rrRaw : 0;
+  return { entry, primStop, primTarget, risk, reward: rr * risk, rr, tauTargetMin: tau1, valid,
+    reason: !(risk > 0) ? 'risk ≤ 0' : !valid ? 'hedef primi giriş primini geçmiyor (komisyon ve teta sonrası)' : undefined };
 }

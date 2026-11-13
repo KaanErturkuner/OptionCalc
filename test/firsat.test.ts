@@ -46,6 +46,9 @@ ok('Türkçe sayı: 1,25', trNum(1.25, 2) === '1,25');
   ok('kart: kademe %50 bütçe 150, 1 kontrat', c.sizing !== null && c.sizing.budget === 150 && c.sizing.contracts === 1, JSON.stringify(c.sizing));
   ok('kart: metin Başkan diliyle ve 1:5,2 yazar', c.text.body.startsWith('Başkan,') && c.text.body.includes('RR 1:5,2'));
   ok('kart: 0DTE gece taşınmaz', c.overnightOk === false);
+  // D12: risk bazlı hedef = giriş + N × risk (1:5 → giriş + 5 × (giriş − stop))
+  ok('kart: hedef = giriş + 5 × risk (risk bazlı 1:5)', near(c.primTarget, c.fill + 5 * (c.fill - c.stopPrem), 1e-9), `${c.primTarget} ${c.fill} ${c.stopPrem}`);
+  ok('kart: 1:4 modunda hedef = giriş + 4 × risk', (() => { const d = buildOpp(base({ pick: pick({ rr: 4.2, primTarget: 4.2 }) })); return near(d.primTarget, d.fill + 4 * (d.fill - d.stopPrem), 1e-9); })());
 }
 // 1:4 (AGRESIF_4)
 {
