@@ -54,8 +54,12 @@ Hız sınırı: dakikada 120 istek (`FLOW_RATE_PER_MIN`). Proxy yanıtları 20 s
 
 - MarketData işlem düzeyi veri vermez: sweep/blok, borsa, tek işlem büyüklüğü **bilinmez**. Taraf “tahmini”dir ve `last` alanından çıkarılır.
 - `volume` yalnız poll anlarında görülür; iki poll arasındaki işlemler tek dV’ye karışır. Önbellek tazeliği garanti değildir.
-- Cached yanıtta `dte` listesi ve `strikeLimit`/filtre davranışı ve `options/quotes` biçimi **canlı doğrulanmalıdır** (FLOW §2, §8).
-  Dağıtımda tek bir cached istek ve tek bir quote isteği ile doğrulama yapıldı; sonuç `docs/CHANGELOG.md`’de.
+- **Canlı doğrulama (2026-11-13, Cuma kapanışı, 5 kredi):** cached zincir + `dte` listesi: `consumed = 1`, yanıt 4 880 satır,
+  ~800 KB, gerekli tüm alanlar var (`volume`, `openInterest`, `updated`, `bid/ask/mid/last`). `options/quotes` (teyit) sütun biçimli,
+  aynı alanlarla dönüyor. Hisse kotu (proxy): `consumed = 1`. Her çağrının kredisi kendi yanıt başlığında (`x-api-ratelimit-consumed`).
+- **Vade çözümü:** `dte` listesi her değeri en yakın *listelenmiş* vadeye çözer. QQQ’da 14 planlanan Cumadan 10’u listeli
+  (2027-01-08, 01-22, 02-05, 02-12 yok); liste dışı çıkan vadeler (ör. 2027-02-19 aylık) tarayıcı tarafından süzülür. Beklenen davranış.
+- Canlı tespit ilk kez **Pazartesi 2026-11-16 09:30 ET** sonrası çalışır; sonuç `journalctl -u optioncalc-flow` ve `/status` ile izlenir.
 - Expo push: uzak push’un Expo Go’da çalışması garanti değildir; derleme (development/production build) gerekebilir. Uygulama
   izin/token hatasını Türkçe gösterir.
 - Bu bir **bilgi** akışıdır. Sinyal değildir, tavsiye değildir (AGENTS.md: “No proven edge”).
