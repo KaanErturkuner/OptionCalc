@@ -106,6 +106,7 @@ export interface OpenInput {
   targetR: number;         // mod hedefi (5 / 4 / 2 / 1,5)
   mode: SignalMode;        // sinyal modu (chooseCandidate / eligibility çıktısı)
   now: number; day: string;
+  und?: { entry: number; stop: number; target: number };
 }
 
 /** Pozisyon açar. Tek açık pozisyon; DURDU'da ve sermaye yetmiyorsa açmaz. Kesirli kapalı varsayılan. */
@@ -125,7 +126,7 @@ export function openPosition(acc: PaperAccount, i: OpenInput): Result {
     stopPrem0: i.stopPrem, stopPrem: i.stopPrem, targetPrem: i.targetPrem,
     rPrice, rDollars: rPrice * 100 * sz.contracts + 2 * comm * sz.contracts,
     targetR: i.targetR, openedAt: i.now, day: a.day, mode: i.mode, kademe: a.kademe,
-    overnight: false, maxR: 0, warned: false,
+    overnight: false, maxR: 0, warned: false, und: i.und,
   };
   return { ok: true, acc: { ...a, position: pos } };
 }

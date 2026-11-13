@@ -39,6 +39,8 @@ export interface OpenPosition {
   overnight: boolean;        // gece taşınıyor mu
   maxR: number;              // görülen en yüksek kâr (R)
   warned: boolean;           // 1R–2R arası uyarı verildi mi
+  und?: { entry: number; stop: number; target: number };  // dayanak seviyeleri (gap ve gece kararı için)
+  nightDay?: string;         // gece kararının verildiği gün (15:45)
 }
 
 /** Kapanmış işlem. */

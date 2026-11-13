@@ -43,7 +43,7 @@
   },
   "scripts": {
     "start": "expo start",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/run.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/prob.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/radar.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/signals.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/setups.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/paper.test.ts",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/run.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/prob.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/radar.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/signals.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/setups.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/paper.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/firsat.test.ts",
     "typecheck": "tsc --noEmit",
     "android": "expo start --android",
     "ios": "expo start --ios",

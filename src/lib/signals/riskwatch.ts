@@ -15,6 +15,10 @@ export const EOD_FORCE_ET_MIN = 15 * 60 + 45; // 15:45 ET zorunlu zaman çıkı�
 export type TriggerId = 'T1' | 'T2' | 'T3' | 'T4' | 'T5' | 'T6' | 'T7';
 export const STRONG: TriggerId[] = ['T1', 'T2', 'T3'];
 export const WEAK: TriggerId[] = ['T4', 'T5', 'T6', 'T7'];
+/** Tetiklerin Türkçe adları (ekran ve bildirim). */
+export const TRIGGER_AD: Record<TriggerId, string> = {
+  T1: 'ters mum', T2: 'VWAP kaybı', T3: 'rejim dönüşü', T4: 'momentum uyumsuzluğu', T5: 'IV düşüşü', T6: 'teta/zaman', T7: 'kilit seviye',
+};
 
 /** Dayanak stopu ile %67 prim tavanından hangisi yüksekse (daha sıkı) onu al. */
 export const effectiveStopPrem = (fill: number, dayanakStopPrem: number, pmax = PRIM_STOP_MAX): number =>

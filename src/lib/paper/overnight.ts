@@ -58,6 +58,7 @@ export function overnightDecision(i: OvernightInput): OvernightDecision {
   if (i.eventBeforeOpen) reasons.push('açılıştan önce bilanço veya makro olay');
   if (i.strongTriggerLast30) reasons.push('son 30 dk güçlü risk tetiği');
   if (!i.regimeAligned) reasons.push('rejim pozisyon yönünde değil');
+  if (!(i.ivAtm > 0) || !Number.isFinite(i.S)) reasons.push('IV/dayanak verisi yok (gece riski hesaplanamaz)');
 
   // Kötü senaryo: dayanak 2σ aleyhe, IV × 0,9, vadeye kalan süre ertesi açılışta.
   const pricer = i.pricer ?? defaultPricer;
