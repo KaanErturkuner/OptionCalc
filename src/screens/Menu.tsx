@@ -5,11 +5,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Journal from '@/screens/Journal';
 import Watchlist from '@/screens/Watchlist';
 import Raporlar from '@/screens/Raporlar';
+import Koc from '@/screens/Koc';
 import { useWatch } from '@/ui/watchStore';
 import { Btn, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 
-export type CardId = 'journal' | 'watch' | 'reports';
+export type CardId = 'journal' | 'watch' | 'reports' | 'coach';
 interface MenuCard { id: CardId; icon: string; title: string; desc: (ctx: { watchCount: number }) => string }
 
 /** Kart kaydı: sıra = ekranda görünen sıra */
@@ -17,6 +18,7 @@ const CARDS: MenuCard[] = [
   { id: 'journal', icon: '☰', title: 'Geçmiş', desc: () => 'İşlem günlüğü, sinyal kayıtları, açık pozisyonlar' },
   { id: 'watch', icon: '★', title: 'Takip Listesi', desc: ({ watchCount }) => `Hesapla'dan eklenen opsiyonlar · ${watchCount} kalem` },
   { id: 'reports', icon: '▤', title: 'Raporlar', desc: () => 'Piyasa öncesi, açılış +30 dk / +1,5 / +2,5 sa, gün sonu' },
+  { id: 'coach', icon: '✎', title: 'Koç', desc: () => 'Midas ekran görüntüsü → işlem geri bildirimi ve günlük karne' },
 ];
 
 export default function Menu({ active, start = null }: { active: boolean; start?: CardId | null }) {
@@ -28,6 +30,7 @@ export default function Menu({ active, start = null }: { active: boolean; start?
     journal: <Journal active={active && open === 'journal'} />,
     watch: <Watchlist active={active && open === 'watch'} onBack={back} />,
     reports: <Raporlar active={active && open === 'reports'} onBack={back} />,
+    coach: <Koc active={active && open === 'coach'} onBack={back} />,
   };
 
   if (open) {
