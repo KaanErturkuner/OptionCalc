@@ -7,7 +7,7 @@ Tarih: 2026-11-13 · Veri: yalnız çevrimdışı önbellek (MarketData'ya bağl
 1. **Hiçbir setup × ticker × grup kriteri geçmedi** (`GEÇTİ` yok). 5 hücre `KALDI`; geri kalanlar OOS n < 20 olduğu için `YETERSİZ VERİ`. Kriter: n ≥ 60, beklenti ≥ 0,15R, PF ≥ 1,3, GA alt sınırı > 0, spread×1,5'te beklenti > 0.
 2. **OOS ortalama R tüm ticker ve grupta negatif** (0DTE −0,42R, 1–3 DTE −0,23R). 1:5 hedefine 0DTE'de 175 işlemin 3'ünde, 1–3 DTE'de 143 işlemin hiçbirinde ulaşıldı.
 3. **$300 ile kâğıt replay:** 0DTE tümü 300 → 50 $ (−%83); 1–3 DTE tümü 300 → 116 $ (−%61). Tam kontrat ve %50 kademe bütçesiyle sinyallerin çoğu alınamadı (0DTE 25/175, 1–3 DTE 23/143; geri kalanı "sermaye yetmiyor").
-4. **Monte Carlo (10 000 yol, OOS günleri):** birincil politikada 60 gün medyan 80 $ (0DTE) / 147 $ (1–3 DTE); P(< 300 $) %99'un üzerinde. Tanıma göre iflas (< %10) %0 çıktı, ama bu sayı sermayenin 1 kontratı bile alamayıp durmasını yakalamıyor (bkz. "Sınırlar"). Kesirli kontrat (bilgi amaçlı) varyantında 60 gün iflas %52–99.
+4. **Monte Carlo (10 000 yol, OOS günleri):** birincil politikada 60 gün medyan 80 $ (0DTE) / 147 $ (1–3 DTE); P(< 300 $) %99'un üzerinde. Tanıma göre iflas (< %10) %0 çıktı, ama 60 gün sonunda hesabın **işlem yapamaz** hâle gelme olasılığı (%50 kademeyle medyan dolumda 1 kontrat alınamıyor) 0DTE'de %92, 1–3 DTE'de %99,5. Hedefi 1:2 veya 1:1,5'e indirmek sonucu iyileştirmiyor (bkz. MC tablosu). Kesirli kontrat (bilgi amaçlı) varyantında 60 gün iflas %52–99.
 5. **Karar:** kâğıt işlem için ADAY yok, "Güvenilir ✓" rozeti yok. Bu sonuç, mevcut setup tanımlarının bu veride kârlı olmadığını gösteriyor; Kaan'ın para yönetimi kuralları kötü bir sinyal setiyle kârlı bir hesap üretemez. S4–S6 veri eksikliği nedeniyle test edilmedi.
 
 ## Ne test edildi
@@ -37,6 +37,25 @@ Tarih: 2026-11-13 · Veri: yalnız çevrimdışı önbellek (MarketData'ya bağl
 
 Not: QQQ 1–3 DTE'nin +%34'ü yalnız 2 işleme dayanıyor; anlamlı değil. "Alınan" ticker satırlarında her ticker kendi başına, "Tümü" satırında ortak hesapta oynanır (toplamlar eşit değildir).
 
+## IS (seçim dönemi) vs OOS — $300 replay, aynı para yönetimi
+
+IS = walk-forward'ın ilk %40'ı (varsayılan parametreler); OOS = görülmemiş test katları. Her ticker kendi hesabında; "Tümü" ortak hesap.
+
+| Grup | Ticker | IS n | IS kazanma | IS ort. R | IS nihai | IS maks. düşüş | OOS n | OOS kazanma | OOS ort. R | OOS nihai | OOS maks. düşüş |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0DTE | QQQ | 16 | %6,3 | −0,65 | 213 $ | 113 $ | 44 | %6,8 | −0,48 | 167 $ | 291 $ |
+| 0DTE | GLD | 29 | %17,2 | −0,11 | 228 $ | 280 $ | 50 | %10,0 | −0,41 | 114 $ | 186 $ |
+| 0DTE | SLV | 53 | %13,2 | −0,28 | 70 $ | 230 $ | 52 | %5,8 | −0,37 | 52 $ | 248 $ |
+| 0DTE | NVDA | 21 | %9,5 | −0,20 | 155 $ | 494 $ | 29 | %10,3 | −0,41 | 96 $ | 383 $ |
+| **0DTE** | **Tümü** | **119** | **%12,6** | **−0,27** | **70 $** | **508 $** | **175** | **%8,0** | **−0,42** | **50 $** | **405 $** |
+| 1–3 DTE | QQQ | 18 | %16,7 | −0,15 | 300 $ (0 işlem) | 0 $ | 30 | %16,7 | −0,12 | 401 $ | 44 $ |
+| 1–3 DTE | GLD | 36 | %13,9 | −0,16 | 250 $ | 50 $ | 47 | %8,5 | −0,30 | 232 $ | 68 $ |
+| 1–3 DTE | SLV | 60 | %15,0 | −0,11 | 143 $ | 157 $ | 44 | %2,3 | −0,28 | 108 $ | 192 $ |
+| 1–3 DTE | NVDA | 19 | %15,8 | −0,19 | 249 $ | 51 $ | 22 | %18,2 | −0,16 | 205 $ | 95 $ |
+| **1–3 DTE** | **Tümü** | **133** | **%15,0** | **−0,14** | **143 $** | **157 $** | **143** | **%9,8** | **−0,23** | **116 $** | **329 $** |
+
+IS de negatif: sorun aşırı uyum değil, setup tanımları seçim döneminde de kâr üretmiyor.
+
 ## Setup × ticker kriter kapısı (özet)
 
 | Grup | GEÇTİ | KALDI | YETERSİZ VERİ (S1–S3) | S4–S6 (veri yok, işlem üretmedi) |
@@ -57,6 +76,21 @@ S4–S6 hücreleri tabloda "YETERSİZ VERİ" olarak görünür ama bu, sonucun d
 | 1–3 DTE | birincil | 20 gün | 204 $ | 157 $ | 296 $ | %95,4 | %0,0 | 5,3 | 13,2 |
 | 1–3 DTE | birincil | 60 gün | 147 $ | 113 $ | 213 $ | %99,5 | %0,0 | 10,7 | 46,1 |
 | 1–3 DTE | kesirli (bilgi) | 60 gün | 30 $ | 27 $ | 95 $ | %99,9 | %52,5 | 35,7 | 0 |
+
+**Hedef başına (60 gün, işlem yapamaz = bitişte %50 kademeyle medyan dolumda 1 kontrat alınamıyor):**
+
+| Grup | Hedef | Medyan | %5 | %95 | P(< 300 $) | İflas (< %10) | İşlem yapamaz |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 0DTE | 1:5 (güvenli 1:2) | 80 $ | 47 $ | 162 $ | %99,3 | %0 | %92,4 |
+| 0DTE | 1:4 (güvenli 1:2) | 79 $ | 47 $ | 146 $ | %99,7 | %0 | %94,9 |
+| 0DTE | 1:2 sabit | 77 $ | 47 $ | 118 $ | %100 | %0 | %99,0 |
+| 0DTE | 1:1,5 sabit | 75 $ | 46 $ | 110 $ | %100 | %0 | %99,7 |
+| 1–3 DTE | 1:5 (güvenli 1:2) | 147 $ | 113 $ | 213 $ | %99,5 | %0 | %99,5 |
+| 1–3 DTE | 1:4 (güvenli 1:2) | 147 $ | 113 $ | 213 $ | %99,5 | %0 | %99,5 |
+| 1–3 DTE | 1:2 sabit | 146 $ | 113 $ | 199 $ | %99,9 | %0 | %99,9 |
+| 1–3 DTE | 1:1,5 sabit | 144 $ | 113 $ | 189 $ | %100 | %0 | %100 |
+
+"İşlem yapamaz" sütunu ve 1:2 / 1:1,5 sabit varyantları Başkan (Grok) eki; 20 gün değerleri `asama-6-tablolar.md`'de.
 
 - "birincil" = AGRESIF 1:5, güvenli modlarda 1:2. "yedek 1:4" = AGRESIF 1:4. "DURDU kapalı" varyantı birincil ile birebir aynı çıktı: DURDU hiçbir koşuda işlemi engellemedi. Kesirli varyant Kaan kuralı değil, karşılaştırma.
 - 1–3 DTE'de yedek 1:4 ile 1:5 sonuçları birebir aynı: hiçbir OOS işlemi 4R'ye ulaşmadı (hit4 = 0), dolayısıyla hedef seviyesi bu veride fark yaratmadı.
@@ -82,6 +116,8 @@ Kapı, takvim tablosunun kapsamı nedeniyle düşük sayıyor: CPI/NFP tablosu 2
 5. **NVDA bilanço tarihleri eksik.** Finnhub `calendar/earnings` uç noktası bu anahtar/planla yalnız gelecek tarihi (2026-11-17) döndürdü; geçmiş tarihler alınamadı. `backtest/aux/earnings-NVDA.json` `complete: false` olarak kaydedildi; kapı NVDA'yı "bilinmiyor" sayıyor. Geçmiş tarihleri eksiksiz almak için Finnhub planı veya başka bir kaynak gerekir.
 6. **Modelleme:** fiyatlar EOD IV ile modellendi; gerçek gün içi kot yok (`bt:record` kaydı 2026-11-12'de başladı, TASKS #3). Kâğıt sonuçları gerçek kotlarla karşılaştırılmadı.
 7. **Yardımcı veri:** ^VIX günlük (1 dk yok). Setup'lar VIX kullanmıyor; yalnız yardımcı kapsam olarak yükleniyor.
+
+8. **Para yönetimi modelinde eksikler (Başkan doğrulaması):** kademe 50/40/30 (güne taşınır), 1:5 brüt hedef, %67 prim stopu, $1,50/kontrat/yön, 4 kazanç → 1:2 modu, 2 kayıp → güvenli, güvenli modda 2 kayıp → DURDU replay'de doğru çalışıyor (sentetik dizilerle sınandı). Modellenmeyenler: 1:4'ün "1:5 yoksa yedek sinyal" seçimi (yalnız ayrı varyant), güvenli modda 1:1,5 (yalnız 1:2), risk tetikleri T1–T7 ve iz süren stop, skor kapısı ve manuel onay gecikmesi. Prim stopu 0,67 ile uygulandığı için 150 girişte stop 49,5 $, 1:5 hedefi 652,5 $ (Kaan örneği 50 / 650; fark ihmal edilebilir).
 
 ## Bu koşuda bulunan ve düzeltilen hatalar
 

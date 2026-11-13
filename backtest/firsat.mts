@@ -99,6 +99,9 @@ const usd = (x: number) => Number.isFinite(x) ? x.toFixed(0) + ' $' : '—';
 
 interface Row { group: string; ticker: string; n: number; win: number; avgR: number; pf: number; ciLo: number; spreadR: number; taken: number; busy: number; durdu: number; noCap: number; final: number; maxDd: number; ret: number; ruined: boolean }
 const rows: Row[] = [];
+interface IsRow { group: string; ticker: string; isN: number; isWin: number; isAvgR: number; isTaken: number; isFinal: number; isMaxDd: number; oosN: number; oosWin: number; oosAvgR: number; oosTaken: number; oosFinal: number; oosMaxDd: number }
+const isRows: IsRow[] = [];
+const medFill: Record<string, number> = {};
 const setupRows: any[] = [];
 const replayByGroup: Record<string, { final: number; maxDd: number; taken: number; pathsAll: PathTrade[] }> = {};
 const mcSets: Record<string, PathTrade[][]> = {};
@@ -113,6 +116,11 @@ for (const g of groups) {
     const rp = replayTrades(poolP.filter(p => tk === 'Tümü' || p.ticker === tk), { startCapital: START_CAP });
     rows.push({ group: g.id, ticker: tk, n: tr.length, win: sm.win, avgR: sm.avg, pf: sm.pf, ciLo: bootstrapMeanCiLo(R5), spreadR: sm15.avg,
       taken: rp.taken, busy: rp.busy, durdu: rp.durdu, noCap: rp.noCapital, final: rp.final, maxDd: rp.maxDd, ret: rp.final / START_CAP - 1, ruined: rp.ruined });
+    // [grok] IS (seçim dönemi, varsayılan parametre) replay'i — OOS ile aynı para yönetimi, yan yana karşılaştırma için.
+    const isTr = gr.flatMap(r => r.is).filter(sel), isP = isTr.map(toPath), smIs = rSummary(isP.map(p => rUnder(p, 5)));
+    const rpIs = replayTrades(isP, { startCapital: START_CAP });
+    isRows.push({ group: g.id, ticker: tk, isN: isTr.length, isWin: smIs.win, isAvgR: smIs.avg, isTaken: rpIs.taken, isFinal: rpIs.final, isMaxDd: rpIs.maxDd,
+      oosN: tr.length, oosWin: sm.win, oosAvgR: sm.avg, oosTaken: rp.taken, oosFinal: rp.final, oosMaxDd: rp.maxDd });
   }
   for (const s of gr) for (const tk of TICK) {
     const tr = s.oos.filter(t => t.ticker === tk), tr15 = s.oos15.filter(t => t.ticker === tk);
@@ -129,17 +137,21 @@ for (const g of groups) {
   for (const D of testDates) byDay.set(D, []);
   for (const p of poolP) byDay.get(p.D)?.push(p);
   mcSets[g.id] = [...byDay.values()];
+  { const fs_ = poolP.map(p => p.fill).sort((a, b) => a - b); medFill[g.id] = fs_.length ? fs_[Math.floor(fs_.length / 2)] : NaN; }
 }
 
 const variants = [
   { id: 'birincil', label: 'Birincil: 1:5 (AGRESIF) / 1:2 (güvenli), DURDU açık, tam kontrat', policy: { agresif: 5, safe: 2 }, settings: {} },
   { id: 'yedek14', label: 'Yedek karşılaştırma: AGRESIF 1:4, güvenli 1:2', policy: { agresif: 4, safe: 2 }, settings: {} },
+  { id: 'hedef12', label: '[grok] Hedef 1:2 sabit (tüm modlar)', policy: { agresif: 2, safe: 2 }, settings: {} },
+  { id: 'hedef115', label: '[grok] Hedef 1:1,5 sabit (tüm modlar)', policy: { agresif: 1.5, safe: 1.5 }, settings: {} },
   { id: 'durdu-kapali', label: 'Karşılaştırma: DURDU kapalı', policy: { agresif: 5, safe: 2 }, settings: { durduEnabled: false } },
   { id: 'kesirli', label: 'Bilgi amaçlı: kesirli kontrat (Kaan kuralı DEĞİL)', policy: { agresif: 5, safe: 2 }, settings: { fractional: true } },
 ];
 const mc: any[] = [];
 for (const g of groups) for (const v of variants) {
-  const st = runPathMc(mcSets[g.id], { startCapital: START_CAP, horizons: [20, 60], paths, seed: 20261113, policy: v.policy, settings: v.settings });
+  const st = runPathMc(mcSets[g.id], { startCapital: START_CAP, horizons: [20, 60], paths, seed: 20261113, policy: v.policy, settings: v.settings,
+    stuckBelow: (medFill[g.id] * 100 + 1.5) / 0.5 });   // %50 kademeyle medyan OOS dolumunda 1 kontrat alınamıyor
   for (const s of st) mc.push({ group: g.id, variant: v.id, label: v.label, ...s });
   if (v.id === 'birincil') {
     const rp = replayTrades(replayByGroup[g.id].pathsAll, { startCapital: START_CAP, policy: v.policy, settings: v.settings });
@@ -150,7 +162,7 @@ for (const g of groups) for (const v of variants) {
 /* ——— 4) çıktılar ——— */
 const days = Object.fromEntries(groups.map(g => [g.id, g.days.length]));
 const report = { generated: new Date().toISOString(), window: { start: START, end: END }, costs, c15, folds, samples: nS, paths, startCapital: START_CAP,
-  peerCover: peers.cover, days, gateRows, runs: runs.map(r => ({ ...r, is: r.is.length, oos: r.oos })), rows, setupRows, mc };
+  peerCover: peers.cover, days, gateRows, runs: runs.map(r => ({ ...r, is: r.is.length, oos: r.oos })), rows, isRows, medFill, setupRows, mc };
 fs.mkdirSync(outDir, { recursive: true });
 fs.writeFileSync(path.join(outDir, 'report.json'), JSON.stringify({ ...report, runs: undefined, setupRowsCount: setupRows.length }, null, 1));
 fs.writeFileSync(path.join(outDir, 'runs.json'), JSON.stringify(report.runs.map(r => ({ group: r.group, id: r.id, folds: r.folds, is: r.is, oos: r.oos.length }))));
@@ -159,10 +171,12 @@ const md: string[] = [];
 md.push('# Aşama 6 tabloları (otomatik)', '', `Pencere: ${START} → ${END} · maliyet: $${costs.fee}/kontrat/yön, kayma $${costs.slip}, spread ×${costs.spreadMult} · walk-forward ${folds} kat, ${nS} parametre seti, ilk %40 seçim · MC ${paths} yol`, '');
 md.push('## Ticker × grup (OOS; replay $300)', '', '| Grup | Ticker | Sinyal n | Kazanma (R>0) | Ort. R | PF(R) | GA alt (R) | Spread×1,5 ort. R | Alınan n | Meşgul | DURDU | Yetersiz sermaye | Nihai | Maks. düşüş | Getiri |', '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
 for (const r of rows) md.push(`| ${r.group} | ${r.ticker} | ${r.n} | ${pct(r.win)} | ${f2(r.avgR)} | ${f2(r.pf)} | ${f2(r.ciLo)} | ${f2(r.spreadR)} | ${r.taken} | ${r.busy} | ${r.durdu} | ${r.noCap} | ${usd(r.final)} | ${usd(r.maxDd)} | ${pct(r.ret)} |`);
+md.push('', '## IS (seçim dönemi) vs OOS — replay $300, aynı para yönetimi', '', '| Grup | Ticker | IS n | IS kazanma | IS ort. R | IS alınan | IS nihai | IS maks. düşüş | OOS n | OOS kazanma | OOS ort. R | OOS alınan | OOS nihai | OOS maks. düşüş |', '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
+for (const r of isRows) md.push(`| ${r.group} | ${r.ticker} | ${r.isN} | ${pct(r.isWin)} | ${f2(r.isAvgR)} | ${r.isTaken} | ${usd(r.isFinal)} | ${usd(r.isMaxDd)} | ${r.oosN} | ${pct(r.oosWin)} | ${f2(r.oosAvgR)} | ${r.oosTaken} | ${usd(r.oosFinal)} | ${usd(r.oosMaxDd)} |`);
 md.push('', '## Setup × ticker (OOS) ve kriter kapısı', '', '| Grup | Setup | Ticker | n | Kazanma | Ort. R | PF | GA alt | Spread×1,5 | IS n | IS ort. R | Karar |', '|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|');
 for (const r of setupRows) md.push(`| ${r.group} | ${r.setup} | ${r.ticker} | ${r.n} | ${pct(r.win)} | ${f2(r.avgR)} | ${f2(r.pf)} | ${f2(r.ciLo)} | ${f2(r.spreadR)} | ${r.isN} | ${f2(r.isAvgR)} | ${r.verdict} |`);
-md.push('', '## Monte Carlo (gün bloklu, OOS günleri)', '', '| Grup | Varyant | Ufuk (gün) | Medyan | %5 | %95 | P(<başlangıç) | İflas (<%10, herhangi an) | Ort. maks. düşüş | Ort. işlem | Yetersiz sermaye | En uzun kayıp |', '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
-for (const m of mc) md.push(`| ${m.group} | ${m.variant} | ${m.horizon} | ${usd(m.median)} | ${usd(m.p5)} | ${usd(m.p95)} | ${pct(m.probBelowStart)} | ${pct(m.ruinProb)} | ${usd(m.meanMaxDd)} | ${f2(m.meanTrades)} | ${f2(m.meanNoCapital)} | ${m.longestLoss} |`);
+md.push('', '## Monte Carlo (gün bloklu, OOS günleri)', '', '| Grup | Varyant | Ufuk (gün) | Medyan | %5 | %95 | P(<başlangıç) | İflas (<%10, herhangi an) | İşlem yapamaz (bitişte) | Ort. maks. düşüş | Ort. işlem | Yetersiz sermaye | En uzun kayıp |', '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
+for (const m of mc) md.push(`| ${m.group} | ${m.variant} | ${m.horizon} | ${usd(m.median)} | ${usd(m.p5)} | ${usd(m.p95)} | ${pct(m.probBelowStart)} | ${pct(m.ruinProb)} | ${pct(m.stuckProb)} | ${usd(m.meanMaxDd)} | ${f2(m.meanTrades)} | ${f2(m.meanNoCapital)} | ${m.longestLoss} |`);
 md.push('', '## Gece taşıma kapısı (1–3 DTE, OOS işlem günleri) — yalnız bilgi amaçlı', '', 'Motor gün içi kapanış simüle eder (gece taşıma modellenmedi); bu tablo taşınabilecek gün sayısını gösterir.', '', '| Ticker | İşlem günü | Kapıdan geçen | Bilanço durumu |', '|---|---:|---:|---|');
 for (const [tk, v] of Object.entries(gateRows)) md.push(`| ${tk} | ${v.days} | ${v.pass} | ${v.earn} |`);
 fs.writeFileSync(path.join(outDir, 'tables.md'), md.join('\n') + '\n');

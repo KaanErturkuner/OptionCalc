@@ -104,16 +104,17 @@ export interface PathStats {
   meanMaxDd: number;        // $ ortalama maks. düşüş
   meanTrades: number; meanNoCapital: number;
   longestLoss: number;      // tüm yollarda en uzun kayıp serisi
+  stuckProb: number;        // bitişte sermaye `stuckBelow`'un altında (ör. %50 kademeyle tipik 1 kontrat alınamıyor); verilmezse NaN
 }
 
 /** Gün bloklu bootstrap: her simülasyon günü, OOS gün listesinden (işlemsiz günler dâhil) tekdüze çekilen bir günün işlemleriyle oynanır. */
-export function runPathMc(dayTrades: PathTrade[][], o: { startCapital: number; horizons: number[]; paths: number; seed?: number; policy?: TargetPolicy; settings?: Partial<PaperSettings> }): PathStats[] {
+export function runPathMc(dayTrades: PathTrade[][], o: { startCapital: number; horizons: number[]; paths: number; seed?: number; policy?: TargetPolicy; settings?: Partial<PaperSettings>; stuckBelow?: number }): PathStats[] {
   if (!dayTrades.length) throw new Error('MC: gün listesi boş');
   const pol = o.policy ?? DEFAULT_POLICY, rnd = mulberry32(o.seed ?? 20261113), start = o.startCapital;
   const out: PathStats[] = [];
   for (const H of o.horizons) {
     const finals: number[] = [], dds: number[] = [];
-    let ruin = 0, below = 0, trades = 0, noCap = 0, longest = 0;
+    let ruin = 0, below = 0, trades = 0, noCap = 0, longest = 0, stuck = 0;
     for (let p = 0; p < o.paths; p++) {
       let acc = initAccount(start, o.settings ?? {}, '');
       const c = newCounters(start);
@@ -125,6 +126,7 @@ export function runPathMc(dayTrades: PathTrade[][], o: { startCapital: number; h
       longest = Math.max(longest, c.longest);
       if (c.ruined) ruin++;
       if (acc.capital < start) below++;
+      if (o.stuckBelow != null && acc.capital < o.stuckBelow) stuck++;
     }
     finals.sort((a, b) => a - b);
     const q = (x: number) => finals[Math.min(finals.length - 1, Math.max(0, Math.floor(x * (finals.length - 1))))];
@@ -132,6 +134,7 @@ export function runPathMc(dayTrades: PathTrade[][], o: { startCapital: number; h
       horizon: H, paths: o.paths, median: q(0.5), p5: q(0.05), p95: q(0.95),
       probBelowStart: below / o.paths, ruinProb: ruin / o.paths,
       meanMaxDd: dds.reduce((a, b) => a + b, 0) / o.paths, meanTrades: trades / o.paths, meanNoCapital: noCap / o.paths, longestLoss: longest,
+      stuckProb: o.stuckBelow != null ? stuck / o.paths : NaN,
     });
   }
   return out;
