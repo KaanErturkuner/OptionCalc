@@ -96,7 +96,9 @@ const ET = (iso: string) => Date.parse(iso);        // 13 Kasım: EST (UTC−5)
   const a8 = F.assess('md-options', rec({ okAt: SAT - MIN }), SAT, false);
   ok('kapalıyken son başarı detayda korunur (okAt)', a8.status === 'kapali' && a8.okAt === SAT - MIN);
   const n1 = F.assess('news', rec({ errAt: SAT, err: 'SEC HTTP 503' }), SAT, false);
-  ok('haber hatası kapalı piyasada da kırmızı (haber seansa bağlı değil)', n1.status === 'hata', n1.status);
+  ok('haber: seans kapalıyken hata da gri (haber taraması seansa bağlı)', n1.status === 'kapali' && !!n1.err, n1.status);
+  const n4 = F.assess('news', rec({ okAt: SAT - MIN, owners: { radar: 5 * MIN } }), SAT, false);
+  ok('haber: seans dışında sarı değil (gri)', n4.status === 'kapali', n4.status);
   const n2 = F.assess('news', rec({ okAt: OPEN - 10 * MIN, owners: { radar: 5 * MIN } }), OPEN, true);
   ok('haber 10 dk önce (5 dk aralık, 15 dk tolerans) → güncel', n2.status === 'guncel', n2.status);
   const n3 = F.assess('news', rec({ okAt: OPEN - 30 * MIN, owners: { radar: 5 * MIN } }), OPEN, true);

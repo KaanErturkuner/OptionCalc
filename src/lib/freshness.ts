@@ -12,8 +12,6 @@ export const SOURCE_LABEL: Record<Source, string> = {
   quotes: 'Hisse fiyatı / 1 dk bar',
   news: 'Haber (Radar)',
 };
-/** Fiyat kaynakları seansa bağlıdır; haber kaynağı değildir */
-const PRICE_SOURCES = new Set<Source>(['md-options', 'quotes']);
 
 export type Status = 'kapali' | 'hata' | 'guncel' | 'gecikmeli' | 'kullanilmiyor';
 export const STATUS_LABEL: Record<Status, string> = {
@@ -87,7 +85,7 @@ export function sanitizeMsg(e: unknown, extra: string[] = []): string {
 const used = (r: SourceRec | undefined): r is SourceRec => !!r && (r.okAt != null || r.errAt != null);
 
 /**
- * Bir kaynağın durumu. Öncelik: kullanılmıyor → (fiyat kaynağı & seans kapalı) kapalı → son deneme hata → hata
+ * Bir kaynağın durumu. Öncelik: kullanılmıyor → seans kapalı → kapalı → son deneme hata → hata
  * → yaşa göre güncel / gecikmeli. MarketData hisse verisi (quotes + provider marketdata) 15 dk ek tolerans alır ve
  * sarı/kırmızı yalnız hatadan kaynaklanır ya da 15 dk tolerans da aşılırsa gecikmeli olur.
  */
@@ -99,7 +97,8 @@ export function assess(source: Source, rec: SourceRec | undefined, now: number, 
   const mk = (status: Status, extra: Partial<Assessment> = {}): Assessment => ({ ...base, status, statusLabel: STATUS_LABEL[status], ...extra });
   if (!used(r)) return mk('kullanilmiyor');
   const fail = r.errAt != null && (r.okAt == null || r.errAt > r.okAt);
-  if (PRICE_SOURCES.has(source) && !sessionOpen) return mk('kapali', { closedNote: true });
+  // Tüm taramalar seansa bağlı (Radar haberleri de yalnız seans içinde çekilir) → seans dışı gri
+  if (!sessionOpen) return mk('kapali', { closedNote: true });
   if (fail || r.okAt == null) return mk('hata');
   const mdQuote = source === 'quotes' && r.provider === 'marketdata';
   const tol = Math.max(2 * interval, source === 'news' ? NEWS_TOL_MS : MIN_TOL_MS);
