@@ -25,7 +25,7 @@ const YAHOO = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; OptionCalcCoach/1.0)' };
 const DAY_MS = 86400000;
 const RETAIN_MS = 30 * DAY_MS;
-const MAX_TOKENS = { extract: 900, coach: 2000, karne: 900 } as const;
+const MAX_TOKENS = { extract: 900, coach: 3500, karne: 900 } as const;   // coach: 2000 kesti (2026-11-13 canlı deneme), rapor için 3500
 const EXTRACT_MAX_DAYS_BACK = 7;   // Yahoo 1 dk verisi son 7 gün
 
 export type CoachKind = keyof typeof MAX_TOKENS;

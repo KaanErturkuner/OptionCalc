@@ -145,7 +145,7 @@ async function coachSelftest() {
   ok('koç: token kaydı SQLite\'ta', store.coachUsageOn(DAY).calls === 2 && store.coachUsageOn(DAY).inTok === 200);
   const dump = JSON.stringify(r) + logs.join('\n');
   ok('koç: anahtar ne yanıtta ne logda', !dump.includes(KEY) && !dump.includes('SELFTEST'));
-  ok('koç: max_tokens sınırları (900 / 2000)', calls[0].maxTokens === 900 && calls[1].maxTokens === 2000);
+  ok('koç: max_tokens sınırları (900 / 3500)', calls[0].maxTokens === 900 && calls[1].maxTokens === 3500);
 
   // Hız sınırı: aynı anda ikinci istek 429
   try { await coach.coachImage({ image: png, mime: 'image/png', day: DAY }); ok('koç: 10 sn içinde ikinci istek reddedilmeli', false); }
