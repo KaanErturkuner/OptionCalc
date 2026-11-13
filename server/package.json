@@ -1,0 +1,8 @@
+{
+  "name": "optioncalc-flow",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Opsiyon akış sunucusu: MarketData tek istemci proxy'si + olağandışı akış tarayıcısı + Expo push. Sıfır npm bağımlılığı (node:sqlite, node:http).",
+  "engines": { "node": ">=24" }
+}

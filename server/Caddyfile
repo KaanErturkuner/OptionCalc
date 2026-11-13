@@ -1,0 +1,9 @@
+# Caddy: otomatik Let's Encrypt (80 yalnız ACME/yönlendirme, 443 HTTPS). Uygulama yalnızca 127.0.0.1:8787'de dinler.
+162-243-88-42.sslip.io {
+	encode gzip
+	reverse_proxy 127.0.0.1:8787
+	header -Server
+	request_body {
+		max_size 8KB
+	}
+}

@@ -1,0 +1,330 @@
+{
+ "note": "SENTETİK veri: MarketData yanıtı değildir; yalnız dry-run/test için hazırlanmıştır.",
+ "polls": [
+  {
+   "at": "2026-11-16T14:31:00Z",
+   "chains": {
+    "QQQ": {
+     "s": "ok",
+     "optionSymbol": [
+      "QQQ261116C00585000",
+      "QQQ261120C00590000",
+      "QQQ261120P00570000"
+     ],
+     "underlying": [
+      "QQQ",
+      "QQQ",
+      "QQQ"
+     ],
+     "expiration": [
+      1794862800,
+      1795208400,
+      1795208400
+     ],
+     "side": [
+      "call",
+      "call",
+      "put"
+     ],
+     "strike": [
+      585,
+      590,
+      570
+     ],
+     "bid": [
+      1,
+      0.4,
+      0.3
+     ],
+     "ask": [
+      1.2,
+      0.6,
+      0.4
+     ],
+     "last": [
+      1.1,
+      0.5,
+      0.35
+     ],
+     "volume": [
+      100,
+      0,
+      50
+     ],
+     "openInterest": [
+      300,
+      100,
+      200
+     ],
+     "updated": [
+      1794839450,
+      1794839450,
+      1794839450
+     ],
+     "underlyingPrice": [
+      580.5,
+      580.5,
+      580.5
+     ]
+    }
+   }
+  },
+  {
+   "at": "2026-11-16T14:33:00Z",
+   "chains": {
+    "QQQ": {
+     "s": "ok",
+     "optionSymbol": [
+      "QQQ261116C00585000",
+      "QQQ261120C00590000",
+      "QQQ261120P00570000"
+     ],
+     "underlying": [
+      "QQQ",
+      "QQQ",
+      "QQQ"
+     ],
+     "expiration": [
+      1794862800,
+      1795208400,
+      1795208400
+     ],
+     "side": [
+      "call",
+      "call",
+      "put"
+     ],
+     "strike": [
+      585,
+      590,
+      570
+     ],
+     "bid": [
+      1,
+      0.5,
+      0.3
+     ],
+     "ask": [
+      1.2,
+      2.5,
+      0.4
+     ],
+     "last": [
+      1.1,
+      1.5,
+      0.35
+     ],
+     "volume": [
+      1200,
+      400,
+      80
+     ],
+     "openInterest": [
+      300,
+      100,
+      200
+     ],
+     "updated": [
+      1794839570,
+      1794839570,
+      1794839450
+     ],
+     "underlyingPrice": [
+      580.5,
+      580.5,
+      580.5
+     ]
+    }
+   },
+   "quotes": {
+    "QQQ261116C00585000": {
+     "s": "ok",
+     "optionSymbol": [
+      "QQQ261116C00585000"
+     ],
+     "underlying": [
+      "QQQ"
+     ],
+     "expiration": [
+      1794862800
+     ],
+     "side": [
+      "call"
+     ],
+     "strike": [
+      585
+     ],
+     "bid": [
+      1
+     ],
+     "ask": [
+      1.2
+     ],
+     "last": [
+      1.1
+     ],
+     "volume": [
+      1250
+     ],
+     "openInterest": [
+      300
+     ],
+     "updated": [
+      1794839575
+     ],
+     "underlyingPrice": [
+      580.5
+     ]
+    },
+    "QQQ261120C00590000": {
+     "s": "ok",
+     "optionSymbol": [
+      "QQQ261120C00590000"
+     ],
+     "underlying": [
+      "QQQ"
+     ],
+     "expiration": [
+      1795208400
+     ],
+     "side": [
+      "call"
+     ],
+     "strike": [
+      590
+     ],
+     "bid": [
+      0.5
+     ],
+     "ask": [
+      2.5
+     ],
+     "last": [
+      1.5
+     ],
+     "volume": [
+      420
+     ],
+     "openInterest": [
+      100
+     ],
+     "updated": [
+      1794839575
+     ],
+     "underlyingPrice": [
+      580.5
+     ]
+    }
+   }
+  },
+  {
+   "at": "2026-11-16T14:35:00Z",
+   "chains": {
+    "QQQ": {
+     "s": "ok",
+     "optionSymbol": [
+      "QQQ261116C00585000",
+      "QQQ261120C00590000",
+      "QQQ261120P00570000"
+     ],
+     "underlying": [
+      "QQQ",
+      "QQQ",
+      "QQQ"
+     ],
+     "expiration": [
+      1794862800,
+      1795208400,
+      1795208400
+     ],
+     "side": [
+      "call",
+      "call",
+      "put"
+     ],
+     "strike": [
+      585,
+      590,
+      570
+     ],
+     "bid": [
+      1,
+      0.5,
+      0.3
+     ],
+     "ask": [
+      1.2,
+      2.5,
+      0.4
+     ],
+     "last": [
+      1.1,
+      1.5,
+      0.35
+     ],
+     "volume": [
+      1400,
+      420,
+      80
+     ],
+     "openInterest": [
+      300,
+      100,
+      200
+     ],
+     "updated": [
+      1794839690,
+      1794839575,
+      1794839450
+     ],
+     "underlyingPrice": [
+      580.5,
+      580.5,
+      580.5
+     ]
+    }
+   },
+   "quotes": {
+    "QQQ261116C00585000": {
+     "s": "ok",
+     "optionSymbol": [
+      "QQQ261116C00585000"
+     ],
+     "underlying": [
+      "QQQ"
+     ],
+     "expiration": [
+      1794862800
+     ],
+     "side": [
+      "call"
+     ],
+     "strike": [
+      585
+     ],
+     "bid": [
+      1
+     ],
+     "ask": [
+      1.2
+     ],
+     "last": [
+      1.1
+     ],
+     "volume": [
+      1400
+     ],
+     "openInterest": [
+      300
+     ],
+     "updated": [
+      1794839690
+     ],
+     "underlyingPrice": [
+      580.5
+     ]
+    }
+   }
+  }
+ ]
+}

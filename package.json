@@ -43,7 +43,7 @@
   },
   "scripts": {
     "start": "expo start",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/run.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/prob.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/radar.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/signals.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/setups.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/paper.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/firsat.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/calendar.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/mc.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/firsat-strategy.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/paper-path.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/qull.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/freshness.test.ts",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/run.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/prob.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/radar.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/signals.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/setups.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/paper.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/firsat.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/calendar.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/mc.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/firsat-strategy.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/paper-path.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/qull.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/freshness.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/flow.test.ts",
     "typecheck": "tsc --noEmit",
     "android": "expo start --android",
     "ios": "expo start --ios",
@@ -56,7 +56,9 @@
     "bt:prep": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON backtest/prep.mts",
     "bt:probe": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON backtest/probe.mts",
     "bt:record": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON backtest/record.mts",
-    "check": "npm test && npm run typecheck && npm run lint && npm run bt:selftest",
+    "check": "npm test && npm run typecheck && npm run lint && npm run bt:selftest && npm run flow:selftest",
+    "flow:selftest": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON server/app/selftest.ts",
+    "flow:dry": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON server/app/main.ts --dry-run --fixture server/fixtures/synthetic-chain.json",
     "bt:live": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON backtest/live.mts",
     "bt:replay": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=backtest/replay.defaults.env backtest/replay.mts"
   },
