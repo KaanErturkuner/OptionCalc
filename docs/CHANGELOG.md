@@ -2,6 +2,32 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-14 — Claude — [grok] Koç (işlem koçu): Haiku ile Midas görüntüsü → geri bildirim + günlük karne (TASKS #37)
+
+Commit öneki kullanıcı isteğiyle `[grok]`; işi yapan Claude. **Durum: kod tamam, canlı Haiku testi YAPILMADI (anahtar yok).**
+
+**Ne:**
+- **Sunucu** (`server/app/coach.ts`): `POST /coach` (base64 PNG/JPEG, çözülmüş ≤ 4 MB, 20/gün, 10 sn arası), `GET /coach?day=`, `POST /coach/karne?day=`. Akış: Haiku #1 işlem çıkarma (JSON) → bağlam (Yahoo 1 dk, VWAP, 5 dk mumlar, çıkış sonrası hareket, hacim patlaması, duvar anlık görüntüsü, akış olayları) → Haiku #2 görüntü + bağlam ile koçluk → SQLite. Karne kapanıştan 20 dk sonra otomatik (`COACH_KARNE_AUTO`).
+- **Saf mantık** (`src/lib/coach/`): `time` (İst 16:30–20:00, DTE), `rules` (stop %67, hedef 1:5 / 1:4), `bars` (Yahoo OHLCV, VWAP, çıkış sonrası, hacim), `context` (sınırlı bağlam, veri eksiği listesi), `prompt` (üç prompt, Türkçe, yalnız JSON), `validate` (JSON ayrıştırma, enum/uzunluk doğrulama), `image` (PNG/JPEG imza, 4 MB), `limits`, `anthropic` (gövde/yanıt), `client` (uygulama istemcisi).
+- **Model:** `COACH_MODEL` (varsayılan `claude-haiku-5-5`). Yedek `COACH_FALLBACK_MODEL` yalnız tanımlıysa ve birincil reddedilirse; `KOÇ UYARI` logu ve `fallback=1`. Tanımsızsa açık hata, sessiz geçiş yok.
+- **Anahtar:** `anthropic_key` systemd `LoadCredential` (dosya: `/etc/optioncalc-flow/anthropic_key`). Loglarda/yanıtlarda yok (selftest kanıtlar).
+- **Token kaydı:** `coach_calls` (model, giriş/çıkış token, süre, hata, yedek), `coach_trades`, `coach_karne`; 30 gün.
+- **Uygulama:** Menü'ye **Koç** kartı; `src/screens/Koc.tsx` (gün seçici, ekran görüntüsü yükleme, işlem kartları: kural ✓/✗/?, Ne yaptın / Doğru mu / Neden / Bir dahakine, karne). Görsel seçici yok (aşağıya bak).
+- **Dosyalar:** `src/lib/coach/*.ts` (yeni), `src/ui/coachPicker.ts`, `src/screens/Koc.tsx`, `src/screens/Menu.tsx`, `server/app/{coach,config,store,http,main,selftest}.ts`, `server/optioncalc-flow.service`, `server/README.md`, `test/coach.test.ts` (yeni), `package.json` (test zinciri), `docs/{TASKS,CHANGELOG}.md`.
+
+**Nasıl doğrulandı:**
+- `npm run check` yeşil: `test/coach.test.ts` (alt testler: zaman/pencere, DTE, stop/hedef, mum analitiği, doğrulama, görüntü denetimi, hız sınırı, Anthropic gövdesi), typecheck, lint, bt:selftest, flow:selftest.
+- Sunucu öz-testinde **sahte** Anthropic ve Yahoo ile uçtan uca koç: 2 çağrı, anahtar başlıkta, token toplamı SQLite'ta, karne kaydı, 429/400/404/503 yolları, yedek model (işaretli) ve yedeksiz model reddi (açık hata), anahtar yanıtta/logda yok. **Gerçek API çağrısı YAPILMADI.**
+- Canlı test: aşağıda (deploy notu).
+
+**Açık sorular / engeller:**
+- **Anahtar:** yerel ortamda `ANTHROPIC_API_KEY` tanımlı değil → droplet'e kopyalanmadı. Kopyalama komutu `server/README.md` "Koç" bölümünde; ardından `systemctl restart optioncalc-flow`.
+- **Görsel seçici:** `expo-image-picker` kurulu değil (native; OTA ile eklenemez). Ekran liste/geri bildirim/karne ile çalışır; yükleme düğmesi açıklama gösterir. Dev build ile `src/ui/coachPicker.ts` doldurulur.
+- **Saat dilimi varsayımı:** Midas zamanlarını İstanbul saati kabul ediyoruz (model "ET ise +7/+8" dönüşümünü yapar). Gerçek ekranla doğrulanmalı.
+- **Kural yorumu:** "kademe 50/40/30" ve "hacim-dönüş çıkışı" görüntüden ölçülemez → "bilinmiyor" / model yorumu. Pencere "16:30–20:00 İst" saat olarak uygulandı; kış saatinde bu aralık ET'de 08:30–12:00'dir (açılış 17:30 İst). Kaan'ın niyetini teyit et.
+- Koçluk çıktısı "eğitim amaçlıdır"; tavsiye değildir (AGENTS.md).
+
+
 ## 2026-11-14 — Claude — [grok] Zamanlanmış piyasa raporları (sunucu + Menü › Raporlar) (TASKS #36)
 
 Commit öneki kullanıcı isteğiyle `[grok]`; işi yapan Claude.
