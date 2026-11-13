@@ -1,6 +1,19 @@
 # CHANGELOG / devir notları
 
-En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
+En yeni üstte. Biçim: `## 2026-11-14 — Grok — [grok] Radar detay: dikey merdiven (ladder) grafiği (TASKS #33 devamı)
+
+**Ne:** Yatay OI/hacim çubukları yerine dikey merdiven: strike'lar yukarıdan aşağıya (en yüksek üstte), ortada strike etiketi, call çubukları sağa (yeşil), put sola (kırmızı), en büyük çubuğa göre ölçek.
+Spot, Call/Put duvarı, Gamma flip, Max pain yatay çizgi; konumu iki strike arasında doğrusal enterpolasyonla. Dikey ScrollView (420 px görünüm); açılışta ve OI ⇄ Hacim geçişinde spot satırına kayar.
+Pencere ±%25, en fazla 80 strike (yoğunsa kovalanır). Zincir istek boyutu (`CHAIN_LIMIT` 80) değişmedi → MarketData kredisi aynı.
+
+**Dosyalar:** `src/lib/radar/detail.ts` (`ladderOrder`, `valueIndex`, `rowY`, `nearestIndex`, `scrollTargetY`, `markerFracs`, `LADDER` sabitleri),
+`src/ui/OiLadder.tsx` (yeni; `react-native-svg`), `src/ui/OiChart.tsx` (silindi), `src/screens/RadarDetail.tsx`, `test/radar-detail.test.ts` (+24 kontrol).
+
+**Doğrulama:** `npm run check` geçti (test, typecheck, lint, bt:selftest, flow:selftest). Görsel test Expo Go'da yapılmadı.
+
+**Açık / dikkat:** Pencere ±%25 ama zincir yalnız 80 strike isteniyor (MarketData `strikeLimit`); yoğun hisselerde ±%25 dışı kalan strike'lar olabilir (CBOE tam zincir döner). Çizgi enterpolasyonu strike indeksine göre (eşit satır aralığı); strike aralıkları düzensizse (ör. $1 ve $5 adımlar) satır başına mesafe eşit görünür.
+
+## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
 ## 2026-11-14 — Claude — [grok] Koç v2: toplu yükleme, kodda eşleştirme, işlem başına koçluk (TASKS #37)
 

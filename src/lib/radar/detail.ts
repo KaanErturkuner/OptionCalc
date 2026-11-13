@@ -65,3 +65,54 @@ export function markers(ch: Chain, spot: number | null, now: number): Markers {
 export function inRange(v: number | null, rows: StrikeRow[]): boolean {
   return v != null && rows.length > 0 && v >= rows[0].k && v <= rows[rows.length - 1].k;
 }
+
+// ───── Dikey merdiven (ladder) geometrisi ─────
+/** Satır yüksekliği ve üst/alt boşluk (px). Ekran ve testler aynı sabitleri kullanır. */
+export const LADDER = { rowH: 22, top: 22, bottom: 8 } as const;
+
+/** Strike satırları yukarıdan aşağıya: en yüksek strike en üstte. Girdiyi değiştirmez. */
+export function ladderOrder(rows: StrikeRow[]): StrikeRow[] {
+  return [...rows].sort((a, b) => b.k - a.k);
+}
+
+/**
+ * Bir fiyatın satır indeksi (kesirli, 0 = en üst satır). Strike'lar arasında doğrusal enterpolasyon.
+ * desc: ladderOrder çıktısı (azalan). Aralık dışındaysa null.
+ */
+export function valueIndex(v: number | null, desc: StrikeRow[]): number | null {
+  if (v == null || !desc.length) return null;
+  if (desc.length === 1) return v === desc[0].k ? 0 : null;
+  if (v > desc[0].k || v < desc[desc.length - 1].k) return null;
+  for (let i = 0; i < desc.length - 1; i++) {
+    const hi = desc[i].k, lo = desc[i + 1].k;
+    if (v <= hi && v >= lo) return hi === lo ? i : i + (hi - v) / (hi - lo);
+  }
+  return null;
+}
+
+/** Merdiven toplam yüksekliği (satır sayısına göre) */
+export const ladderHeight = (n: number) => LADDER.top + n * LADDER.rowH + LADDER.bottom;
+
+/** Kesirli satır indeksinin ekran y koordinatı (satır merkezi) */
+export const rowY = (f: number) => LADDER.top + (f + 0.5) * LADDER.rowH;
+
+/** Spot'a en yakın satırın indeksi (eşitlikte üstteki, yani daha yüksek strike). Boşsa −1. */
+export function nearestIndex(desc: StrikeRow[], spot: number): number {
+  let best = -1, bd = Infinity;
+  desc.forEach((r, i) => { const d = Math.abs(r.k - spot); if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+
+/** Açılışta / geçişte kaydırılacak ScrollView y değeri: spot satırı görünür alanın ortasına gelsin (kenarlarda kırpılır) */
+export function scrollTargetY(desc: StrikeRow[], spot: number, viewH: number): number {
+  const idx = nearestIndex(desc, spot);
+  if (idx < 0) return 0;
+  const contentH = ladderHeight(desc.length), maxY = Math.max(0, contentH - viewH);
+  return Math.min(maxY, Math.max(0, rowY(idx) - viewH / 2));
+}
+
+/** Yatay işaret çizgileri: her biri için kesirli satır indeksi (aralık dışı / boşsa null) */
+export function markerFracs(marks: Markers, desc: StrikeRow[]): { key: keyof Markers; f: number | null }[] {
+  const keys: (keyof Markers)[] = ['spot', 'callWall', 'putWall', 'flip', 'maxPain'];
+  return keys.map(key => ({ key, f: valueIndex(marks[key], desc) }));
+}

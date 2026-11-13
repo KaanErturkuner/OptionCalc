@@ -8,14 +8,14 @@ import type { Chain } from '@/lib/market/types';
 import { loadState } from '@/lib/state';
 import { flowKeyOf } from '@/lib/flow/client';
 import { Btn, Card, Seg, s, tap } from '@/ui/controls';
-import OiChart from '@/ui/OiChart';
+import OiLadder from '@/ui/OiLadder';
 import { C } from '@/ui/theme';
 import { num, trDate } from '@/lib/format';
 import { istanbulStamp } from '@/lib/watchlist/model';
 import { closeMs, DAY_MS } from '@/lib/usmarket';
 import { bucketRows, markers, nearestExpiry, strikeRows, windowRows, type Markers, type Metric, type StrikeRow } from '@/lib/radar/detail';
 
-const WINDOW_PCT = 0.15, MAX_BARS = 40, CHAIN_LIMIT = 80;
+const WINDOW_PCT = 0.25, MAX_BARS = 80, CHAIN_LIMIT = 80;
 type St = { status: 'loading' } | { status: 'error'; err: string } | { status: 'ready'; ch: Chain; provider: 'marketdata' | 'cboe'; expiry: string; at: number };
 
 export default function RadarDetail({ ticker, onBack }: { ticker: string; onBack: () => void }) {
@@ -94,7 +94,7 @@ export default function RadarDetail({ ticker, onBack }: { ticker: string; onBack
           </View>
 
           <Card title={metric === 'oi' ? 'OI × strike' : 'Hacim × strike'}>
-            {rows.length ? <OiChart rows={rows} metric={metric} marks={marks} width={chartW} /> : (
+            {rows.length ? <OiLadder rows={rows} metric={metric} marks={marks} width={chartW} spot={spot} /> : (
               <Text style={{ color: C.muted }}>Spot ±%{Math.round(WINDOW_PCT * 100)} aralığında strike yok.</Text>
             )}
             <Legend items={[
@@ -106,7 +106,7 @@ export default function RadarDetail({ ticker, onBack }: { ticker: string; onBack
               { c: C.blue, t: `Max pain ${fmtOr(marks.maxPain, rows)}`, dash: true },
             ]} />
             <Text style={[s.hint, { marginTop: 8 }]}>
-              Pencere: spot ±%{Math.round(WINDOW_PCT * 100)}, en fazla {MAX_BARS} çubuk (yoğunsa kovalanır). Duvarlar ve max pain tüm zincirden. Gamma flip yaklaşık (dealer gamma varsayımı). Yatırım tavsiyesi değildir.
+              Pencere: spot ±%{Math.round(WINDOW_PCT * 100)}, en fazla {MAX_BARS} strike (yoğunsa kovalanır). En yüksek strike üstte; çizgiler strike’lar arasında enterpole. Duvarlar ve max pain tüm zincirden. Gamma flip yaklaşık (dealer gamma varsayımı). Yatırım tavsiyesi değildir.
             </Text>
           </Card>
         </>

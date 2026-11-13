@@ -64,5 +64,29 @@ const e2 = D.nearestExpiry(after);
 ok('vade: kapandıktan sonra bugün atlanır', e2 !== null && e2 > '2026-11-16', String(e2));
 ok('vade: kapanış ms geçmiş', closeMs('2026-11-16') <= after);
 
+// ───── 7) Dikey merdiven: sıra, enterpolasyon, kaydırma ─────
+const desc = D.ladderOrder(rows);                       // 110,105,100,95,90
+ok('ladderOrder: azalan (en yüksek strike üstte)', desc.map(r => r.k).join(',') === '110,105,100,95,90', desc.map(r => r.k).join(','));
+ok('ladderOrder: girdi değişmez', rows[0].k === 90 && rows[rows.length - 1].k === 110);
+ok('valueIndex: tam strike → satır', D.valueIndex(105, desc) === 1 && D.valueIndex(110, desc) === 0 && D.valueIndex(90, desc) === 4);
+ok('valueIndex: iki strike arası enterpolasyon', D.valueIndex(102.5, desc) === 1.5 && D.valueIndex(97.5, desc) === 2.5, String(D.valueIndex(102.5, desc)));
+ok('valueIndex: aralık dışı / null / boş → null', D.valueIndex(111, desc) === null && D.valueIndex(89, desc) === null && D.valueIndex(null, desc) === null && D.valueIndex(100, []) === null);
+ok('valueIndex: tek satır', D.valueIndex(50, [{ k: 50, callOi: 0, putOi: 0, callVol: 0, putVol: 0 }]) === 0);
+ok('rowY: satır merkezi (top 22, h 22)', D.rowY(0) === 33 && D.rowY(1.5) === 66, `${D.rowY(0)} ${D.rowY(1.5)}`);
+ok('nearestIndex: spot 100 → 2, 102.6 → 1 (105 yakın)', D.nearestIndex(desc, 100) === 2 && D.nearestIndex(desc, 102.6) === 1);
+ok('nearestIndex: eşitlikte üst satır (105)', D.nearestIndex(desc, 102.5) === 1);
+ok('nearestIndex: boş → −1', D.nearestIndex([], 100) === -1);
+ok('ladderHeight: 5 satır = 22 + 110 + 8', D.ladderHeight(5) === 140);
+// viewH 110, içerik 140 → maxY 30
+ok('scrollTargetY: spot 100 ortaya (22)', D.scrollTargetY(desc, 100, 110) === 22, String(D.scrollTargetY(desc, 100, 110)));
+ok('scrollTargetY: en üst strike → 0 (kırpılır)', D.scrollTargetY(desc, 110, 110) === 0);
+ok('scrollTargetY: en alt strike → maxY (30)', D.scrollTargetY(desc, 90, 110) === 30);
+ok('scrollTargetY: içerik görünümden küçük → 0', D.scrollTargetY(desc, 100, 500) === 0);
+ok('scrollTargetY: boş → 0', D.scrollTargetY([], 100, 110) === 0);
+const mf = D.markerFracs({ spot: 100, callWall: 105, putWall: null, flip: 130, maxPain: 102.5 }, desc);
+const mfOf = (k: string) => mf.find(x => x.key === k)!.f;
+ok('markerFracs: spot 2, call duvarı 1, put duvarı null', mfOf('spot') === 2 && mfOf('callWall') === 1 && mfOf('putWall') === null);
+ok('markerFracs: aralık dışı flip null, max pain 1.5 (enterpolasyon)', mfOf('flip') === null && mfOf('maxPain') === 1.5);
+
 console.log(fail ? `\n${fail} BAŞARISIZ` : '\nTüm radar-detay testleri geçti');
 if (fail) process.exit(1);
