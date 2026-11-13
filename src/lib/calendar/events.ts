@@ -4,8 +4,11 @@
  * Gece penceresi: bugünkü işlem günü (day) ve ertesi işlem günü (nextDay). Olay bu iki günden birindeyse engel.
  * Bir seri, tablonun kapsadığı tarihler dışında kalan bir gün için "bilinmiyor" sayılır → taşıma yok.
  *
- * Tarih tablosu (MACRO_CALENDAR) doğrulanmadı: FOMC karar günleri Claude hafızasından yazıldı (2026); resmi Fed takvimiyle
- * karşılaştırılmalıdır. CPI ve NFP tabloları boş → bu iki seri için kapsam yok → gece taşınmaz. Doldurma Kaan/Başkan kararı.
+ * Tarih tablosu (MACRO_CALENDAR) resmi kaynaklardan (Başkan doğruladı, 2026-11-13):
+ *  - FOMC: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm (karar günü = toplantının 2. günü, 14:00 ET; 2027 geçici).
+ *  - CPI:  https://www.bls.gov/schedule/news_release/cpi.htm (08:30 ET)
+ *  - NFP:  https://www.bls.gov/schedule/news_release/empsit.htm (İstihdam Durumu, 08:30 ET)
+ * Kapsam dışı (2027-12-31 sonrası) → bilinmiyor → taşıma yok. Tablo yılda bir güncellenmeli (BLS/Fed takvimi değişirse de).
  */
 
 export type MacroKind = 'FOMC' | 'CPI' | 'NFP';
@@ -13,11 +16,15 @@ export type MacroKind = 'FOMC' | 'CPI' | 'NFP';
 export interface MacroSeries { kind: MacroKind; from: string; to: string; dates: string[] }
 
 export const MACRO_CALENDAR: MacroSeries[] = [
-  // FOMC karar günü (2. gün, 14:00 ET). Kaynak: Fed toplantı takvimi 2026 — hafızadan, doğrulanmadı.
-  { kind: 'FOMC', from: '2026-01-01', to: '2026-12-31',
-    dates: ['2026-01-28', '2026-03-18', '2026-04-29', '2026-06-17', '2026-07-29', '2026-09-16', '2026-10-28', '2026-12-09'] },
-  { kind: 'CPI', from: '', to: '', dates: [] },   // BLS CPI takvimi girilene kadar kapsam yok → taşıma yok
-  { kind: 'NFP', from: '', to: '', dates: [] },   // BLS İstihdam Durumu takvimi girilene kadar kapsam yok → taşıma yok
+  { kind: 'FOMC', from: '2026-01-01', to: '2027-12-31',
+    dates: ['2026-01-28', '2026-03-18', '2026-04-29', '2026-06-17', '2026-07-29', '2026-09-16', '2026-10-28', '2026-12-09',
+      '2027-01-27', '2027-03-17', '2027-04-28', '2027-06-09', '2027-07-28', '2027-09-15', '2027-10-27', '2027-11-17'] },
+  { kind: 'CPI', from: '2026-11-01', to: '2027-12-31',
+    dates: ['2026-11-10', '2026-12-10', '2027-01-13', '2027-02-11', '2027-03-10', '2027-04-13', '2027-05-12', '2027-06-10',
+      '2027-07-14', '2027-08-11', '2027-09-14', '2027-10-14', '2027-11-10', '2027-12-10'] },
+  { kind: 'NFP', from: '2026-11-01', to: '2027-12-31',
+    dates: ['2026-11-06', '2026-12-04', '2027-01-08', '2027-02-05', '2027-03-05', '2027-04-02', '2027-05-07', '2027-06-04',
+      '2027-07-02', '2027-08-06', '2027-09-03', '2027-10-08', '2027-11-05', '2027-12-03'] },
 ];
 
 /** Bilanço bilgisi: ETF'lerin bilançosu yoktur; hisseler için sorgu sonucu. */

@@ -20,13 +20,18 @@ ok('olay yok, kapsam tam → temiz', calendarCheck('2026-11-16', '2026-11-17', c
 ok('olay sebebi Türkçe ve tarihi içerir', calendarCheck('2026-11-13', '2026-11-16', clean, T).reasons.join(' ').includes('CPI olayı 2026-11-13'));
 
 // Kapsam dışı (bilinmiyor) → taşıma yok
-ok('kapsam boş (CPI tablosu yok) → engel', !calendarCheck('2026-05-05', '2026-05-06', clean, MACRO_CALENDAR).ok);
+ok('kapsam öncesi (CPI 2026-11 öncesi yok) → engel', !calendarCheck('2026-05-05', '2026-05-06', clean, MACRO_CALENDAR).ok);
 ok('kapsam dışı tarih (2027) → engel', !calendarCheck('2027-02-02', '2027-02-03', clean, T).ok);
 
-// Varsayılan tablo: CPI/NFP kapsamı boş → her gece engel (güvenli taraf)
+// Varsayılan tablo (resmi BLS/Fed, CPI/NFP kapsamı 2026-11-01'den): kapsam öncesi → engel (güvenli taraf)
 {
   const r = calendarCheck('2026-03-19', '2026-03-20', { kind: 'etf' }, MACRO_CALENDAR);
-  ok('varsayılan tablo: CPI/NFP kapsamı yok → ok=false', r.ok === false && r.reasons.some(x => x.startsWith('CPI takvimi')), JSON.stringify(r));
+  ok('varsayılan tablo: CPI/NFP kapsamı öncesi → ok=false', r.ok === false && r.reasons.some(x => x.startsWith('CPI takvimi')), JSON.stringify(r));
+  ok('varsayılan tablo: 2026-11-13 → 11-16, olay yok → ETF taşınabilir', calendarCheck('2026-11-13', '2026-11-16', { kind: 'etf' }, MACRO_CALENDAR).ok);
+  const dec = calendarCheck('2026-12-09', '2026-12-10', { kind: 'etf' }, MACRO_CALENDAR);
+  ok('varsayılan tablo: 12-09 FOMC + 12-10 CPI → engel', !dec.ok && dec.reasons.some(x => x.includes('FOMC')) && dec.reasons.some(x => x.includes('CPI')), JSON.stringify(dec));
+  ok('varsayılan tablo: NFP 2026-12-04 öncesi gece → engel', !calendarCheck('2026-12-03', '2026-12-04', { kind: 'etf' }, MACRO_CALENDAR).ok);
+  ok('varsayılan tablo: kapsam sonu (2028) → engel', !calendarCheck('2027-12-31', '2028-01-03', { kind: 'etf' }, MACRO_CALENDAR).ok);
 }
 ok('FOMC karar günü tablo içinde → engel (kapsam tam seri)', !calendarCheck('2026-03-18', '2026-03-19', { kind: 'etf' },
   [{ kind: 'FOMC', from: '2026-01-01', to: '2026-12-31', dates: ['2026-03-18'] }]).ok);
