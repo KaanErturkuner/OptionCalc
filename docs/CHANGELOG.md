@@ -2,6 +2,19 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-13 — Claude — SINYAL-FIRSAT Aşama 6 (kısmi: Monte Carlo + kriterler)
+
+**Ne:** Kaan "MarketData kapalı, devam et" dedi. Ortamda `MARKETDATA_TOKEN` tanımlı değil ve token dosyasına erişim güvenlik kontrolünce reddedildi; bu erişim aşılmadı. Gerçek veri çekimi, setup backtest'i ve rapor bu nedenle yapılmadı (TASKS #26 blocked).
+- `src/lib/paper/mc.ts`: gün bloklu bootstrap Monte Carlo (§7 hesap motoru üzerinden; medyan/p10/p90, iflas, maks. düşüş, en uzun kayıp serisi; tohumlu PRNG).
+- `src/lib/signals/criteria.ts`: `FIRSAT_CRITERIA`, backtest kapısı (GEÇTİ/KALDI), "Güvenilir ✓" koşulları (kâğıt n ≥ 30, kazanma farkı ≤ 10 puan, beklenti > 0).
+- `test/mc.test.ts` (yeni, `npm test`'e eklendi): analitik 3 kazanç → 711,11 $; tek kayıp → iflas; tekrarlanabilirlik; kriter kapıları.
+
+**Doğrulama:** `npm run check` çıkış 0.
+
+**Eksik:** `src/lib/odte/strategies/firsat.ts` (setup → Strategy sarmalayıcısı) yazılmadı; backtest koşusu, walk-forward raporu, geçen/kalan tablosu ve MC CLI (`backtest/mc.mts`) veri bekliyor.
+
+**Gerekli:** Kaan `MARKETDATA_TOKEN`'ı Claude'un çalıştığı ortamda tanımlarsa (ya da token dosyası erişimine izin verirse) BT_DRYRUN kredi tahmini → çekim → rapor adımları ilerler.
+
 ## 2026-11-13 — Claude — SINYAL-FIRSAT Aşama 5 (Fırsat ekranı + tarama bağlama) ve K8/K9 kararları
 
 **Ne:**
