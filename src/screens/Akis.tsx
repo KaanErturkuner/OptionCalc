@@ -6,7 +6,8 @@ import { C } from '@/ui/theme';
 import { registerFlowPush } from '@/ui/flowPush';
 import { loadState } from '@/lib/state';
 import { fetchFlow, type FlowFeed } from '@/lib/flow/client';
-import { contractLabel, fmtIst, fmtUsdShort, type FlowEvent } from '@/lib/flow/model';
+import { contractLabel, fmtIst, fmtIstTime, fmtUsdShort, type FlowEvent } from '@/lib/flow/model';
+import { groupByDay, FLOW_DAYS_DEFAULT } from '@/lib/flow/days';
 import { fmt } from '@/lib/format';
 import { flowKeyOf } from '@/lib/flow/client';
 
@@ -28,7 +29,7 @@ export default function Akis({ active }: { active: boolean }) {
       const key = flowKeyOf(st?.flowKey);
       setNoKey(!key);
       if (!key) { setErr(null); setFeed(null); return; }
-      const f = await fetchFlow(key, { limit: 100 });
+      const f = await fetchFlow(key, { limit: 500, days: FLOW_DAYS_DEFAULT });
       setFeed(f); setErr(null);
       setPush(await registerFlowPush(key));
     } catch (e) {
@@ -47,6 +48,8 @@ export default function Akis({ active }: { active: boolean }) {
   }, [active, refresh]);
 
   const events: FlowEvent[] = feed?.events ?? [];
+  const now = feed?.serverTime ?? 0; // feed yoksa olay da yok; render içinde Date.now() kullanılmaz
+  const groups = groupByDay(events, now);
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }}
       contentContainerStyle={{ padding: 12, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 40, gap: 10 }}
@@ -59,7 +62,7 @@ export default function Akis({ active }: { active: boolean }) {
         ) : feed ? (
           <View style={{ gap: 4 }}>
             <Text style={{ color: C.muted, fontSize: 12 }}>
-              Tarama: {feed.polling ? 'açık (piyasa saatleri)' : 'kapalı (piyasa dışı)'} · Son yanıt {fmtIst(feed.serverTime)} İST
+              Son {feed.days ?? FLOW_DAYS_DEFAULT} işlem günü{feed.fromDay ? ` (${feed.fromDay} →)` : ''} · Tarama: {feed.polling ? 'açık (piyasa saatleri)' : 'kapalı (piyasa dışı)'} · Son yanıt {fmtIst(feed.serverTime)} İST
               {feed.creditsToday != null ? ` · Bugün kredi: ${fmt(feed.creditsToday, 0)}` : ''}
             </Text>
             {push ? <Text style={{ color: C.muted, fontSize: 12 }}>{push}</Text> : null}
@@ -79,24 +82,31 @@ export default function Akis({ active }: { active: boolean }) {
         <Card><Text style={{ color: C.muted, fontSize: 13 }}>Henüz olağandışı olay yok.</Text></Card>
       ) : null}
 
-      {events.map(e => (
-        <Card key={e.id}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: C.text, fontSize: 15, fontWeight: '800' }}>{contractLabel(e)}</Text>
-            <Text style={{ color: e.side === 'call' ? C.pos : C.neg, fontSize: 12, fontWeight: '800' }}>{e.side === 'call' ? 'CALL' : 'PUT'}</Text>
-          </View>
-          <Text style={{ color: C.text, fontSize: 13, marginTop: 4 }}>
-            Hacim Δ {fmt(e.dv, 0)} · prim ~{fmtUsdShort(e.prem)} · orta {fmt(e.mid, 2)}
+      {groups.map(g => (
+        <View key={g.day} style={{ gap: 10 }}>
+          <Text accessibilityRole="header" style={{ color: C.muted, fontSize: 13, fontWeight: '800', marginTop: 6, marginLeft: 4 }}>
+            {g.label} · {g.items.length} olay
           </Text>
-          <Text style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>
-            OI {fmt(e.oi, 0)} · Hacim/OI {fmt(e.volOi, 2)} · {fmtIst(e.ts)} İST
-          </Text>
-          <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-            <Badge text={e.confirmed ? 'Teyitli (canlı)' : 'Teyitsiz'} color={e.confirmed ? C.pos : C.muted} />
-            {e.wide ? <Badge text="Geniş spread" color={C.warn} /> : null}
-            {e.pushed ? <Badge text="Bildirim gönderildi" color={C.blue} /> : null}
-          </View>
-        </Card>
+          {g.items.map(e => (
+          <Card key={e.id}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: C.text, fontSize: 15, fontWeight: '800' }}>{contractLabel(e)}</Text>
+              <Text style={{ color: e.side === 'call' ? C.pos : C.neg, fontSize: 12, fontWeight: '800' }}>{e.side === 'call' ? 'CALL' : 'PUT'}</Text>
+            </View>
+            <Text style={{ color: C.text, fontSize: 13, marginTop: 4 }}>
+              Hacim Δ {fmt(e.dv, 0)} · prim ~{fmtUsdShort(e.prem)} · orta {fmt(e.mid, 2)}
+            </Text>
+            <Text style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>
+              OI {fmt(e.oi, 0)} · Hacim/OI {fmt(e.volOi, 2)} · {fmtIstTime(e.ts)} İST
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+              <Badge text={e.confirmed ? 'Teyitli (canlı)' : 'Teyitsiz'} color={e.confirmed ? C.pos : C.muted} />
+              {e.wide ? <Badge text="Geniş spread" color={C.warn} /> : null}
+              {e.pushed ? <Badge text="Bildirim gönderildi" color={C.blue} /> : null}
+            </View>
+          </Card>
+          ))}
+        </View>
       ))}
     </ScrollView>
   );

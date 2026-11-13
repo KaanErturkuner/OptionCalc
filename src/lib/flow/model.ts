@@ -37,6 +37,12 @@ export function fmtIst(ms: number): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(d.getUTCDate())}.${p(d.getUTCMonth() + 1)} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }
+/** Yalnız saat, İstanbul: SS:DD (gün başlığı altında kullanılır) */
+export function fmtIstTime(ms: number): string {
+  const d = new Date(ms + 3 * 3600000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
 /** Kısa USD: 12.500 $ / 1,25 M$ (tr-TR ondalık virgül) */
 export function fmtUsdShort(n: number): string {
   const a = Math.abs(n), sign = n < 0 ? '−' : '';

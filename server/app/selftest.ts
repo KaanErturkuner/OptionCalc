@@ -72,6 +72,23 @@ async function main() {
   ok('push: teyitsiz başlık etiketi', eventMessage({ ...ev, confirmed: false }).title.includes('teyitsiz'));
   st.close();
 
+  // 4b) Gün penceresi ve saklama: fromDay sorgusu + işlem günü bazlı silme (ağ YOK)
+  {
+    const ds = new Store(':memory:');
+    const mk = (day: string, i: number) => ({ ts: Date.parse(day + 'T15:00:00Z'), day, ticker: 'QQQ', occ: 'QQQ' + day.replace(/-/g, '') + 'C00585000',
+      expiry: day, side: 'call' as const, strike: 585, dv: 300, volume: 400, oi: 100, bid: 1, ask: 1.2, mid: 1.1, prem: 33000, volOi: 3,
+      confirmed: true, wide: false, pushed: false, underlying: 580 + i });
+    for (const [i, day] of ['2026-11-06', '2026-11-09', '2026-11-10', '2026-11-12', '2026-11-13', '2026-11-16'].entries()) ds.insertEvent(mk(day, i));
+    ds.prune('2026-11-16', Date.parse('2026-11-16T15:00:00Z'));   // 5 işlem günü: 16,13,12,11(tatil yok, işlem günü),10
+    const kept = ds.listEvents({ limit: 50 }).map(e => e.day).sort();
+    ok('saklama: 5 işlem günü tutulur, daha eskisi silinir', kept.join(',') === '2026-11-10,2026-11-12,2026-11-13,2026-11-16', kept.join(','));
+    const win = ds.listEvents({ limit: 50, fromDay: '2026-11-12' }).map(e => e.day).sort();
+    ok('pencere (3 işlem günü): fromDay=12 Kas → yalnız 12,13,16', win.join(',') === '2026-11-12,2026-11-13,2026-11-16', win.join(','));
+    const cnt = ds.listEvents({ limit: 50, fromDay: '2026-11-10' }).length;
+    ok('fromDay ile sınırlı sayı (limit) ve yeni → eski sıra', cnt === 4 && ds.listEvents({ limit: 1, fromDay: '2026-11-10' })[0].day === '2026-11-16');
+    ds.close();
+  }
+
   // 5) Bütçe freni: token yok → MarketData'ya HİÇ istek atılmaz
   let fetched = 0;
   const md = new MdClient('', new Store(':memory:'), { flowDailyCap: 10, proxyDailyCap: 10, creditReserve: 1 }, (async () => { fetched++; return new Response('{}'); }) as typeof fetch);

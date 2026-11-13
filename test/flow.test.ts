@@ -5,6 +5,7 @@ import * as D from '../src/lib/flow/detect.ts';
 import * as P from '../src/lib/flow/plan.ts';
 import * as X from '../src/lib/flow/proxy.ts';
 import * as M from '../src/lib/flow/model.ts';
+import * as DY from '../src/lib/flow/days.ts';
 
 let fail = 0;
 const ok = (name: string, cond: boolean, info = '') => { if (!cond) fail++; console.log((cond ? 'OK  ' : 'FAIL') + ' ' + name + (info && !cond ? ' — ' + info : '')); };
@@ -126,6 +127,37 @@ ok('contractLabel', M.contractLabel({ ticker: 'QQQ', expiry: '2026-11-20', strik
   ok('satır: vade ET tarihi, taraf, hacim, OI', rows[0].expiry === '2026-11-20' && rows[0].side === 'call' && rows[0].volume === 400 && rows[0].oi === 100 && rows[1].side === 'put');
   ok('satır: updated ms', rows[0].updated === 1789480000000 && rows[0].underlying === 580.5);
   ok('boş yanıt → []', R.parseChainRows({ s: 'no_data' }).length === 0);
+}
+
+// ───── 6) Akış penceresi: son N işlem günü (tatil/hafta sonu) ve gün başlıkları ─────
+{
+  ok('days: boş/geçersiz → 3, 0 → 1, 9 → 5, "2" → 2', DY.clampFlowDays(undefined) === 3 && DY.clampFlowDays('') === 3 && DY.clampFlowDays('abc') === 3
+    && DY.clampFlowDays(0) === 1 && DY.clampFlowDays(9) === 5 && DY.clampFlowDays('2') === 2 && DY.clampFlowDays(3.7) === 3);
+  const eq = (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+  ok('pencere: Pazartesi (işlem günü) → bugün dâhil 3 gün', eq(DY.tradingDaysEndingAt('2026-11-16', 3), ['2026-11-16', '2026-11-13', '2026-11-12']),
+    DY.tradingDaysEndingAt('2026-11-16', 3).join(','));
+  ok('pencere: Cumartesi → Cuma’dan başlar (hafta sonu atlanır)', eq(DY.tradingDaysEndingAt('2026-11-14', 3), ['2026-11-13', '2026-11-12', '2026-11-11']));
+  ok('pencere: Şükran (26 Kas Perşembe) tatili atlanır', eq(DY.tradingDaysEndingAt('2026-11-30', 3), ['2026-11-30', '2026-11-27', '2026-11-25']),
+    DY.tradingDaysEndingAt('2026-11-30', 3).join(','));
+  ok('pencere: Kutsal Cuma 2027-03-26 atlanır', eq(DY.tradingDaysEndingAt('2027-03-29', 3), ['2027-03-29', '2027-03-25', '2027-03-24']),
+    DY.tradingDaysEndingAt('2027-03-29', 3).join(','));
+  ok('pencere: 5 gün (saklama tamponu)', eq(DY.tradingDaysEndingAt('2026-11-16', 5), ['2026-11-16', '2026-11-13', '2026-11-12', '2026-11-11', '2026-11-10']));
+  const monNight = Date.parse('2026-11-16T03:00:00Z'); // ET: Pazar 23:00 → bugün işlem günü değil
+  ok('oldestTradingDay: ET Pazar gecesi → en eski = 2026-11-11', DY.oldestTradingDay(monNight, 3) === '2026-11-11', DY.oldestTradingDay(monNight, 3));
+  const mon = Date.parse('2026-11-16T15:00:00Z');
+  ok('oldestTradingDay: Pazartesi 10:00 ET, 3 gün → 2026-11-12', DY.oldestTradingDay(mon, 3) === '2026-11-12');
+  ok('başlık: bugün → Bugün', DY.dayHeaderLabel('2026-11-16', mon) === 'Bugün');
+  ok('başlık: önceki işlem günü (Cuma) → Dün', DY.dayHeaderLabel('2026-11-13', mon) === 'Dün');
+  ok('başlık: Perşembe → "Perşembe, 12 Kasım"', DY.dayHeaderLabel('2026-11-12', mon) === 'Perşembe, 12 Kasım', DY.dayHeaderLabel('2026-11-12', mon));
+  const thu = Date.parse('2026-11-19T15:00:00Z');
+  ok('başlık: Dün değilse Cuma → "Cuma, 13 Kasım"', DY.dayHeaderLabel('2026-11-13', thu) === 'Cuma, 13 Kasım', DY.dayHeaderLabel('2026-11-13', thu));
+  ok('başlık: farklı yıl → yıl eklenir', DY.dayHeaderLabel('2026-12-31', Date.parse('2027-01-05T15:00:00Z')) === 'Perşembe, 31 Aralık 2026');
+  const g = DY.groupByDay([{ day: '2026-11-13', id: 3 }, { day: '2026-11-16', id: 5 }, { day: '2026-11-13', id: 2 }], mon);
+  ok('gruplama: yeni gün önce, gün içi girdi sırası korunur', g.length === 2 && g[0].label === 'Bugün' && g[1].label === 'Dün'
+    && g[1].items.map(x => x.id).join(',') === '3,2' && g[0].items.length === 1, JSON.stringify(g.map(x => [x.label, x.items.length])));
+  ok('gruplama: boş girdi → []', DY.groupByDay([], mon).length === 0);
+  ok('fmtIstTime: 15:05Z → 18:05', M.fmtIstTime(Date.parse('2026-11-16T15:05:00Z')) === '18:05');
+  ok('flowEventsUrl: days parametresi', X.flowEventsUrl('https://h', { days: 3, limit: 500 }) === 'https://h/flow?days=3&limit=500');
 }
 console.log(fail ? `\n${fail} FLOW TESTİ BAŞARISIZ` : '\nFLOW testleri geçti');
 process.exit(fail ? 1 : 0);

@@ -3,7 +3,7 @@ import { FLOW_BASE_URL, type FlowEvent, type FlowSummaryRow } from './model.ts';
 import { APP_KEY_HEADER, flowEventsUrl, isExpoPushToken } from './proxy.ts';
 import { getJSON } from '../market/types.ts';
 
-export interface FlowFeed { events: FlowEvent[]; serverTime: number; creditsToday: number | null; polling: boolean }
+export interface FlowFeed { events: FlowEvent[]; serverTime: number; creditsToday: number | null; polling: boolean; days: number | null; fromDay: string | null }
 
 /** EAS/derleme zamanı anahtarı (isteğe bağlı; tercih edilen yol uygulama içi ayar). Expo bunu derleme sırasında gömer. */
 export const ENV_FLOW_KEY = (process.env.EXPO_PUBLIC_FLOW_API_KEY ?? '').trim();
@@ -13,11 +13,14 @@ export const flowKeyOf = (stored?: string | null): string => (stored ?? '').trim
 function hdr(key: string) { return { [APP_KEY_HEADER]: key, Accept: 'application/json' }; }
 
 /** Son olayları çeker (yeni → eski). Hata: Türkçe mesaj (anahtar yanlışsa 401 metni). */
-export async function fetchFlow(key: string, opts: { limit?: number; sinceId?: number; base?: string } = {}, signal?: AbortSignal): Promise<FlowFeed> {
+export async function fetchFlow(key: string, opts: { limit?: number; sinceId?: number; days?: number; base?: string } = {}, signal?: AbortSignal): Promise<FlowFeed> {
   if (!key) throw new Error('Akış anahtarı girilmedi (Hesapla › Ayarlar)');
-  const url = flowEventsUrl(opts.base ?? FLOW_BASE_URL, { limit: opts.limit ?? 100, sinceId: opts.sinceId });
+  const url = flowEventsUrl(opts.base ?? FLOW_BASE_URL, { limit: opts.limit ?? 100, sinceId: opts.sinceId, days: opts.days });
   const j = await getJSON(url, { headers: hdr(key), signal, timeoutMs: 15000 }).catch(e => { throw authErr(e); });
-  return { events: Array.isArray(j?.events) ? j.events : [], serverTime: Number(j?.serverTime) || Date.now(), creditsToday: j?.creditsToday ?? null, polling: !!j?.polling };
+  return {
+    events: Array.isArray(j?.events) ? j.events : [], serverTime: Number(j?.serverTime) || Date.now(), creditsToday: j?.creditsToday ?? null,
+    polling: !!j?.polling, days: j?.days ?? null, fromDay: j?.fromDay ?? null,
+  };
 }
 export async function fetchFlowSummary(key: string, base = FLOW_BASE_URL, signal?: AbortSignal): Promise<FlowSummaryRow[]> {
   const j = await getJSON(`${base.replace(/\/+$/, '')}/flow/summary`, { headers: hdr(key), signal, timeoutMs: 15000 }).catch(e => { throw authErr(e); });

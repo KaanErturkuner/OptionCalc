@@ -27,11 +27,13 @@ Spec: [`docs/tasks/FLOW.md`](../docs/tasks/FLOW.md). Uygulama tarafı: `src/lib/
 |---|---|:-:|---|
 | GET | `/health` | – | Çalışma durumu, piyasa açık mı, son tarama, bugünkü kredi (akış + toplam), MarketData kalan kredisi |
 | GET | `/status` | ✓ | Yapılandırma özeti (sırsız), 7 günlük kredi geçmişi, son tarama istatistiği |
-| GET | `/flow?sinceId=&limit=` | ✓ | Olaylar, yeni → eski (en çok 500) |
+| GET | `/flow?days=&sinceId=&limit=` | ✓ | Son N **işlem** günü olayları (varsayılan `days=3`, en çok 5; tatil/hafta sonu NYSE takvimiyle atlanır), yeni → eski (en çok 500). Yanıt: `days`, `fromDay`, `tradingDays` |
 | GET | `/flow/summary` | ✓ | Bugünkü teyitli olaylarda ticker bazında call/put prim toplamı |
 | POST | `/push/register` `{"token":"ExponentPushToken[…]"}` | ✓ | Expo push tokenı kaydı (en çok 50 token) |
 | POST | `/push/unregister` `{"token":…}` | ✓ | Tokenı sil |
 | GET | `/api/md/<MarketData yolu>?<sorgu>` | ✓ | MarketData proxy'si (yanıt MarketData ile aynı; `X-Flow-Cache`, `X-Api-Ratelimit-Consumed` başlıkları) |
+
+Saklama: olaylar son 5 işlem günü için tutulur (`store.prune`); eski günler silinir.
 
 Hız sınırı: dakikada 120 istek (`FLOW_RATE_PER_MIN`). Proxy yanıtları 20 sn önbelleklenir (`FLOW_CACHE_SEC`); önbellekten gelenler 0 kredi.
 

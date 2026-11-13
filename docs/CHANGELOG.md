@@ -2,6 +2,27 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-14 — Grok — [grok] FLOW: Akış son 3 işlem gününü gösterir (gün başlıklı liste, saklama 5 işlem günü)
+
+Kaan'ın talebi: “olağandışı akışta geçmiş 3 günde görünsün”. Yalnız bugün değil, son 3 **işlem** günü (hafta sonu ve NYSE tatilleri atlanır).
+
+**Ne:**
+- **Sunucu** `GET /flow?days=N` — varsayılan 3, 1..5 aralığına sıkıştırılır (geçersiz → 3). Sorgu `day >= fromDay` ile yapılır. Yanıta `days`, `fromDay`, `tradingDays` eklendi (eski alanlar aynen).
+- **Saklama:** `Store.prune` olayları artık takvim günü yerine son **5 işlem günü** için tutar (eskiden 14 takvim günü). Taban/kredi/push sayaçları eskisi gibi 14 gün.
+- **Uygulama:** Akış listesi günlere göre gruplanır: başlık “Bugün”, “Dün” (önceki işlem günü), diğerleri “Cuma, 13 Kasım” (yıl farklıysa sonuna eklenir). Kart saatleri İstanbul `SS:DD`. Üstte “Son 3 işlem günü (YYYY-MM-DD →)” bilgisi. İstek: `days=3`, `limit=500`.
+- **Saf mantık** `src/lib/flow/days.ts`: `clampFlowDays`, `tradingDaysEndingAt` / `tradingDaysBack` / `oldestTradingDay` (usmarket `isTradingDay`/`prevTradingDay`), `dayHeaderLabel`, `groupByDay`. `model.ts`: `fmtIstTime`. `proxy.ts`: `flowEventsUrl` `days` parametresi. `client.ts`: `fetchFlow` `days`.
+- **Dosyalar:** `src/lib/flow/{days,model,proxy,client}.ts`, `src/screens/Akis.tsx`, `server/app/{http,store,selftest}.ts`, `server/README.md`, `test/flow.test.ts`.
+
+**Nasıl doğrulandı:**
+- `npm run check` (test, typecheck, lint, bt:selftest, flow:selftest) — yeşil.
+- Yeni testler: pencere (Pazartesi, Cumartesi, Şükran 26 Kas tatili, Kutsal Cuma 2027-03-26, ET Pazar gecesi, 5 gün), başlıklar (Bugün/Dün/haftanın günü/yıl), gruplama sırası, `fmtIstTime`, `days` URL'si; sunucu: `fromDay` sorgusu ve 5 işlem günü saklama.
+- **Deploy (2026-11-14):** `server/deploy.sh` → `systemctl is-active optioncalc-flow` = active; `/flow?days=3` anahtarlı 200 (`days`, `fromDay`, `tradingDays` dönüyor), anahtarsız 401. Kodda `days.ts` ve `fromDay` sunucuda doğrulandı. MarketData çağrısı YOK (kutu ve sunucu tarafında; yalnız HTTP/sağlık kontrolü).
+
+**Açık sorular / notlar:**
+- “Dün” = bugünden önceki son işlem günü (Pazartesi'de Cuma). Takvim dünü değil; farklı istenirse `dayHeaderLabel` tek satır.
+- Sunucu tarafında yeni kod `FLOW_DAYS` gibi bir env gerektirmiyor. MarketData çağrısı YOK (yalnız yerel DB sorgusu ve test); kutu MarketData'ya çağrı yapmadı.
+- Push (Expo) ve tarama davranışı değişmedi.
+
 ## 2026-11-14 — Grok — [grok] FLOW: akış sunucusu, MarketData proxy'si, Akış sekmesi, Expo push (TASKS #31)
 
 Kaan'ın talebiyle (`docs/tasks/FLOW.md`). Commit'ler: `95f2b71` (sunucu + saf akış mantığı), `6c56073` (uygulama), docs commit'i bu girdinin commit'i.

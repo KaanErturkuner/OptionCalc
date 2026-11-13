@@ -4,6 +4,10 @@ import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Baseline, ChainRow } from '../../src/lib/flow/detect.ts';
 import type { FlowEvent } from '../../src/lib/flow/model.ts';
+import { FLOW_DAYS_MAX, oldestTradingDay } from '../../src/lib/flow/days.ts';
+
+/** Olay saklama: son N işlem günü (akış penceresi en çok FLOW_DAYS_MAX; bir fazlası tampon) */
+export const RETAIN_TRADING_DAYS = FLOW_DAYS_MAX;
 
 export class Store {
   readonly db: DatabaseSync;
@@ -20,6 +24,7 @@ export class Store {
         bid REAL NOT NULL, ask REAL NOT NULL, mid REAL NOT NULL, prem REAL NOT NULL, volOi REAL NOT NULL,
         confirmed INTEGER NOT NULL, wide INTEGER NOT NULL, pushed INTEGER NOT NULL, underlying REAL);
       CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
+      CREATE INDEX IF NOT EXISTS events_day ON events (day);
       CREATE TABLE IF NOT EXISTS cooldown (occ TEXT PRIMARY KEY, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS push_tokens (token TEXT PRIMARY KEY, created INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS push_count (day TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0);
@@ -58,11 +63,11 @@ export class Store {
     try { for (const [occ, b] of rows) st.run(day, occ, b.vol, b.upd); this.db.exec('COMMIT'); }
     catch (e) { this.db.exec('ROLLBACK'); throw e; }
   }
-  /** Eski günlerin tabanını ve olaylarını sil (son 14 gün tutulur) */
+  /** Eski günleri sil: taban ve kredi 14 takvim günü; olaylar son RETAIN_TRADING_DAYS işlem günü tutulur */
   prune(today: string, nowMs: number): void {
     const cutoff = new Date(Date.parse(today + 'T12:00:00Z') - 14 * 86400000).toISOString().slice(0, 10);
     this.db.prepare('DELETE FROM base WHERE day < ?').run(cutoff);
-    this.db.prepare('DELETE FROM events WHERE ts < ?').run(nowMs - 14 * 86400000);
+    this.db.prepare('DELETE FROM events WHERE day < ?').run(oldestTradingDay(nowMs, RETAIN_TRADING_DAYS));
     this.db.prepare('DELETE FROM credits WHERE day < ?').run(cutoff);
     this.db.prepare('DELETE FROM push_count WHERE day < ?').run(cutoff);
   }
@@ -76,11 +81,14 @@ export class Store {
     return Number(r.lastInsertRowid);
   }
   markPushed(id: number): void { this.db.prepare('UPDATE events SET pushed = 1 WHERE id = ?').run(id); }
-  listEvents(opts: { sinceId?: number; limit?: number; day?: string }): FlowEvent[] {
+  /** Olaylar yeni → eski. day: tek gün; fromDay: bu günden (dâhil) itibaren (ET, YYYY-MM-DD ile karşılaştırılır) */
+  listEvents(opts: { sinceId?: number; limit?: number; day?: string; fromDay?: string }): FlowEvent[] {
     const lim = Math.min(500, Math.max(1, opts.limit ?? 100));
     const rows = opts.day
       ? this.db.prepare('SELECT * FROM events WHERE day = ? AND id > ? ORDER BY id DESC LIMIT ?').all(opts.day, opts.sinceId ?? 0, lim)
-      : this.db.prepare('SELECT * FROM events WHERE id > ? ORDER BY id DESC LIMIT ?').all(opts.sinceId ?? 0, lim);
+      : opts.fromDay
+        ? this.db.prepare('SELECT * FROM events WHERE day >= ? AND id > ? ORDER BY id DESC LIMIT ?').all(opts.fromDay, opts.sinceId ?? 0, lim)
+        : this.db.prepare('SELECT * FROM events WHERE id > ? ORDER BY id DESC LIMIT ?').all(opts.sinceId ?? 0, lim);
     return (rows as Record<string, unknown>[]).map(toEvent);
   }
   summary(day: string): { ticker: string; callPrem: number; putPrem: number; events: number }[] {

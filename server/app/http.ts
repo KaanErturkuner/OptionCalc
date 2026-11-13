@@ -2,7 +2,7 @@
  * HTTP katmanı (yalnız 127.0.0.1; dışarıya Caddy üzerinden HTTPS ile çıkar).
  *  GET  /health                 — herkese açık, sırsız durum
  *  GET  /status                 — (anahtar) yapılandırma özeti, kredi geçmişi, son tarama
- *  GET  /flow?sinceId=&limit=   — (anahtar) olay listesi, yeni → eski
+ *  GET  /flow?days=&sinceId=&limit= — (anahtar) son N işlem günü (varsayılan 3, en çok 5) olayları, yeni → eski
  *  GET  /flow/summary           — (anahtar) bugün ticker bazında teyitli prim dengesi
  *  POST /push/register {token}  — (anahtar) Expo push tokenı kaydı
  *  POST /push/unregister {token}— (anahtar)
@@ -13,6 +13,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { APP_KEY_HEADER, checkMdRequest, isExpoPushToken, MD_PROXY_PREFIX } from '../../src/lib/flow/proxy.ts';
 import { fmtIst } from '../../src/lib/flow/model.ts';
+import { clampFlowDays, oldestTradingDay, tradingDaysBack } from '../../src/lib/flow/days.ts';
 import { marketOpen, etDate } from '../../src/lib/usmarket.ts';
 import type { Config } from './config.ts';
 import { publicConfig } from './config.ts';
@@ -79,8 +80,13 @@ export function createHandler(d: Deps) {
       if (method === 'GET' && path === '/flow') {
         const sinceId = Number(url.searchParams.get('sinceId') ?? 0) || 0;
         const limit = Number(url.searchParams.get('limit') ?? 100) || 100;
-        const events = d.store.listEvents({ sinceId, limit });
-        return send(res, 200, { events, serverTime: t, creditsToday: d.store.creditsOn(creditDay(t)), polling: d.cfg.pollEnabled && marketOpen(t) });
+        const days = clampFlowDays(url.searchParams.get('days') ?? undefined);
+        const fromDay = oldestTradingDay(t, days);
+        const events = d.store.listEvents({ sinceId, limit, fromDay });
+        return send(res, 200, {
+          events, serverTime: t, days, fromDay, tradingDays: tradingDaysBack(t, days),
+          creditsToday: d.store.creditsOn(creditDay(t)), polling: d.cfg.pollEnabled && marketOpen(t),
+        });
       }
       if (method === 'GET' && path === '/flow/summary') {
         return send(res, 200, { day: etDate(t), rows: d.store.summary(etDate(t)) });
