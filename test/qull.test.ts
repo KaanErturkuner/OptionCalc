@@ -94,14 +94,14 @@ function qdFake(over: Partial<QDaily> = {}): QDaily {
 function upBars(): Bar[] {
   const out: Bar[] = [];
   for (let i = 0; i < 5; i++) out.push({ t: i * 60000, o: 100, h: 100.5, l: 99.8, c: 100.2, v: 1000 });
-  out.push({ t: 5 * 60000, o: 100.2, h: 100.9, l: 100.1, c: 100.8, v: 1000 });
+  out.push({ t: 5 * 60000, o: 100.2, h: 100.9, l: 100.1, c: 100.8, v: 2500 });
   return out;
 }
 /** Aşağı ayna: OR bar 0–4 (yüksek 100,2 / düşük 99,5), kırılım barı kapanış 99,0. */
 function downBars(): Bar[] {
   const out: Bar[] = [];
   for (let i = 0; i < 5; i++) out.push({ t: i * 60000, o: 100, h: 100.2, l: 99.5, c: 99.8, v: 1000 });
-  out.push({ t: 5 * 60000, o: 99.8, h: 99.9, l: 99.0, c: 99.0, v: 1000 });
+  out.push({ t: 5 * 60000, o: 99.8, h: 99.9, l: 99.0, c: 99.0, v: 2500 });
   return out;
 }
 function ctxQ(bars: Bar[], over: Partial<SetupCtx> = {}): SetupCtx {
@@ -123,14 +123,19 @@ function ctxQ(bars: Bar[], over: Partial<SetupCtx> = {}): SetupCtx {
   ok('Q1: aşağı yön (Q1S) aynı barda aday üretmez', q1sOrl(c) === null);
   ok('Q1: trend yok → yok', q1Orh(ctxQ(upBars(), { qd: qdFake({ trendUp: false }) })) === null);
   ok('Q1: daralma > 0,8 → yok', q1Orh(ctxQ(upBars(), { qd: qdFake({ consol: { days: 0, rangeContraction: 1.1, higherLows: false, nearHigh: true, nearLow: false } }) })) === null);
-  ok('Q1: hacim 1,2× (< 1,5) → yok', q1Orh(ctxQ(upBars(), { volRatio: 1.2 })) === null);
+  const lowV = upBars(); lowV[5] = { ...lowV[5], v: 1200 };
+  ok('Q1: kırılım barında hacim 1,2× (< 1,5) → yok', q1Orh(ctxQ(lowV)) === null);
   ok('Q1: SPY var, rs63 < 0 → yok (SPY’den güçlü değil)', q1Orh(ctxQ(upBars(), { qd: qdFake({ spy: true, rs63: -0.02 }) })) === null);
   ok('Q1: SPY var, rs63 > 0 → aday', q1Orh(ctxQ(upBars(), { qd: qdFake({ spy: true, rs63: 0.05 }) })) !== null);
   ok('Q1: pencere dışı (13:00 sonrası) → yok', q1Orh(ctxQ(upBars(), { etMin: 800 })) === null);
   ok('Q1: günlük veri yok (qd null) → yok', q1Orh(ctxQ(upBars(), { qd: null })) === null);
   ok('Q1: OR verisi yok → yok', q1Orh(ctxQ(upBars(), { orWin: null })) === null);
-  const first = upBars(); first[4] = { ...first[4], c: 100.6 };          // kırılım önceki barda oldu
-  ok('Q1: kırılım ilk kez değil (önceki kapanış OR üstünde) → yok', q1Orh(ctxQ(first)) === null);
+  const old = [...upBars().slice(0, 5), { t: 5 * 60000, o: 100.2, h: 100.9, l: 100.1, c: 100.8, v: 2500 }, ...Array.from({ length: 9 }, (_, i) => ({ t: (6 + i) * 60000, o: 100.7, h: 100.9, l: 100.6, c: 100.7, v: 1000 })), { t: 15 * 60000, o: 100.7, h: 101, l: 100.6, c: 100.9, v: 1000 }];
+  ok('Q1: ilk kırılım 10 dk önce (taze değil) → yok', q1Orh(ctxQ(old)) === null);
+  const grid: Bar[] = [...upBars().slice(0, 5), { t: 5 * 60000, o: 100.2, h: 100.3, l: 100.1, c: 100.2, v: 1000 }, { t: 6 * 60000, o: 100.2, h: 101, l: 100.2, c: 100.9, v: 2500 },
+    { t: 7 * 60000, o: 100.9, h: 101, l: 100.7, c: 100.85, v: 1000 }, { t: 8 * 60000, o: 100.85, h: 101, l: 100.7, c: 100.8, v: 1000 }];
+  const gr = q1Orh(ctxQ(grid));
+  ok('Q1: kırılım 2 bar önce (ızgara arası), son bar hâlâ üstünde → aday', !!gr && near(gr.und.entry, 100.8), JSON.stringify(gr?.und));
   const p30 = ctxQ(upBars(), { qp: { orMin: 30, volMult: 1.5, gapMult: 1.5 }, orWin: { m5: { high: 100.5, low: 99.8 }, m30: { high: 101.5, low: 99.0 } } });
   ok('Q1: orMin 30 → 30 dk aralığı kullanılır (100,8 < 101,5 → yok)', q1Orh(p30) === null);
 }

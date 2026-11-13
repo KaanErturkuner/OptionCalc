@@ -26,11 +26,26 @@ export function rsOk(qd: QDaily, dir: Dir): boolean {
   return qd.rs63 != null && (dir === 'bull' ? qd.rs63 > 0 : qd.rs63 < 0);
 }
 
-/** Son bar, açılış aralığını İLK kez yukarı (yükseliş) ya da aşağı (düşüş) keser. */
-export function firstCross(bs: Bar[], or: OrRange, dir: Dir): boolean {
-  if (bs.length < 2) return false;
-  const last = bs[bs.length - 1], prev = bs[bs.length - 2];
-  return dir === 'bull' ? last.c > or.high && prev.c <= or.high : last.c < or.low && prev.c >= or.low;
+/** Kırılım taze sayılan en fazla dakika (tarama aralığı ≤ 5 dk). */
+export const Q_BREAK_LOOKBACK = 5;
+/**
+ * Kırılım indeksi: gün içindeki İLK kapanış (açılış aralığı dışında) bu bar mı ve son kapanış hâlâ dışarıda mı?
+ * İlk kırılım barı son Q_BREAK_LOOKBACK dakika içindeyse indeksini döndürür; değilse null.
+ * Izgara değerlendirmesi (5 dk) kırılım barını kaçırmaz ve aynı kırılım iki kez aday olmaz.
+ */
+export function breakIndex(bs: Bar[], or: OrRange, dir: Dir): number | null {
+  const n = bs.length;
+  if (n < 2) return null;
+  const beyond = (b: Bar) => dir === 'bull' ? b.c > or.high : b.c < or.low;
+  if (!beyond(bs[n - 1])) return null;
+  const f = bs.findIndex(beyond);
+  return f >= 0 && f >= n - 1 - Q_BREAK_LOOKBACK ? f : null;
+}
+/** Kırılım barının hacim oranı: o barın hacmi / önceki en çok 20 barın ortalaması (NaN: referans yok). */
+export function breakVolRatio(bs: Bar[], f: number): number {
+  const prev = bs.slice(Math.max(0, f - 20), f);
+  const avg = prev.length ? prev.reduce((s, b) => s + b.v, 0) / prev.length : 0;
+  return avg > 0 ? bs[f].v / avg : NaN;
 }
 
 /** Bar başına kümülatif VWAP (tipik fiyat × hacim). */
@@ -40,18 +55,20 @@ export function vwapSeries(bs: Bar[]): number[] {
 }
 
 /** Kırılım adayı: giriş = son kapanış; stop = gün dibi (yükseliş) / gün zirvesi (düşüş); hedef = giriş ± 2 × risk (yalnız RR/strike için).
- * Koşullar: pencere, açılış aralığı verisi, ilk kırılım, hacim ≥ volMult, stop giriş tarafında. */
+ * Koşullar: pencere, açılış aralığı verisi, taze ilk kırılım (breakIndex), kırılım barında hacim ≥ volMult, stop giriş tarafında. */
 export function breakoutCandidate(c: SetupCtx, setup: SetupId, dir: Dir, reason: string[]): SetupCandidate | null {
   const or = orFor(c), qp = qParams(c);
   if (!c.qd || !or || !inQWindow(c.etMin) || c.bars.length < qp.orMin + 1) return null;
-  if (!firstCross(c.bars, or, dir)) return null;
-  if (!(c.volRatio >= qp.volMult)) return null;
+  const f = breakIndex(c.bars, or, dir);
+  if (f == null) return null;
+  const vr = breakVolRatio(c.bars, f);
+  if (!(vr >= qp.volMult)) return null;
   const entry = c.bars[c.bars.length - 1].c, up = dir === 'bull';
   const stop = up ? dayLow(c.bars) : dayHigh(c.bars);
   if (up ? !(stop < entry) : !(stop > entry)) return null;
   const target = up ? entry + 2 * (entry - stop) : entry - 2 * (stop - entry);
   return {
     setup, ticker: c.ticker, dir, at: c.now, und: { entry, stop, target }, ivMult: 1.0,
-    reason: [...reason, `${qp.orMin} dk açılış ${up ? 'yükseği' : 'dibi'} kırıldı`, `hacim ${c.volRatio.toFixed(1)}×`],
+    reason: [...reason, `${qp.orMin} dk açılış ${up ? 'yükseği' : 'dibi'} kırıldı`, `hacim ${vr.toFixed(1)}×`],
   };
 }

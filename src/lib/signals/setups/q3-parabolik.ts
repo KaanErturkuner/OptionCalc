@@ -3,7 +3,7 @@
  * Tetik: bugün ORL kırılımı, ya da ilk 30 dk'da VWAP altına sarkıp geri alamama (bir kapanış VWAP altında + son kapanış VWAP altında).
  * Stop gün zirvesi; hedef giriş − 2 × risk. */
 import type { SetupCtx, SetupCandidate } from '../types.ts';
-import { dayHigh, inQWindow, orFor, vwapSeries } from './q-common.ts';
+import { dayHigh, inQWindow, orFor, vwapSeries, breakIndex } from './q-common.ts';
 
 export const Q3_EXT_MIN = 3, Q3_UP_DAYS_MIN = 3, Q3_VWAP_WINDOW_BARS = 30;
 
@@ -17,8 +17,8 @@ export function failedVwapReclaim(bs: SetupCtx['bars']): boolean {
 export function q3Parabolik(c: SetupCtx): SetupCandidate | null {
   const qd = c.qd;
   if (!qd || !(qd.ext >= Q3_EXT_MIN) || !(qd.upDays >= Q3_UP_DAYS_MIN) || !inQWindow(c.etMin) || c.bars.length < 2) return null;
-  const or = orFor(c), last = c.bars[c.bars.length - 1], prev = c.bars[c.bars.length - 2], entry = last.c;
-  const orlBreak = !!or && last.c < or.low && prev.c >= or.low;
+  const or = orFor(c), entry = c.bars[c.bars.length - 1].c;
+  const orlBreak = !!or && breakIndex(c.bars, or, 'bear') !== null;
   const vwapFail = failedVwapReclaim(c.bars);
   if (!orlBreak && !vwapFail) return null;
   const stop = dayHigh(c.bars);
