@@ -2,18 +2,37 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
-## 2026-11-13 — Claude — SINYAL-FIRSAT Aşama 6 (kısmi: Monte Carlo + kriterler)
+## 2026-11-13 — Grok — [grok] Aşama 4–5 incelemesi
 
-**Ne:** Kaan "MarketData kapalı, devam et" dedi. Ortamda `MARKETDATA_TOKEN` tanımlı değil ve token dosyasına erişim güvenlik kontrolünce reddedildi; bu erişim aşılmadı. Gerçek veri çekimi, setup backtest'i ve rapor bu nedenle yapılmadı (TASKS #26 blocked).
-- `src/lib/paper/mc.ts`: gün bloklu bootstrap Monte Carlo (§7 hesap motoru üzerinden; medyan/p10/p90, iflas, maks. düşüş, en uzun kayıp serisi; tohumlu PRNG).
-- `src/lib/signals/criteria.ts`: `FIRSAT_CRITERIA`, backtest kapısı (GEÇTİ/KALDI), "Güvenilir ✓" koşulları (kâğıt n ≥ 30, kazanma farkı ≤ 10 puan, beklenti > 0).
-- `test/mc.test.ts` (yeni, `npm test`'e eklendi): analitik 3 kazanç → 711,11 $; tek kayıp → iflas; tekrarlanabilirlik; kriter kapıları.
+**Ne:** Claude'un Aşama 4 (kâğıt hesap) ve Aşama 5 (Fırsat sekmesi + tarama bağlama) kodu doğrulandı. İlk `npm test` / `tsc --noEmit` / lint / `bt:selftest` yeşildi. Kaan'ın sayısal örnekleri (300→150→1:3 çıkış→600; 150→50 kayıp→200→%40=80; ikinci kayıp → %30 + güvenli mod), %50 tavan, kademe 50→40→30 ve 30→40→50, güne taşıma, 4 kazanç / 2 kayıp güvenli mod, 1:5 sonra 1:4, %67 prim stopu, 1,50 $ komisyon, 0DTE 15:45, onay 3/5 dk ve "fiyat kaçtı" testlerde tutuyor. %50 kuralına dokunulmadı.
 
-**Doğrulama:** `npm run check` çıkış 0.
+**Düzeltmeler:**
+- 15:45 ET'de 1–3 DTE gece kararı hedef/stop/risk kontrolünden önce çalışıyordu; hedefe veya stopa gelmiş pozisyon taşınabilirdi. Sıra tersine çevrildi.
+- "Onayla" taraması başarısız olunca `leftMin=0` yüzünden kart yanlışlıkla "pencere kapandı" ile düşüyordu. Artık yerel seans saati kullanılır; taze fiyat yoksa kart durur ve Başkan'a tekrar denemesi söylenir.
+- Kart geçersizliği ve yeniden fiyatlama, kart etiketi AGRESIF diye 1:5'e kilitleniyordu (1:4,2 "fiyat kaçtı" olabilirdi). Tabana hesap modu uygulanır (Agresif'te 1:4 geçerli).
+- Açık kâğıt pozisyon varken bekleyen kartlarda "Onayla" görünüyordu; bilgi notuna alındı.
+- `firsat-v1` yüklemesinde kâğıt hesap ayarları ve kademe arındırılır.
 
-**Eksik:** `src/lib/odte/strategies/firsat.ts` (setup → Strategy sarmalayıcısı) yazılmadı; backtest koşusu, walk-forward raporu, geçen/kalan tablosu ve MC CLI (`backtest/mc.mts`) veri bekliyor.
+**K8 / K9:** Claude bunları "Kaan onayı 2026-11-13" diye işaretlemiş. Kaan'ın 1:3 örneği (150→450) hem eski "kazanç/risk" hem K8 (çıkış/giriş=3) ile uyumlu; 1:5 ise ayrılır (eski +5R → çıkış 650, K8 → çıkış 750). DURDU varsayılan kapalı, Kaan'ın form cevaplarında açıkça yoktu (§11.2 varsayılanı). Kod K8/K9 ile bırakıldı; Başkan teyidi istenir.
 
-**Gerekli:** Kaan `MARKETDATA_TOKEN`'ı Claude'un çalıştığı ortamda tanımlarsa (ya da token dosyası erişimine izin verirse) BT_DRYRUN kredi tahmini → çekim → rapor adımları ilerler.
+**Dosyalar:** `src/lib/paper/engine.ts`, `src/lib/paper/account.ts`, `src/ui/signalScan.ts`, `src/ui/firsatStore.ts`, `src/screens/Firsat.tsx`, `test/firsat.test.ts`, `docs/TASKS.md` (D11), `docs/tasks/handoff/SINYAL-FIRSAT-asama-5-inceleme.md`.
+
+**Doğrulama:** `npm test` (yeni 15:45 hedef/stop testleri dâhil), `npx tsc --noEmit`, `npm run lint`, `npm run bt:selftest` geçti. Token, ağ çekimi, Expo yayını yok.
+
+**Açık:** T4/T5/T7 bağlı değil; gece kararında `eventBeforeOpen` her zaman false (bilanço/FOMC/CPI/NFP yok sayılıyor); T1–T3 "son 30 dk" aslında anlık bar; A2 RS yok; görsel Expo testi yok.
+
+## 2026-11-13 — Claude — SINYAL-FIRSAT Aşama 6 (kısmi: Monte Carlo, kriterler, setup sarmalayıcısı)
+
+**Ne:**
+- MarketData: Kaan "MarketData kapalı, devam et" dedi; token yalnızca çekim sürecinin ortamına alındı, repoya, log'a ya da sohbete yazılmadı. BT_DRYRUN: GLD/SLV/NVDA/QQQ 12 ay ≈ 1480 kredi. Çekim başladı, Başkan'ın talimatıyla durduruldu. Önbellek yarım (`C:\dev\bt-data`, repo dışı, 258 dosya). **Gerçek veri koşusu Başkan'dan gelecek.**
+- `src/lib/odte/strategies/firsat.ts`: setup → Strategy sarmalayıcısı, `firsat-s1`…`firsat-s6` (STRATEGIES'e kayıtlı). A1 yalnız kendi sembolünün VWAP tarafı; kalan EM = günlük EM × √(kalan dk/390); S4 (duvar), S5 (haber), S6 (IV rank) verisi olmadığı için üretmez.
+- `src/lib/paper/mc.ts` güncellendi: hedef tanımı iki varyant. **Birincil K8** (1:5 = çıkış 750 $, kazanç 6R; Kaan sohbette onayladı). Karşılaştırma R650 (1:5 = 650 $, +5R; Başkan incelemesindeki eski tanım). **DURDU birincilde açık** (Başkan), kapalı karşılaştırma olarak. `runMcVariants` dört kombinasyonu aynı tohum ve gün dizisiyle koşar.
+- `src/lib/signals/criteria.ts`: `FIRSAT_CRITERIA`, backtest kapısı, "Güvenilir ✓" koşulları.
+- Testler: `test/mc.test.ts` (K8 900 $ / R650 800 $ tek hedef; DURDU 4 kayıp sonrası 4 işlem / kapalıyken 5), `test/firsat-strategy.test.ts` (S1 kırılımı: hedef 2×OR, hacim/EM/pencere koşulları, S4–S6 veri yokken boş, bağlam).
+
+**Doğrulama:** `npm run check` (aşağıda commit öncesi sonuç).
+
+**Açık:** 1:5 hedefi 750 (K8) mı 650 mı, Başkan teyidi bekleniyor; MC her iki tanımı da raporlar. Gerçek veri koşusu, walk-forward raporu ve geçen/kalan tablosu yok (Başkan'dan veri bekleniyor).
 
 ## 2026-11-13 — Claude — SINYAL-FIRSAT Aşama 5 (Fırsat ekranı + tarama bağlama) ve K8/K9 kararları
 
