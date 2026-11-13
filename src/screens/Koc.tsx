@@ -9,16 +9,10 @@ import { loadState } from '@/lib/state';
 import { flowKeyOf } from '@/lib/flow/client';
 import { fetchCoachDay, makeKarne, uploadScreenshot, type CoachDayView } from '@/lib/coach/client';
 import { addDaysStr, etDate } from '@/lib/usmarket';
-import { istHm } from '@/lib/coach/time';
 import { pickScreenshot, PICKER_MISSING } from '@/ui/coachPicker';
-import type { RuleFact, TradeFeedback } from '@/lib/coach/types';
+import CoachReport from '@/ui/CoachReport';
 
 const REFRESH_MS = 60000;
-const RULE_MARK: Record<RuleFact['durum'], string> = { uyuyor: '✓', uymuyor: '✗', bilinmiyor: '?' };
-const RULE_COLOR: Record<RuleFact['durum'], string> = { uyuyor: C.pos, uymuyor: C.neg, bilinmiyor: C.muted };
-const CIKIS_TR: Record<TradeFeedback['cikis'], string> = { erken: 'Erken çıktın', gec: 'Geç çıktın', iyi_stop: 'İyi stopladın', dogru: 'Doğru çıkış', kapatmamaliydin: 'Kapatmamalıydın', belirsiz: 'Belirsiz' };
-const DOGRU_TR: Record<TradeFeedback['dogruMu'], string> = { evet: 'Evet', kismen: 'Kısmen', hayir: 'Hayır' };
-const ETIKET_TR: Record<string, string> = { acele: 'acele', erken_cikis: 'erken çıkış', gec_cikis: 'geç çıkış', gec_giris: 'geç giriş', pencere_disi: 'pencere dışı', dte_disi: 'DTE dışı', stop_iyi: 'stop iyi', stop_yok: 'stop yok', kapatmamaliydi: 'kapatmamalıydı', kademe_disi: 'kademe dışı', hacim_donusu_kacirildi: 'hacim dönüşü kaçırıldı', duygusal: 'duygusal' };
 const dayLabel = (d: string) => d.split('-').reverse().join('.');
 
 export default function Koc({ active, onBack }: { active: boolean; onBack?: () => void }) {
@@ -126,34 +120,11 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
         <Card><Text style={{ color: C.muted }}>Bu gün için koçluk kaydı yok.</Text></Card>
       ) : null}
 
-      {view?.trades.map((t, i) => (
-        <Card key={t.id} title={`${i + 1}. ${t.trade.ticker} ${t.trade.strike}${t.trade.side === 'CALL' ? 'C' : 'P'} · ${t.trade.expiry.slice(5)}`}>
-          <Text style={{ color: C.muted, fontSize: 12, marginBottom: 6 }}>
-            {t.trade.entryTime ? `Giriş ${t.trade.entryTime.slice(11)} İst` : 'Giriş saati okunamadı'}
-            {t.trade.exitTime ? ` · Çıkış ${t.trade.exitTime.slice(11)} İst` : ' · açık'}
-            {t.trade.entryPrice != null ? ` · ${t.trade.entryPrice.toFixed(2)}` : ''}{t.trade.exitPrice != null ? ` → ${t.trade.exitPrice.toFixed(2)}` : ''}
-            {t.trade.qty != null ? ` · ${t.trade.qty} adet` : ''}
-          </Text>
-          {t.rules.map((r, k) => (
-            <Text key={k} style={{ fontSize: 13, color: C.text, marginBottom: 2 }}>
-              <Text style={{ color: RULE_COLOR[r.durum], fontWeight: '800' }}>{RULE_MARK[r.durum]} </Text>
-              <Text style={{ fontWeight: '600' }}>{r.kural}: </Text>{r.aciklama}
-            </Text>
-          ))}
-          {t.feedback ? (
-            <View style={{ gap: 6, marginTop: 10 }}>
-              <Text style={{ color: C.text, fontWeight: '700' }}>Ne yaptın</Text>
-              <Text style={{ color: C.text, fontSize: 13 }}>{t.feedback.neYaptin}</Text>
-              <Text style={{ color: C.text, fontWeight: '700' }}>Doğru mu — {DOGRU_TR[t.feedback.dogruMu]} · {CIKIS_TR[t.feedback.cikis]}</Text>
-              <Text style={{ color: C.text, fontSize: 13 }}>{t.feedback.dogruAciklama}</Text>
-              <Text style={{ color: C.text, fontWeight: '700' }}>Neden</Text>
-              <Text style={{ color: C.text, fontSize: 13 }}>{t.feedback.neden}</Text>
-              <Text style={{ color: C.text, fontWeight: '700' }}>Bir dahakine</Text>
-              <Text style={{ color: C.text, fontSize: 13 }}>{t.feedback.birDahakine}</Text>
-              {t.feedback.etiketler.length ? <Text style={{ color: C.muted, fontSize: 12 }}>Etiketler: {t.feedback.etiketler.map(x => ETIKET_TR[x] ?? x).join(', ')}</Text> : null}
-            </View>
-          ) : <Text style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>Koçluk metni bu kayıtta yok (doğrulama uyarısına bak).</Text>}
-          <Text style={{ color: C.muted, fontSize: 11, marginTop: 8 }}>Kayıt {istHm(t.ts)} İst · {t.model}</Text>
+      {view?.trades.map((t, i) => t.report ? (
+        <CoachReport key={t.id} r={t.report} index={i + 1} ts={t.ts} />
+      ) : (
+        <Card key={t.id} title={`${i + 1}. ${t.trade.ticker} ${t.trade.strike}${t.trade.side === 'CALL' ? 'C' : 'P'}`}>
+          <Text style={{ color: C.muted, fontSize: 13 }}>Koçluk metni bu kayıtta yok (doğrulama uyarısına bak).</Text>
         </Card>
       ))}
 

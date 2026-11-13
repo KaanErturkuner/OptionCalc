@@ -178,8 +178,12 @@ Türkçe geri bildirim yazar. Eğitim amaçlıdır; tavsiye değildir.
   yoksa üretilir (dakikada bir kontrol; başarısızlıkta saatte bir yeniden dener). `COACH_KARNE_AUTO=off` kapatır.
 - **Kayıt:** `coach_calls` (her Haiku çağrısı: model, giriş/çıkış token, süre, hata, yedek), `coach_trades` (işlem, kurallar, geri bildirim, bağlam),
   `coach_karne`. 30 gün tutulur.
-- **Yanıt (özet):** `{ day, model, fallback, okuNamadi, warning, usage:{inTok,outTok}, trades:[{id, trade, rules, feedback, noData}] }`.
-  `feedback` alanları: `neYaptin`, `dogruMu`, `dogruAciklama`, `neden`, `birDahakine`, `cikis`, `etiketler`.
+- **Yanıt (özet):** `{ day, model, fallback, okuNamadi, warning, usage:{inTok,outTok}, trades:[{id, trade, rules, report, noData}] }`.
+  `report` (TradeReport, `src/lib/coach/types.ts`): `header` (ticker, strike, C/P, DTE, giriş/çıkış, **brüt ve net P/L** — komisyon kodda
+  hesaplanır: $1,50 / kontrat / yön), `neOldu` (öncesi/sırasında/sonrası + sayılar), `cikis` (✅/⚠️/❌ + neden), `giris` (karar, VWAP
+  uzaklığı, pencere), `strike` (OTM %, beklenen harekete oranı; kural ≈ 0,5), `kacanFirsat` (tutarken/sonra lehe hareket; opsiyon
+  değerleri **tahmini**, Black-Scholes IV %45), `birDahakine` (tam 3 madde), `karne` (3 puan /10 + açıklama).
+  Model yalnız yorum ve karar üretir; sayılar `src/lib/coach/report.ts` + `context.ts` tarafından hesaplanır.
 - **Uygulama:** Menü › **Koç** (`src/screens/Koc.tsx`). Görsel seçici için `expo-image-picker` gerekir; **kurulu değil** (native modül,
   OTA ile eklenemez → dev build). Seçici yokken ekran yükleme düğmesinde açıklama gösterir; liste, geri bildirim ve karne çalışır.
   Seçici eklenince yalnız `src/ui/coachPicker.ts` `pickScreenshot()` doldurulur.
