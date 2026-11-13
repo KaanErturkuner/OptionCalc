@@ -6,7 +6,7 @@
  * DURDU AÇIK. Karşılaştırma varyantı K8 (çıkış/giriş çarpanı, 1:5 = 750 $) yalnızca bilgi amaçlıdır, Kaan tanımı DEĞİL.
  * Kaan kuralı (%50, kademe 30/40/50) değişmez. */
 import { initAccount, openPosition, closePosition, startDay } from './account.ts';
-import type { PaperAccount, PaperSettings, Kademe } from './types.ts';
+import type { PaperAccount, PaperSettings, PaperMode, Kademe } from './types.ts';
 
 /** Mulberry32: tohumlu, tekrarlanabilir PRNG (0..1). */
 export function mulberry32(seed: number): () => number {
@@ -29,13 +29,27 @@ export function targetR(conv: TargetConvention, N = 5): number {
   return conv === 'K8' ? 1.5 * (N - 1) : N;
 }
 
-/** Bir işlemin sonucu: hedefe ulaştı, stop, ya da (zaman/gün sonu vb.) doğrudan R değeri. */
-export type McOutcome = { kind: 'hedef' } | { kind: 'stop' } | { kind: 'diger'; R: number };
+/**
+ * Bir işlemin sonucu: hedefe ulaştı, stop, (zaman/gün sonu vb.) doğrudan R, ya da `coklu`: aynı sinyalin hedef çarpanı başına
+ * gerçekleşen R'si (backtest her N için ayrı koşar: '5', '4', '2', '1.5'). `coklu` varsa MC hesabın o anki moduna göre seçer.
+ */
+export type McOutcome = { kind: 'hedef' } | { kind: 'stop' } | { kind: 'diger'; R: number } | { kind: 'coklu'; byN: Record<string, number> };
 
-/** Sonuç → R. Hedef: seçilen tanımın R'si. Stop: −1R. Diğer: verilen R. */
+/** Hesap modu → hedef çarpanı (§7.1): AGRESIF 1:5 (targetN), güvenli modlar 1:2 (yoksa 1:1,5). */
+export function modeN(mode: PaperMode, N = 5): number {
+  return mode === 'AGRESIF' ? N : mode === 'AGRESIF_4' ? 4 : 2;
+}
+
+/** Sonuç → R. Hedef: seçilen tanımın R'si. Stop: −1R. Diğer: verilen R. Çoklu: N'nin R'si (yoksa en yakın küçük N). */
 export function outcomeR(o: McOutcome, conv: TargetConvention, N = 5): number {
   if (o.kind === 'hedef') return targetR(conv, N);
   if (o.kind === 'stop') return -1;
+  if (o.kind === 'coklu') {
+    const keys = Object.keys(o.byN).map(Number).filter(Number.isFinite).sort((x, y) => y - x);
+    const k = keys.find(x => x <= N) ?? keys[keys.length - 1];
+    if (k == null) throw new Error('MC: coklu sonuçta N yok');
+    return o.byN[String(k)];
+  }
   return o.R;
 }
 
@@ -51,7 +65,7 @@ export interface McOpts {
   fixedKademe?: Kademe;                // yalnız karşılaştırma: kademe sabitlenir (Kaan kuralı değil, bilgi amaçlı)
   fill?: number;                       // giriş primi ($/hisse); varsayılan 0,80
   targetConvention?: TargetConvention; // varsayılan RISK (D12)
-  targetN?: number;                    // hedef çarpanı N (1:N); varsayılan 5
+  targetN?: number;                    // AGRESIF hedef çarpanı N (1:N); varsayılan 5. Güvenli modlarda 1:2 (modeN)
 }
 
 export interface HorizonStats {
@@ -91,12 +105,14 @@ export function runMonteCarlo(days: McOutcome[][], o: McOpts): HorizonStats[] {
         const day = usable[Math.floor(rnd() * usable.length)];
         for (const oc of day) {
           if (acc.mode === 'DURDU') break;
+          // Hedef çarpanı hesabın moduna bağlı (B8): AGRESIF 1:N, güvenli modlarda 1:2 — güvenli modda 5R kazanç sayılmaz.
+          const sigMode = acc.mode as Exclude<PaperMode, 'DURDU'>, n = modeN(sigMode, N);
           const r = openPosition(acc, { id: `mc${p}-${trades}`, ticker: 'MC', setup: 'MC', dir: 'call', expiry: key, dte: 0, strike: 1,
-            fill, stopPrem: fill / 3, targetPrem: fill * 3, targetR: 3, mode: 'AGRESIF', now: d, day: key });
+            fill, stopPrem: fill / 3, targetPrem: exitForR(targetR(conv, n), fill), targetR: n, mode: sigMode, now: d, day: key });
           if (!r.ok) continue;
-          const c = closePosition(r.acc, exitForR(outcomeR(oc, conv, N), fill), 'manuel', d, key);
+          const c = closePosition(r.acc, exitForR(outcomeR(oc, conv, n), fill), 'manuel', d, key);
           if (!c.ok) continue;
-          acc = c.acc;
+          acc = o.fixedKademe ? { ...c.acc, kademe: o.fixedKademe } : c.acc;   // sabit kademe karşılaştırması gün içinde de sabit
           trades++;
           run = acc.trades[acc.trades.length - 1].result === 'kayip' ? run + 1 : 0;
           longest = Math.max(longest, run);

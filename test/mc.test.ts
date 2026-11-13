@@ -1,5 +1,5 @@
 /* Monte Carlo (§9.3, Başkan incelemesi güncellemesi) ve Fırsat geçiş kriterleri (§9.4) testleri. Saf; ağ yok. */
-import { mulberry32, exitForR, runMonteCarlo, targetR, outcomeR, runMcVariants, type McOutcome } from '../src/lib/paper/mc.ts';
+import { mulberry32, exitForR, runMonteCarlo, targetR, outcomeR, runMcVariants, modeN, type McOutcome } from '../src/lib/paper/mc.ts';
 import { FIRSAT_CRITERIA, backtestVerdict, reliable } from '../src/lib/signals/criteria.ts';
 
 let fail = 0;
@@ -72,6 +72,24 @@ ok('çıkış: −1R = stop (fill/3), +1R = fill × 5/3', near(exitForR(-1, 0.8)
   ok('varyant: karşılaştırmalar K8 ve DURDU kapalı içerir', v.some(x => x.targetConvention === 'K8') && v.some(x => !x.durduEnabled));
 }
 ok('MC: boş gün kümesi hata verir', (() => { try { runMonteCarlo([[]], { startCapital: 300, paths: 1, horizons: [1] }); return false; } catch { return true; } })());
+
+// B8 (Başkan): hedef çarpanı hesabın moduna bağlı — güvenli modda hedef 1:2 (2R), 5R sayılmaz
+{
+  const s0 = { commission: 0, slippage: 0 };
+  ok('modeN: AGRESIF 5, AGRESIF_4 4, güvenli 2', modeN('AGRESIF') === 5 && modeN('AGRESIF_4') === 4 && modeN('GUVENLI_ZARAR') === 2 && modeN('GUVENLI_KAR') === 2);
+  ok('coklu: N seçimi ve en yakın küçük N', outcomeR({ kind: 'coklu', byN: { '5': -1, '2': 2, '1.5': 1.5 } }, 'RISK', 5) === -1
+    && outcomeR({ kind: 'coklu', byN: { '5': -1, '2': 2, '1.5': 1.5 } }, 'RISK', 2) === 2
+    && outcomeR({ kind: 'coklu', byN: { '5': -1, '1.5': 1.5 } }, 'RISK', 2) === 1.5);
+  // 10 000 $ (iflas eşiğine takılmasın), fill 1,50, komisyon 0: K → K → güvenli modda hedef 2R: 4888,9 + 0,3 × 4888,9 × 4/3 = 6844,4 (5R olsaydı 9777,8)
+  const r = runMonteCarlo([[LOSS, LOSS, { kind: 'hedef' }]], { startCapital: 10000, paths: 3, horizons: [1], fill: 1.5, settings: s0 });
+  ok('güvenli modda hedef = 2R (5R değil): 10 000 → 6844,4', near(r[0].medianCapital, 6844.44, 0.05), String(r[0].medianCapital));
+  // coklu: güvenli modda '2' kolonu kullanılır (5R kolonu −1 olsa bile)
+  const rc = runMonteCarlo([[LOSS, LOSS, { kind: 'coklu', byN: { '5': -1, '4': -1, '2': 2, '1.5': 1.5 } }]], { startCapital: 10000, paths: 3, horizons: [1], fill: 1.5, settings: s0 });
+  ok('coklu: güvenli modda 1:2 kolonu', near(rc[0].medianCapital, 6844.44, 0.05), String(rc[0].medianCapital));
+  // fixedKademe gün içinde de sabit: 2 kayıp %50 → 1000 × (1 − 0,5 × 2/3)² = 444,4
+  const fk = runMonteCarlo([[LOSS, LOSS]], { startCapital: 1000, paths: 2, horizons: [1], fill: 1.5, settings: s0, fixedKademe: 0.5 });
+  ok('fixedKademe gün içinde sabit (%50, %50)', near(fk[0].medianCapital, 444.44, 0.05), String(fk[0].medianCapital));
+}
 
 // Kriterler (§9.4)
 ok('kriter değerleri: n ≥ 60, beklenti ≥ 0,15R, PF ≥ 1,3', FIRSAT_CRITERIA.minN === 60 && FIRSAT_CRITERIA.minExpR === 0.15 && FIRSAT_CRITERIA.minPF === 1.3);
