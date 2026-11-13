@@ -157,6 +157,7 @@ Türkçe geri bildirim yazar. Eğitim amaçlıdır; tavsiye değildir.
 - **Akış (tek istek):** görüntü → Haiku #1 (işlem çıkarma, JSON) → bağlam: dayanak 1 dk mumu (**Yahoo**, MarketData kredisi YOK),
   seans VWAP, giriş/çıkış çevresi 5 dk mumları, çıkış sonrası hareket (15/30/60 dk, lehe/aleyhe), hacim patlaması, duvar
   anlık görüntüsü (`snap`, poller'dan), akış olayları (SQLite) → Haiku #2 (görüntü + bağlam, koçluk JSON) → SQLite.
+- **Gövde sınırı (Caddy):** `/coach*` **7 MB**, diğer uçlar **8 KB** (`server/Caddyfile`). Tek site sınırı 8 KB görüntüyü 413 ile keserdi (2026-11-14 düzeltildi).
 - **Girdi:** `POST /coach` gövdesi `{ image: <base64>, mime: "image/png" | "image/jpeg", day?: "YYYY-MM-DD" }`. Çözülmüş görüntü en çok **4 MB**
   (gövde sınırı 6 MB); PNG/JPEG imza baytları kontrol edilir. Gün verilmezse bugün (ET); son 7 güne kadar.
 - **Hız sınırı:** günde en çok **20** istek (son 24 sa, `COACH_DAILY_CAP`), iki istek arası en az **10 sn** (`COACH_MIN_GAP_SEC`). Sayaç SQLite'ta (`coach_calls`), yeniden başlatmada sıfırlanmaz.
@@ -187,6 +188,7 @@ Türkçe geri bildirim yazar. Eğitim amaçlıdır; tavsiye değildir.
 - **Uygulama:** Menü › **Koç** (`src/screens/Koc.tsx`). Görsel seçici için `expo-image-picker` gerekir; **kurulu değil** (native modül,
   OTA ile eklenemez → dev build). Seçici yokken ekran yükleme düğmesinde açıklama gösterir; liste, geri bildirim ve karne çalışır.
   Seçici eklenince yalnız `src/ui/coachPicker.ts` `pickScreenshot()` doldurulur.
+- **Log:** her Haiku çağrısı `koç <tür> model=… in=… out=… stop=<stop_reason>` yazar; `stop=max_tokens` = çıktı kesildi.
 - **Yerel kuru test (ağ YOK, ücret YOK):** `npm run flow:selftest` sahte Anthropic/Yahoo ile uçtan uca koçu sınar.
 
 ## Raporlar (zamanlanmış piyasa özetleri)

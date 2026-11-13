@@ -2,6 +2,54 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-14 — Claude — [grok] Koç canlı doğrulama: Caddy 413 düzeltildi, tam rapor üretildi (TASKS #37)
+
+**Sonuç:** koçluk artık kesilmiyor; tam rapor (Başlık · Ne oldu · Çıkış · Giriş · Strike · Kaçan fırsat · Bir dahakine · Karne) doğrulandı, uyarı yok.
+
+**Bulgular:**
+1. **Koç uygulamadan çalışmıyordu (kök neden, kesilme değil):** `server/Caddyfile` tüm siteye `request_body max_size 8KB` koymuştu. Görüntü içeren
+   `POST /coach` (≈ 28 KB+) Caddy'de **413** alıyordu; uygulama hiç sunucuya ulaşamazdı. Canlı denemeler 127.0.0.1:8787'ye doğrudan yapılmıştı, bu yüzden fark edilmemişti.
+   Düzeltme: `/coach*` yolu için **7 MB**, diğer her uç için **8 KB** (`handle` blokları). Droplet'te `caddy validate` geçti.
+2. **Kesilme (önceki iki deneme, max_tokens 2000/3500):** bu oturumun deneyinde, yani "tam öğe sayısı" talimatı ve 3500 sınırı ile koçluk çağrısı
+   yeniden kesilmedi (çıktı 2054 ve 1266 token, `stop=end_turn`). Tek örnekle kesin kök neden kanıtlanmadı; prompt'a dokunulmadı (kanıt yoksa değiştirilmedi).
+   Yeniden kesilme olursa uyarı metnine ve logda `stop=` alanına bakılacak.
+
+**Ne:**
+- `server/Caddyfile`: yola göre gövde sınırı (yukarıda).
+- `server/app/coach.ts`: her Anthropic çağrısının logu `stop=<stop_reason>` alanını yazar (kesilme teşhisi için).
+- `server/app/selftest.ts`: log satırında `stop=` olduğunu sınayan 1 test.
+
+**Canlı testler (sentetik Midas PNG, QQQ 600C, 2026-11-13 18:05 → 18:32 İst; hepsi 127.0.0.1 değil, 2. testte HTTPS):**
+| # | Yol | Sonuç | Çıkarma (in/out) | Koçluk (in/out) | stop |
+|---|---|---|---|---|---|
+| 1 | 127.0.0.1:8787 (önceki kod, max 3500) | 200, uyarı yok | 1235 / 505 | 4438 / 2054 | (log yok; çıktı < sınır) |
+| 2 | HTTPS (düzeltilmiş Caddy + yeni log) | 200, uyarı yok | 1235 / 412 | 4438 / 1266 | end_turn / end_turn |
+
+Ayrıca ücretsiz kontrol (ücret yok): HTTPS'e 28 KB gövde + `image/gif` → önceden 413, şimdi **400** "Yalnız PNG veya JPEG" (uygulamaya ulaşıyor).
+Ücretli çağrı sayısı: **2** (sınır 2). Toplam token: 1. çağrı 5673 in / 2559 out; 2. çağrı 5673 in / 1678 out.
+
+**Doğrulama:** `npm run check` yeşil (exit 0). `deploy.sh` çalıştı; `optioncalc-flow` ve `caddy` active; `/health` 200.
+
+**Rapor (2. test, uygulamanın göstereceği biçim; sayılar kodda):**
+> **Başlık:** QQQ 600 C · 0 DTE · giriş 1,85 · çıkış — (açık) · adet 2 · brüt/net P/L yok (çıkış yok)
+> **Ne oldu:** Giriş öncesi 15 dk referans 682,14; girişte 679,73. Giriş 18:05, 16:30–20:00 penceresi içinde, VWAP'a −%0,75.
+> Tutma aralığı (en yüksek/en düşük) ve çıkış sonrası hareket: henüz hesaplanmadı (pozisyon açık).
+> **Çıkış: ❔ Belirsiz** — Pozisyon açık, çıkış fiyatı yok. Stop 0,61, hedef 8,05 kurala göre takip edilmeli.
+> **Giriş: ✅ İyi** — Pencere içinde, VWAP'a yakın (−0,751). Kovalama belirtisi yok.
+> **Strike: ⚠️ Uzak** — OTM %11,73; otmPerEm 4,56 (kural ≈ 0,5 çok üzerinde).
+> **Kaçan fırsat (tahmini):** pozisyon açık; hesaplanamadı.
+> **Bir dahakine:**
+> 1. Stop seviyesini (0,61) girişten hemen sonra broker ekranında kaydet.
+> 2. Strike'ı beklenen hareketin yarısına yaklaştırarak OTM mesafesini hesapla.
+> 3. Çıkış kararını önceden yaz: stop, hedef ve ters dönüş koşulları.
+> **Karne (/10):** disiplin çıkış 5 · giriş zamanlaması 8 · strike 3
+> Veri eksik: duvar anlık görüntüsü; akış olayları.
+
+**Açık / dikkat:**
+- **Çıkarma çıkış fiyatını okumadı:** sentetik görüntüde "Çıkış $ 2.40" var ama model `exitPrice: null`, `status: acik` döndü. Rapor bu yüzden "açık" yazdı. Gerçek Midas ekranında doğrulanmalı; gerekirse çıkarma prompt'u/örnek ekran güncellenir (ayrı görev, ücretli test gerekir).
+- Koç görüntü yüklemesi uygulamada hâlâ **dev build** gerektirir (`expo-image-picker` — #37 engeli 2).
+- Prompt değişmedi; tek başarılı çalıştırmadan "kesilme düzeldi" kesin kanıt sayılmaz. Uzun çıktı tekrarlanırsa `stop=max_tokens` logu görülecek.
+
 ## 2026-11-14 — Claude — [grok] Koç: çoklu görsel seçici (expo-image-picker) (TASKS #37)
 
 - **Ne:** `expo-image-picker` kuruldu (`~58.0.10`, SDK 58 `bundledNativeModules` ile aynı). `src/ui/coachPicker.ts`: izin → çoklu seçim (en çok 5, JPEG base64, quality 0.7) → `checkImage` ile 4 MB + sihirli bayt denetimi; native modül yoksa Türkçe mesaj (çökme yok, dinamik import). Koç ekranı: görüntüleri sırayla `POST /coach` ile yükler, ilerleme (`n/N`), görüntü başına hata, atlananlar ve özet.

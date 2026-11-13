@@ -1,9 +1,21 @@
 # Caddy: otomatik Let's Encrypt (80 yalnız ACME/yönlendirme, 443 HTTPS). Uygulama yalnızca 127.0.0.1:8787'de dinler.
+# Gövde sınırı yola göre: /coach (görüntü base64 ≈ 5,6 MB'a kadar) 7 MB; diğer tüm uçlar 8 KB.
+# (Önceki sürüm tüm siteye 8 KB koydu → Koç görüntü yüklemesi Caddy'de 413 alıyordu.)
 162-243-88-42.sslip.io {
 	encode gzip
-	reverse_proxy 127.0.0.1:8787
 	header -Server
-	request_body {
-		max_size 8KB
+
+	handle /coach* {
+		request_body {
+			max_size 7MB
+		}
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	handle {
+		request_body {
+			max_size 8KB
+		}
+		reverse_proxy 127.0.0.1:8787
 	}
 }

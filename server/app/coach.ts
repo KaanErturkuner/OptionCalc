@@ -95,10 +95,10 @@ export class CoachClient {
     return { text: p.text, inTok: p.inTokens, outTok: p.outTokens, stopReason: p.stopReason };
   }
 
-  private logCall(kind: CoachKind, day: string, model: string, r: { inTok: number; outTok: number } | null, fallback: boolean, t0: number, err: string | null) {
+  private logCall(kind: CoachKind, day: string, model: string, r: { inTok: number; outTok: number; stopReason?: string | null } | null, fallback: boolean, t0: number, err: string | null) {
     const ms = this.now() - t0;
     this.d.store.coachLog({ ts: this.now(), day, kind, model, inTok: r?.inTok ?? 0, outTok: r?.outTok ?? 0, ok: !!r && !err, fallback, ms, err: err ? err.slice(0, 200) : null });
-    this.log(`koç ${kind} model=${model}${fallback ? ' (yedek)' : ''} in=${r?.inTok ?? 0} out=${r?.outTok ?? 0} ${ms}ms${err ? ' HATA: ' + err.slice(0, 120) : ''}`);
+    this.log(`koç ${kind} model=${model}${fallback ? ' (yedek)' : ''} in=${r?.inTok ?? 0} out=${r?.outTok ?? 0} stop=${r?.stopReason ?? '?'} ${ms}ms${err ? ' HATA: ' + err.slice(0, 120) : ''}`);
   }
 }
 

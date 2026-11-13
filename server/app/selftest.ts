@@ -146,6 +146,7 @@ async function coachSelftest() {
   const dump = JSON.stringify(r) + logs.join('\n');
   ok('koç: anahtar ne yanıtta ne logda', !dump.includes(KEY) && !dump.includes('SELFTEST'));
   ok('koç: max_tokens sınırları (900 / 3500)', calls[0].maxTokens === 900 && calls[1].maxTokens === 3500);
+  ok('koç: çağrı logu durma nedenini (stop=) yazar', logs.some(m => m.includes('coach') && m.includes('stop=end_turn')), logs.join(' | '));
 
   // Hız sınırı: aynı anda ikinci istek 429
   try { await coach.coachImage({ image: png, mime: 'image/png', day: DAY }); ok('koç: 10 sn içinde ikinci istek reddedilmeli', false); }
