@@ -166,7 +166,9 @@ Türkçe geri bildirim yazar. Eğitim amaçlıdır; tavsiye değildir.
   reddedilirse (404 / not_found / model hatası) kullanılır; her yedek kullanımı `KOÇ UYARI` olarak loglanır ve çağrı kaydında `fallback=1` olur.
   Yedek tanımsızsa açık hata döner (sessiz geçiş yok).
 - **Anahtar:** `/etc/optioncalc-flow/anthropic_key` (root, 600), systemd `LoadCredential=anthropic_key`. Ortam değişkeni olarak görünmez; loglarda
-  ve yanıtlarda yer almaz. Dosya yoksa koç `503 Koç yapılandırılmadı` döner (diğer uç noktalar çalışır).
+  ve yanıtlarda yer almaz. Dosya **boşsa** (yer tutucu) koç `503 Koç yapılandırılmadı` döner; diğer uç noktalar çalışır.
+  **Dikkat:** `LoadCredential` kaynak dosyası yoksa systemd servisi başlatmaz (`status=243/CREDENTIALS`, 2026-11-13 deneminde yaşandı).
+  `server/deploy.sh` boş, root 600 yer tutucuyu idempotent oluşturur.
   Kopyalama (anahtar ekrana basılmadan; yerelde `ANTHROPIC_API_KEY` tanımlı olmalı):
   ```bash
   printf '%s' "$ANTHROPIC_API_KEY" | ssh -i ~/.ssh/do_flow root@162.243.88.42 'umask 077; cat > /etc/optioncalc-flow/anthropic_key'

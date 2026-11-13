@@ -29,6 +29,9 @@ chown -R root:root /opt/optioncalc-flow
 chmod -R a+rX,go-w /opt/optioncalc-flow
 install -m 644 /opt/optioncalc-flow/optioncalc-flow.service /etc/systemd/system/optioncalc-flow.service
 if [ -f /opt/optioncalc-flow/Caddyfile ]; then install -m 644 /opt/optioncalc-flow/Caddyfile /etc/caddy/Caddyfile; fi
+# LoadCredential: kaynak dosya yoksa systemd servisi başlatmaz (status=243). Koç anahtarı henüz yoksa boş, root 600 yer tutucu.
+test -e /etc/optioncalc-flow/anthropic_key || (umask 077; : > /etc/optioncalc-flow/anthropic_key)
+chmod 600 /etc/optioncalc-flow/anthropic_key
 systemctl daemon-reload
 systemctl enable optioncalc-flow >/dev/null 2>&1 || true
 systemctl restart optioncalc-flow
