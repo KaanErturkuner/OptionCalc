@@ -319,8 +319,8 @@ P_giriş  = ask + kayma                        (kayma varsayılan 0,01 $; ayarla
 P_stop   = Amerikan fiyat(dayanak = stop seviyesi, kalan süre = t_şimdi + τ_stop, IV = ivAt(smile, K) × iv_stop_çarpanı) − yarım spread
 P_hedef  = Amerikan fiyat(dayanak = hedef seviyesi, kalan süre = t_şimdi + τ_hedef, IV = ivAt(smile, K) × iv_hedef_çarpanı) − yarım spread
 Risk (R) = P_giriş − max(P_stop, P_giriş × (1 − primStopMaks)) + 2 × komisyon / 100
-Ödül     = P_hedef − P_giriş − 2 × komisyon / 100
-RR       = Ödül / Risk                      (komisyon kontrat başına, açılış + kapanış; varsayılan 1,50 $ → kontrat başına prim cinsinden 0,03 $)
+RR       = (P_hedef − komisyon/100) / (P_giriş + komisyon/100)     ← K8 (Kaan onayı 2026-11-13): 1:N = çıkış primi / giriş primi = N
+           (komisyon kontrat başına, açılışta ve kapanışta ayrı; 1,50 $ → prim cinsinden 0,015 $ her uçta)
 ```
 - `americanPrice(type, S, K, T, r, q, sigma, divs, FAST_STEPS)` kullanılır (`src/lib/american.ts`). r = 0,04 (backtest ile aynı sabit).
 - **Zaman varsayımı:** `τ_stop = 15 dk`; `τ_hedef` = hedefe varış süresi tahmini = kalan seans × (gereken hareket / kalan beklenen hareket)², [20 dk, kalan seans] aralığına kırpılır.
@@ -330,7 +330,7 @@ RR       = Ödül / Risk                      (komisyon kontrat başına, açıl
 - **Prim stop tavanı** `primStopMaks` **%67** (Kaan onayladı, 2026-11-13) (Kaan'ın örneği: 150 → 50, yani prim üçte birine düşünce kapanış). Asıl stop **dayanak seviyesidir**;
   prim tavanı yalnızca hızlı çöküşte (gap, IV düşüşü) devreye girer. Bu iki stoptan hangisi önce gelirse.
 - **Kaan'ın örneğiyle tutarlılık (birim testi, komisyon 0 ayarıyla):** pozisyon 150, prim stopu %67 → R = 100. "1:3'te çıktık" = +300 → pozisyon 450, toplam 600. ✔
-  1:5 hedef = +500 → pozisyon 650 (prim ≈ 4,33 katı).
+  1:5 (K8) = çıkış 750 → kazanç +600 (= 6R). 1:3 = çıkış 450 → +300 (= 3R). Zarar: 150 → 50 (−100 = −1R).
 - **Strike seçimi:** ATM'den profilin OTM uzaklığına (`d = k × EM_vade`, §4.2.1) kadar olan **OTM** strike'lar taranır; her biri için RR ve skor hesaplanır.
   Delta 0,15–0,50 arası, likidite filtresinden geçen ve mod alt sınırını sağlayanlar arasından **önce skor, sonra RR** en yüksek olan seçilir.
   Kartta ayrıca "uzaklık kuralı strike'ı" (`d` noktası, k kaynağıyla: çapa / oto / başlangıç) ve onun RR'ı gösterilir, fark açıkça yazılır.
@@ -475,7 +475,7 @@ Kurallar (Kaan'ın "1:3'teyken risk artarsa uyar ve çıkar" isteği):
 - **Kademe** (50/40/30) gün geçişinde **taşınır** (Kaan kararı, 2026-11-13); düşüşten çıkış yalnızca kazançla, adım adım olur (§7.2).
 - Gece taşınan pozisyonun sonucu, **kapandığı günün** sayaçlarına yazılır (ör. ertesi sabah gap stopuyla kapanırsa o günün ilk kaybıdır).
 - **Kazanç / kayıp tanımı:** maliyetler sonrası net K/Z. |net K/Z| < pozisyonun %2'si ise "başabaş", sayaçları değiştirmez (varsayılan).
-- **`DURDU` (öneri, Kaan onayı):** güvenli modda üst üste 2 kayıp daha, veya gün içi düşüş gün başı sermayesinin %50'si. Kaan istemezse kapatılabilir ayardır.
+- **`DURDU` (K9, Kaan kararı 2026-11-13): varsayılan KAPALI.** Ayardan açılabilir: güvenli modda üst üste 2 kayıp daha, veya gün içi düşüş gün başı sermayesinin %50'si.
 
 ### 7.5 Maliyet ve dolum modeli (`costs.ts`)
 - Komisyon: kontrat başına, **açılışta ve kapanışta ayrı ayrı** uygulanır; varsayılan **Midas 1,50 $** (Kaan bildirdi, 2026-11-13).
@@ -630,9 +630,11 @@ Radar ve 0DTE ekranları değişmeden çalışır; `npm run check` geçer.
 | K6 | NVDA/GLD/SLV OTM uzaklığı | Sistem oynaklıktan seçer: `d = k × EM_vade`, ticker başına oto k (60 günlük trend günü uzanması, IV rank düzeltmesi, kMin/kMax); MU/INTC/QQQ çapaları sabit | §4.2, §4.2.1, §6.1 |
 | K7 | Komisyon | Midas 1,50 $/kontrat, açılışta ve kapanışta ayrı; ayardan değiştirilebilir | §6.1, §7.2, §7.5, §9 |
 | K0 | Pozisyon boyutu | Azami %50, kademeler %50/40/30 (Kaan'ın bilinçli tercihi, ilk mesajdan) | §0, §7.2 |
+| K8 | 1:N tanımı | 1:N = çıkış primi / giriş primi = N. 150 ile gir, 750 ile çık = 1:5; zarar 150 → 50 (−%67, −100 = −1R). RR bu çarpandır (eski "kazanç/risk" tanımı değil) | §6.1 (RR), §7.1 modları |
+| K9 | DURDU kuralları | Varsayılan kapalı. Ör.3 (iki kayıp, GUVENLI_ZARAR ile devam) Kaan'ın sözüdür ve birebir çalışır. Ayardan açılabilir | §7.4, §11.2 #1 |
 
 ### 11.2 Açık (Kaan'ın cevabı bekleniyor; Claude varsayılanla uygular, tek sabit/ayarla değiştirilebilir bırakır)
-1. **`DURDU` kuralı:** güvenli modda üst üste 2 kayıp daha veya gün içi düşüş gün başı sermayesinin %50'si olunca gün kapansın mı? (varsayılan: açık, ayardan kapatılabilir)
+1. ~~`DURDU` kuralı~~ → **K9 ile kapatıldı** (varsayılan kapalı, §11.1).
 2. **Giriş penceresi, kış saati:** ET 09:45–13:00 olarak tutuluyor (kışın İstanbul 17:45–21:00, yazın 16:45–20:00). Kaan'ın "16:30–20:00" alışkanlığı yaz saatine göre;
    kışın pencere bir saat kaysın mı (ET sabit, varsayılan) yoksa İstanbul saati mi sabit kalsın?
 3. **1 kontrat / kesirli simülasyon:** varsayılan kesirli kontrat kapalı (gerçekçi; 300 $ sermayeyle 150 $ bütçe, ≤ 1,48 $ primli kontrat demek). Kaan sermaye yetmediğinde

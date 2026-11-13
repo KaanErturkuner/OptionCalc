@@ -26,7 +26,8 @@ export type SignalMode = Exclude<PaperMode, 'DURDU'>;
 
 export function initAccount(startCapital: number, over: Partial<PaperSettings> = {}, day = ''): PaperAccount {
   const settings: PaperSettings = {
-    startCapital, fractional: false, commission: DEFAULT_COMMISSION, slippage: DEFAULT_SLIPPAGE, durduEnabled: true, ...over,
+    // DURDU varsayılan KAPALI (Kaan kararı 2026-11-13, §11.1 K9). Ayar olarak açılabilir.
+    startCapital, fractional: false, commission: DEFAULT_COMMISSION, slippage: DEFAULT_SLIPPAGE, durduEnabled: false, ...over,
   };
   return {
     capital: startCapital, kademe: START_KADEME, mode: 'AGRESIF', winStreak: 0, lossStreak: 0,

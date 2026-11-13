@@ -68,7 +68,7 @@ export interface PaperSettings {
   fractional: boolean;       // kesirli kontrat simülasyonu (varsayılan kapalı, §11.2 #3)
   commission: number;        // kontrat başına ($), açılış ve kapanışta ayrı (Midas 1,50)
   slippage: number;          // $ (giriş ask + kayma, çıkış bid − kayma)
-  durduEnabled: boolean;     // §11.2 #1 (varsayılan açık)
+  durduEnabled: boolean;     // DURDU kuralları (varsayılan kapalı, Kaan K9)
 }
 
 /** Hesabın tamamı (durum makinesi girdisi/çıktısı). */

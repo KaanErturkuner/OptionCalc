@@ -22,7 +22,7 @@ function openKaan(acc: PaperAccount, fill: number, rr: number, mode: 'AGRESIF' |
   const stop = fill / 3;
   const rPrice = fill - stop;
   return must(openPosition(acc, { id: 'k', ticker: 'QQQ', setup: 'S1', dir: 'call', expiry: day, dte: 0, strike: 100,
-    fill, stopPrem: stop, targetPrem: fill + rr * rPrice, targetR: rr, mode, now: 0, day }));
+    fill, stopPrem: stop, targetPrem: rr * fill, targetR: rr, mode, now: 0, day }));   // 1:N = çıkış/giriş = N (K8)
 }
 const must = (r: { ok: boolean; reason?: string; acc?: PaperAccount }): PaperAccount => {
   if (!r.ok || !r.acc) throw new Error('beklenmeyen red: ' + (r as any).reason);
@@ -68,7 +68,7 @@ const closeAt = (acc: PaperAccount, exit: number, reason: 'stop' | 'hedef' | 'ri
   ok('ör.3: mod GUVENLI_ZARAR', acc.mode === 'GUVENLI_ZARAR', acc.mode);
   ok('ör.3: sermaye 146,67 (80 × 2/3 kayıp)', near(acc.capital, 200 - 80 * 2 / 3, 1e-6), String(acc.capital));
   // Aynı sayılar, DURDU varsayılanı açıkken: gün içi düşüş 153 ≥ 150 → DURDU (çelişki belgelendi)
-  let on = openKaan(initAccount(300, NOCOST, D), 1, 3);
+  let on = openKaan(initAccount(300, { ...NOCOST, durduEnabled: true }, D), 1, 3);
   on = closeAt(on, 1 / 3, 'stop');
   on = closeAt(openKaan(on, 1, 3), 1 / 3, 'stop');
   ok('ör.3 (DURDU açık): gün içi %51 düşüş → DURDU (Başkan kararı bekleniyor)', on.mode === 'DURDU', on.mode);
@@ -140,10 +140,13 @@ ok('kademe: başabaş değişmez', kademeAfter(0.4, 'basabas') === 0.4);
 
 // ============ §6.1 Kaan'ın R / hedef örnekleri ============
 {
+  // K8 (onaylı): 1:N = çıkış primi / giriş primi. 150 ile gir, 750 ile çık → kazanç 600 (= 6R; R = 100).
   const acc = openKaan(initAccount(300, NOCOST, D), 1, 5);
-  const c = closeAt(acc, 1 + 5 * (2 / 3), 'hedef');
-  ok('§6.1: 1:5 hedef = +500', near(c.trades[0].netPnl, 500), String(c.trades[0].netPnl));
-  ok('§6.1: 1:5 pozisyon 650 (prim ≈ 4,33 katı)', near(c.capital, 800) && Math.abs((1 + 5 * (2 / 3)) / 1 - 4.33) < 0.01);
+  const c = closeAt(acc, 5, 'hedef');
+  ok('K8: 1:5 hedef: 150 → 750, kazanç +600', near(c.trades[0].netPnl, 600), String(c.trades[0].netPnl));
+  ok('K8: 1:5 kazanç = 6R (R = 100)', near(c.trades[0].rMultiple, 6, 1e-6), String(c.trades[0].rMultiple));
+  ok('K8: sermaye 300 → 900', near(c.capital, 900), String(c.capital));
+  ok('K8: zarar 150 → 50 (−100 = −1R)', near(closeAt(openKaan(initAccount(300, NOCOST, D), 1, 5), 1 / 3, 'stop').trades[0].netPnl, -100));
 }
 
 // ============ Komisyon ve maliyet ============
@@ -196,7 +199,7 @@ for (const [name, prev, over, exp] of table) {
 }
 // DURDU: 4 kayıp → yeni pozisyon açılmaz
 {
-  let acc = initAccount(300, NOCOST, D);
+  let acc = initAccount(300, { ...NOCOST, durduEnabled: true }, D);
   // küçük kayıplar (%10 prim düşüşü): gün içi düşüş kuralını tetiklemeden 4 üst üste kayıp
   for (let i = 0; i < 4; i++) acc = closeAt(openKaan(acc, 1, 3), 0.9, 'stop');
   ok('DURDU: 4 üst üste kayıp → mod DURDU', acc.mode === 'DURDU', acc.mode);
@@ -206,7 +209,7 @@ for (const [name, prev, over, exp] of table) {
 ok('tek açık pozisyon kuralı', (() => { const a = openKaan(initAccount(300, NOCOST, D), 1, 3); const r = openPosition(a, { id: 'y', ticker: 'QQQ', setup: 'S1', dir: 'call', expiry: D, dte: 0, strike: 1, fill: 1, stopPrem: 0.3, targetPrem: 3, targetR: 3, mode: 'AGRESIF', now: 0, day: D }); return !r.ok && r.reason === 'açık pozisyon var'; })());
 // Gün içi %50 düşüş (iki kayıp, komisyon 0): DURDU önceliği
 {
-  let acc = initAccount(300, NOCOST, D);
+  let acc = initAccount(300, { ...NOCOST, durduEnabled: true }, D);
   acc = closeAt(openKaan(acc, 1, 3), 1 / 3, 'stop');     // −100 → 200
   acc = closeAt(openKaan(acc, 1, 3), 1 / 3, 'stop');     // −53,3 → gün içi düşüş 153,3 ≥ 150
   ok('DURDU: gün içi düşüş ≥ %50 (öncelik DURDU > GUVENLI_ZARAR)', acc.mode === 'DURDU', acc.mode);
@@ -218,6 +221,13 @@ ok('1:4,2 → AGRESIF_4 (1:5 yoksa)', signalModeFor('AGRESIF', 4.2) === 'AGRESIF
 ok('1:3 → yok (Agresif modda giriş yok)', signalModeFor('AGRESIF', 3) === null);
 ok('güvenli: 1:2 ve 1:1,5 kabul', signalModeFor('GUVENLI_KAR', 1.6) === 'GUVENLI_KAR' && signalModeFor('GUVENLI_ZARAR', 2.1) === 'GUVENLI_ZARAR');
 ok('DURDU: hiçbir sinyal', signalModeFor('DURDU', 9) === null);
+// K9 (onaylı): DURDU varsayılan kapalı; aynı 4 küçük kayıp varsayılanda DURDU'ya değil GUVENLI_ZARAR'a gider.
+{
+  let acc = initAccount(300, NOCOST, D);
+  for (let i = 0; i < 4; i++) acc = closeAt(openKaan(acc, 1, 3), 0.9, 'stop');
+  ok('K9: DURDU varsayılan kapalı (ayar)', initAccount(300).settings.durduEnabled === false);
+  ok('K9: varsayılanda 4 kayıp → GUVENLI_ZARAR (DURDU değil)', acc.mode === 'GUVENLI_ZARAR', acc.mode);
+}
 ok('skor eşiği: AGRESIF 65', eligibility('AGRESIF', 5, 64).ok === false && eligibility('AGRESIF', 5, 65).ok === true);
 ok('skor eşiği: GUVENLI_ZARAR 75', eligibility('GUVENLI_ZARAR', 2, 74).ok === false && eligibility('GUVENLI_ZARAR', 2, 75).ok === true);
 ok('min RR/skor tablosu: AGRESIF 5/65, GUVENLI_ZARAR 1,5/75', MODE_RULES.AGRESIF.minRR === 5 && MODE_RULES.GUVENLI_ZARAR.minScore === 75 && MODE_RULES.GUVENLI_ZARAR.minRR === 1.5);

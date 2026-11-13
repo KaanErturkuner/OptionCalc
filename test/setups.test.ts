@@ -84,6 +84,11 @@ const rrIn = { type: 'call' as const, S: 100, K: 100, T0: 1 / 252, sigma: 0.3, b
 const r0 = optionRR({ ...rrIn, commission: 0 }, stubPricer);
 ok('RR: risk = giriş − max(stop, giriş×0,33) (komisyon 0)', near(r0.risk, 1 - Math.max(r0.primStop, 0.33), 1e-9) && r0.valid, JSON.stringify(r0));
 ok('RR: 1:4 üstü (stub, komisyon 0)', r0.rr > 4, String(r0.rr));
+// K8 (onaylı): RR = çıkış primi / giriş primi. Sabit fiyatlayıcı: hedefte 5, stopta 0,333, giriş 1 → 1:5 tam.
+const exact = (c: number) => optionRR({ ...rrIn, commission: c, und: { entry: 100, stop: 98, target: 104 } },
+  (_t, S) => (S >= 104 ? 5 : S <= 98 ? 0.333 : 1));
+ok('K8: 1:5 = çıkış/giriş = 5 (komisyon 0)', near(exact(0).rr, 5, 1e-9), String(exact(0).rr));
+ok('K8: komisyon 1,50 $ ile 1:5 altına düşer (iki uçta)', exact(1.5).rr < 5 && exact(1.5).rr > 4.9, String(exact(1.5).rr));
 const r1 = optionRR({ ...rrIn, commission: 1.5 }, stubPricer);
 ok('RR: komisyon RR’ı düşürür', r1.rr < r0.rr, `${r1.rr} vs ${r0.rr}`);
 const cheap0 = optionRR({ ...rrIn, bid: 0.25, ask: 0.25, commission: 0 }, stubPricer), cheap1 = optionRR({ ...rrIn, bid: 0.25, ask: 0.25, commission: 1.5 }, stubPricer);
