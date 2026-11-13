@@ -35,6 +35,7 @@ Kurallar: `AGENTS.md` §9. Bir görevi alırken `Sahip` = Grok/Claude, `Durum` =
 | 27 | SINYAL-FIRSAT Aşama 7: sunucu tarayıcı + anlık bildirim (Telegram/ntfy/Expo push), tek MarketData tüketicisi | Claude | blocked | P3 | §10 — Kaan onayı olmadan başlanmaz (otomasyon); #12, #14, #16 ile birleşir |
 | 28 | SINYAL-FIRSAT §11.2 açık sorular: DURDU kuralı, kış saatinde giriş penceresi kayması, 1 kontrat / kesirli kâğıt simülasyonu, NBIS/GLW sektörü (SMH mi QQQ mu) | Kaan | todo | P2 | Claude varsayılanla uygular (§11.2); Kaan'ın 2026-11-13 cevapları D8'de. Aşama 4 ek çelişki: ör.3 (iki kayıp) ↔ gün içi %50 DURDU (%51) — handoff asama-4 madde 1 |
 | 29 | QULLAMAGGIE: Qullamaggie setupları (Q1/Q1S/Q2/Q3, 0–3 DTE uyarlaması), günlük bağlam, Fırsat ekranı ayarları, çıkış uyarlamaları (kapalı), çevrimdışı backtest (6 ticker, MU/INTC dâhil) | Claude | done | P1 | Uygulama ve backtest tamam (2026-11-13). Sonuç: kriter geçen yok, 13 OOS işlem (hepsi kayıp), yetersiz örneklem. Kaan kararları rapor §Kaan'a sorular | `docs/tasks/QULLAMAGGIE.md`; Q setupları kâğıda uygun değil (Q_PAPER_ELIGIBLE boş); sonuç `docs/reports/qullamaggie-backtest.md`; Kaan kararları §8 |
+| 30 | Veri tazelik göstergesi: saf store (`lib/freshness.ts`) + UI hap/detay (Sinyal/0DTE, Fırsat, Radar); kaynaklar md-options / quotes / news; piyasa kapalı (erken kapanış dahil), MD 15 dk notu, mesaj temizleme | Claude | done | P2 | Yeni bağımlılık yok; test `test/freshness.test.ts`. Açık: görsel Expo testi (hap/modal), eşik kalibrasyonu |
 
 ## Bitti
 | # | Görev | Sahip | Tarih |

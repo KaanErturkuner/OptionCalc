@@ -2,6 +2,29 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-13 — Claude — [claude] Veri tazelik göstergesi (TASKS #30)
+
+**Ne:**
+- **Saf çekirdek** `src/lib/freshness.ts`: üç kaynak — `md-options` (MarketData zincir/quote), `quotes` (hisse fiyatı / 1 dk bar; sağlayıcı kaydı: marketdata/yahoo/cboe/tradier), `news` (Radar: yahoo/sec/finnhub). Durumlar: kapalı (gri), hata (kırmızı), güncel (yeşil), gecikmeli (sarı), kullanılmıyor (dışlanır). Genel durum = en kötüsü. Tolerans = max(2 × aralık, 2 dk); haber için 15 dk.
+- **Piyasa takvimi** `usmarket.ts`: yeni `sessionCloseMs` / `isSessionOpenNow` (erken kapanış 13:00 ET: Şükran ertesi, 3 Temmuz, 24 Aralık — yalnız işlem günüyse). `closeMs` / `marketOpen` / backtest DEĞİŞMEDİ.
+- **Kapalı piyasa:** tüm kaynaklar gri (Radar haberleri de seans içinde çekildiği için). Son başarı ve son hata detayda görünür.
+- **MarketData hisse verisi:** `quotes` + sağlayıcı `marketdata` → "gecikmeli (15 dk)" notu; sarı/kırmızı yalnız gerçek hatada ya da 15 dk payı da aşılınca.
+- **Mesaj temizleme:** URL query atılır; Authorization / Bearer / token= / apikey= değerleri, kayıtlı ve ortam tokenları, 32+ karakterlik token benzeri dizgiler maskelenir; ≤ 160 karakter. Bildirimler asla fırlatmaz.
+- **Bildirim noktaları:** `market/index.ts` `loadSymbol` (her sağlayıcı denemesi; MarketData bayat yanıtı = hata), `loadChain` (yalnız MarketData), `market/bars.ts` `loadBars` (Yahoo / MarketData), `news/index.ts` `NewsHub.poll` (kısmi başarı = güncel; tümü başarısız = hata).
+- **Beklenen aralık:** sahip başına (`odte`, `firsat`, `radar`); etkin = en kısa aktif sahip. Tarama kapalıysa sahip kaldırılır.
+- **UI:** `src/ui/freshnessStore.ts` (useSyncExternalStore, 20 sn'de bir yeniden hesap), `src/ui/FreshnessPill.tsx` (hap + RN Modal: kaynak, sağlayıcı, son başarı/hata İstanbul saatiyle, sonraki yenileme, renk açıklaması). Hap: 0DTE, Fırsat, Radar başlıkları.
+- Yeni bağımlılık YOK. Token yazdırılmıyor; testler ağsız (fetch sahte).
+
+**Dosyalar:** `src/lib/freshness.ts` (yeni), `src/ui/freshnessStore.ts` (yeni), `src/ui/FreshnessPill.tsx` (yeni), `test/freshness.test.ts` (yeni, npm test zincirinde), `src/lib/usmarket.ts` (ekleme), `src/lib/market/{index,bars}.ts`, `src/lib/news/index.ts`, `src/app/index.tsx`, `src/screens/{Odte,Firsat,Radar}.tsx`, `docs/TASKS.md`.
+
+**Doğrulama:** `npm run check` geçti (testler, typecheck, lint, bt:selftest). Tazelik testi: durum geçişleri, hafta sonu / tatil / 13:05 ET erken kapanış, MD 15 dk notu, en kötü birleşim, mesaj temizleme (token, query, ≤160), reportFail'in fırlatmaması, sahte-401 ile loadSymbol bildirimleri ve token sızıntısı yok.
+
+**Açık / Kaan'a sorular:**
+- Görsel test yok: hap ve modal Expo Go'da henüz görülmedi (cihazda kontrol gerekli).
+- MarketData hisse verisinde 15 dk payı aşılırsa sarı yapılıyor (yorum: "kırmızı/sarı yok" isteğinin yorumu). Yalnız "hiç yellow olmasın" istenirse tek satır değişir.
+- Beklenen aralık sahipleri ekran başına; Odte ve Fırsat aynı `quotes` kaynağını farklı aralıkla tarar, etkin aralık en kısa olan olur.
+- Yahoo fiyatlarının gecikmesi bilinmiyor → not düşülmedi (AGENTS: iddia etme).
+
 ## 2026-11-13 — Claude — [claude] QULLAMAGGIE: Q1/Q1S/Q2/Q3 setupları, Fırsat ayarları, çevrimdışı backtest (Kaan onayı yok)
 
 **Ne:**
