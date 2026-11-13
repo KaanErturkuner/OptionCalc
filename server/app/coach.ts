@@ -14,7 +14,8 @@ import { buildTradeContext, type FlowLite, type WallsLite } from '../../src/lib/
 import { parseYahooBars, type Bar } from '../../src/lib/coach/bars.ts';
 import { COACH_SYSTEM, coachUserText, EXTRACT_SYSTEM, extractUserText, KARNE_SYSTEM, karneUserText } from '../../src/lib/coach/prompt.ts';
 import { parseJsonLoose, validateCoach, validateExtract, validateKarne } from '../../src/lib/coach/validate.ts';
-import type { ExtractedTrade, TradeFeedback } from '../../src/lib/coach/types.ts';
+import type { ExtractedTrade, ModelFeedback, TradeReport } from '../../src/lib/coach/types.ts';
+import { buildReport } from '../../src/lib/coach/report.ts';
 import type { Config } from './config.ts';
 import type { Store } from './store.ts';
 import { errText } from './poller.ts';
@@ -112,7 +113,7 @@ export async function fetchBars1m(sym: string, f: Fetch = fetch): Promise<Bar[]>
 
 export interface CoachedOut {
   day: string; model: string; fallback: boolean; okuNamadi: string | null; warning: string | null; usage: { inTok: number; outTok: number };
-  trades: { id: number; trade: ExtractedTrade; rules: unknown; feedback: TradeFeedback | null; noData: string[] }[];
+  trades: { id: number; trade: ExtractedTrade; rules: unknown; report: TradeReport | null; noData: string[] }[];
 }
 
 export class Coach {
@@ -160,15 +161,17 @@ export class Coach {
     const co = await this.client.call('coach', day, COACH_SYSTEM, [imgBlock, { type: 'text', text: coachUserText(items) }]);
     const coJson = parseJsonLoose(co.text);
     const coV = coJson.ok ? validateCoach(coJson.value, trades.length) : { ok: false as const, error: coJson.error };
-    const feedbacks: (TradeFeedback | null)[] = coV.ok ? coV.value : trades.map(() => null);
+    const feedbacks: (ModelFeedback | null)[] = coV.ok ? coV.value : trades.map(() => null);
     const warning = coV.ok ? null : `Koçluk yanıtı doğrulanamadı: ${coV.error}`;
     if (!coV.ok) this.log('KOÇ UYARI: koçluk çıktısı doğrulanamadı: ' + coV.error);
 
-    // (4) Kayıt
+    // (4) Rapor (sayılar kodda, yorum modelde) ve kayıt
     const out: CoachedOut['trades'] = [];
     for (let i = 0; i < trades.length; i++) {
-      const id = this.d.store.coachAddTrade({ ts: t, day, trade: trades[i], rules: ctxs[i].rules, feedback: feedbacks[i], context: ctxs[i].facts, model: co.model });
-      out.push({ id, trade: trades[i], rules: ctxs[i].rules, feedback: feedbacks[i], noData: ctxs[i].noData });
+      const fb = feedbacks[i];
+      const report = fb ? buildReport({ trade: trades[i], nums: ctxs[i].nums, rules: ctxs[i].rules, noData: ctxs[i].noData, model: co.model, feedback: fb }) : null;
+      const id = this.d.store.coachAddTrade({ ts: t, day, trade: trades[i], rules: ctxs[i].rules, feedback: report, context: ctxs[i].facts, model: co.model });
+      out.push({ id, trade: trades[i], rules: ctxs[i].rules, report, noData: ctxs[i].noData });
     }
     this.d.store.coachPrune(t - RETAIN_MS, etDate(t - RETAIN_MS));
     return {
@@ -181,7 +184,12 @@ export class Coach {
   async karne(day: string): Promise<{ day: string; model: string; karne: unknown; ts: number }> {
     const rows = this.d.store.coachTradesOn(day);
     if (!rows.length) throw new CoachError(404, 'Bu gün için koçluk kaydı yok');
-    const payload = rows.map(r => ({ trade: r.trade, feedback: r.feedback }));
+    const payload = rows.map(r => {
+      const rep = r.feedback as TradeReport | null;
+      return rep
+        ? { ticker: rep.header.ticker, side: rep.header.side, netPnl: rep.header.netPnl, cikis: rep.cikis.karar, giris: rep.giris.karar, strike: rep.strike.karar, puanlar: rep.karne, yorum: rep.cikis.neden }
+        : { ticker: (r.trade as ExtractedTrade).ticker, durum: 'koçluk yok' };
+    });
     const r = await this.client.call('karne', day, KARNE_SYSTEM, [{ type: 'text', text: karneUserText(day, payload) }]);
     const j = parseJsonLoose(r.text);
     const v = j.ok ? validateKarne(j.value) : { ok: false as const, error: j.error };
@@ -215,7 +223,7 @@ export class Coach {
   /** GET /coach?day= */
   view(day: string) {
     return {
-      day, trades: this.d.store.coachTradesOn(day).map(r => ({ id: r.id, ts: r.ts, trade: r.trade, rules: r.rules, feedback: r.feedback, model: r.model })),
+      day, trades: this.d.store.coachTradesOn(day).map(r => ({ id: r.id, ts: r.ts, trade: r.trade, rules: r.rules, report: r.feedback, model: r.model })),
       karne: this.d.store.coachKarneOn(day), usage: this.d.store.coachUsageOn(day),
     };
   }

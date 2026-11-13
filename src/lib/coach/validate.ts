@@ -2,7 +2,7 @@
  * Model çıktısının ayrıştırılması ve doğrulanması (saf). Model metni güvenilmez girdidir: JSON ayıklanır, tipler
  * ve enum'lar denetlenir, uzunluklar kırpılır. Geçersiz çıktı → { ok:false, error } (asla kısmi/uydurma sonuç yok).
  */
-import type { ExtractedTrade, Karne, OptSide, TradeFeedback } from './types.ts';
+import type { ExtractedTrade, Karne, ModelFeedback, OptSide } from './types.ts';
 import { istToMs } from './time.ts';
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -24,7 +24,6 @@ const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFi
 const pick = <T extends string>(x: unknown, allowed: readonly T[], fallback: T): T =>
   (allowed as readonly string[]).includes(x as string) ? (x as T) : fallback;
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
-const ETIKET = ['acele', 'erken_cikis', 'gec_cikis', 'gec_giris', 'pencere_disi', 'dte_disi', 'stop_iyi', 'stop_yok', 'kapatmamaliydi', 'kademe_disi', 'hacim_donusu_kacirildi', 'duygusal'] as const;
 
 /** Görüntüden çıkan işlem listesi */
 export function validateExtract(o: Record<string, unknown>): Result<{ trades: ExtractedTrade[]; okunamadi: string | null }> {
@@ -56,29 +55,39 @@ export function validateExtract(o: Record<string, unknown>): Result<{ trades: Ex
   return { ok: true, value: { trades, okunamadi: optStr(o.okunamadi, 300) } };
 }
 
-/** Tek işlem geri bildirimi */
-export function validateFeedback(r: Record<string, unknown>): TradeFeedback | null {
-  const neYaptin = str(r.neYaptin), dogruAciklama = str(r.dogruAciklama), neden = str(r.neden), birDahakine = str(r.birDahakine);
-  if (!neYaptin || !dogruAciklama) return null;
-  const etiketler = Array.isArray(r.etiketler) ? r.etiketler.map(x => str(x, 40)).filter(x => (ETIKET as readonly string[]).includes(x)).slice(0, 6) : [];
+const int010 = (x: unknown): number | null => { const n = num(x); return n == null ? null : Math.min(10, Math.max(0, Math.round(n))); };
+
+/** Tek işlem yorumu (ModelFeedback). Zorunlu alan eksikse null (kısmi rapor yok). */
+export function validateFeedback(r: Record<string, unknown>): ModelFeedback | null {
+  const obj = (x: unknown): Record<string, unknown> => (x && typeof x === 'object' ? x as Record<string, unknown> : {});
+  const no = obj(r.neOldu), ci = obj(r.cikis), gi = obj(r.giris), st = obj(r.strike), ka = obj(r.karne);
+  const bd = Array.isArray(r.birDahakine) ? r.birDahakine.map(x => str(x, 300)).filter(Boolean) : [];
+  const d = { oncesi: str(no.oncesi), sirasinda: str(no.sirasinda), sonrasi: str(no.sonrasi) };
+  const cikisN = str(ci.neden), girisN = str(gi.neden), strikeN = str(st.neden), yorum = str(r.kacanFirsatYorum);
+  const dis = int010(ka.disiplinCikis), gz = int010(ka.girisZamanlamasi), ss = int010(ka.strikeSecimi);
+  if (!d.oncesi || !d.sirasinda || !d.sonrasi || !cikisN || !girisN || !strikeN || !yorum || bd.length !== 3 || dis == null || gz == null || ss == null) return null;
   return {
-    neYaptin, dogruMu: pick(r.dogruMu, ['evet', 'kismen', 'hayir'] as const, 'kismen'), dogruAciklama, neden, birDahakine,
-    cikis: pick(r.cikis, ['erken', 'gec', 'iyi_stop', 'dogru', 'kapatmamaliydin', 'belirsiz'] as const, 'belirsiz'),
-    etiketler: [...new Set(etiketler)],
+    neOldu: d,
+    cikis: { karar: pick(ci.karar, ['dogru', 'erken', 'yanlis', 'belirsiz'] as const, 'belirsiz'), neden: cikisN },
+    giris: { karar: pick(gi.karar, ['iyi', 'kovalama', 'riskli', 'belirsiz'] as const, 'belirsiz'), neden: girisN },
+    strike: { karar: pick(st.karar, ['uygun', 'yakin', 'uzak', 'belirsiz'] as const, 'belirsiz'), neden: strikeN },
+    kacanFirsatYorum: yorum,
+    birDahakine: [bd[0], bd[1], bd[2]],
+    karne: { disiplinCikis: dis, girisZamanlamasi: gz, strikeSecimi: ss, aciklama: str(ka.aciklama, 300) },
   };
 }
 
 /** Koçluk çıktısı: feedback[] (giriş sırasıyla eşleşir) */
-export function validateCoach(o: Record<string, unknown>, expected: number): Result<(TradeFeedback | null)[]> {
+export function validateCoach(o: Record<string, unknown>, expected: number): Result<(ModelFeedback | null)[]> {
   const list = Array.isArray(o.feedback) ? o.feedback : null;
   if (!list) return { ok: false, error: 'Koçluk çıktısında "feedback" dizisi yok' };
-  const byIdx = new Map<number, TradeFeedback | null>();
+  const byIdx = new Map<number, ModelFeedback | null>();
   list.forEach((x, i) => {
     const r = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
     const idx = typeof r.index === 'number' && Number.isInteger(r.index) ? r.index : i;
     byIdx.set(idx, validateFeedback(r));
   });
-  const out: (TradeFeedback | null)[] = [];
+  const out: (ModelFeedback | null)[] = [];
   for (let i = 0; i < expected; i++) out.push(byIdx.get(i) ?? null);
   return out.some(Boolean) ? { ok: true, value: out } : { ok: false, error: 'Geri bildirim doğrulanamadı' };
 }

@@ -20,15 +20,37 @@ export interface ExtractedTrade {
 /** Kural kontrolü (deterministik) */
 export interface RuleFact { kural: string; durum: 'uyuyor' | 'uymuyor' | 'bilinmiyor'; aciklama: string }
 
-/** Modelin ürettiği tek işlem geri bildirimi */
-export interface TradeFeedback {
-  neYaptin: string;
-  dogruMu: 'evet' | 'kismen' | 'hayir';
-  dogruAciklama: string;
-  neden: string;
-  birDahakine: string;
-  cikis: 'erken' | 'gec' | 'iyi_stop' | 'dogru' | 'kapatmamaliydin' | 'belirsiz';
-  etiketler: string[];       // ör. acele, erken_cikis, gec_giris, pencere_disi, dte_disi
+/** Modelin ürettiği yorum (sayı YOK: sayılar kodda hesaplanır). Yalnız bu alanlar modelden beklenir. */
+export interface ModelFeedback {
+  neOldu: { oncesi: string; sirasinda: string; sonrasi: string };
+  cikis: { karar: 'dogru' | 'erken' | 'yanlis' | 'belirsiz'; neden: string };
+  giris: { karar: 'iyi' | 'kovalama' | 'riskli' | 'belirsiz'; neden: string };
+  strike: { karar: 'uygun' | 'yakin' | 'uzak' | 'belirsiz'; neden: string };
+  kacanFirsatYorum: string;
+  birDahakine: [string, string, string];
+  karne: { disiplinCikis: number; girisZamanlamasi: number; strikeSecimi: number; aciklama: string };
+}
+
+export type Emoji = '✅' | '⚠️' | '❌' | '❔';
+
+/** Kart (uygulamaya giden): sayılar kodda, yorumlar modelden */
+export interface TradeReport {
+  header: {
+    ticker: string; strike: number; side: 'C' | 'P'; expiry: string; dte: number | null;
+    entryIst: string | null; entryPrice: number | null; exitIst: string | null; exitPrice: number | null;
+    qty: number | null; status: 'kapali' | 'acik';
+    grossPnl: number | null; fees: number | null; netPnl: number | null;
+  };
+  neOldu: { oncesi: string; sirasinda: string; sonrasi: string; sayilar: Record<string, number | null> };
+  cikis: { emoji: Emoji; karar: ModelFeedback['cikis']['karar']; neden: string };
+  giris: { emoji: Emoji; karar: ModelFeedback['giris']['karar']; neden: string; vwapUzaklikPct: number | null; pencere: 'icinde' | 'disinda' | 'bilinmiyor' };
+  strike: { emoji: Emoji; karar: ModelFeedback['strike']['karar']; neden: string; otmPct: number | null; otmPerEm: number | null };
+  kacanFirsat: { lehePctTutarken: number | null; lehePctSonra: number | null; optTutarkenTahmini: number | null; optSonraTahmini: number | null; etiket: 'tahmini'; yorum: string };
+  birDahakine: string[];
+  karne: ModelFeedback['karne'];
+  rules: RuleFact[];
+  noData: string[];
+  model: string;
 }
 
 /** Karne (günlük özet) */
@@ -39,14 +61,14 @@ export interface Karne {
   yarinOdak: string;
 }
 
-/** Koçluk sonucu (kaydedilen): işlem + geri bildirim + kurallar + bağlam özeti */
+/** Koçluk sonucu (kaydedilen) */
 export interface CoachedTrade {
   id: number;
   day: string;
   ts: number;
   trade: ExtractedTrade;
   rules: RuleFact[];
-  feedback: TradeFeedback | null;
+  report: TradeReport | null;
   context: Record<string, unknown> | null;
   model: string;
 }

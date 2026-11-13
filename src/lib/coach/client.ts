@@ -4,10 +4,10 @@
  */
 import { FLOW_BASE_URL } from '../flow/model.ts';
 import { APP_KEY_HEADER } from '../flow/proxy.ts';
-import type { ExtractedTrade, Karne, RuleFact, TradeFeedback } from './types.ts';
+import type { ExtractedTrade, Karne, RuleFact, TradeReport } from './types.ts';
 
 /** Günün görünümündeki tek işlem (sunucu GET /coach) */
-export interface CoachViewTrade { id: number; ts: number; trade: ExtractedTrade; rules: RuleFact[]; feedback: TradeFeedback | null; model: string }
+export interface CoachViewTrade { id: number; ts: number; trade: ExtractedTrade; rules: RuleFact[]; report: TradeReport | null; model: string }
 
 export interface CoachDayView {
   day: string;

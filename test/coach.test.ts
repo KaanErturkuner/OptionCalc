@@ -69,7 +69,7 @@ ok('parseYahooBars: bozuk yanıt → []', parseYahooBars({}).length === 0);
 
 // ───── 4) Bağlam (pencereleme ve veri eksiği) ─────
 const ctx = buildTradeContext({ trade: { ...T, exitTime: '2026-11-13T18:30', entryTime: '2026-11-13T18:00' }, bars, day: DAY, nowMs: Date.UTC(2026, 10, 14), walls: null, flow: [] });
-ok('bağlam: 5 dk mumları üst sınırda', Array.isArray(ctx.facts.candles5m) && (ctx.facts.candles5m as unknown[]).length <= 40);
+ok('bağlam: 5 dk mumları üst sınırda', Array.isArray(ctx.facts.mumlar5dk) && (ctx.facts.mumlar5dk as unknown[]).length <= 40);
 ok('bağlam: duvar yok → noData', ctx.noData.some(s => s.includes('duvar')));
 ok('bağlam: akış yok → noData', ctx.noData.some(s => s.includes('akış')));
 ok('bağlam: kurallar eklenir', ctx.rules.length >= 4);
@@ -81,12 +81,37 @@ const ex1 = validateExtract({ trades: [{ ticker: 'qqq', side: 'call', strike: 60
 ok('extract: geçerli işlem alınır, geçersiz atılır', ex1.ok && ex1.value.trades.length === 1);
 ok('extract: büyük harf ticker, qty yuvarlanır, çıkış yoksa açık', ex1.ok && ex1.value.trades[0].ticker === 'QQQ' && ex1.value.trades[0].qty === 3 && ex1.value.trades[0].status === 'acik');
 ok('extract: boş liste → hata', validateExtract({ trades: [], okunamadi: 'görüntü bulanık' }).ok === false);
-const fb = validateFeedback({ neYaptin: 'a', dogruMu: 'belki', dogruAciklama: 'b', neden: 'c', birDahakine: 'd', cikis: 'x', etiketler: ['acele', 'uydurma'] });
-ok('feedback: enum dışı değer güvenli varsayılana döner', fb != null && fb.dogruMu === 'kismen' && fb.cikis === 'belirsiz' && fb.etiketler.length === 1);
-ok('feedback: zorunlu alan yoksa null', validateFeedback({ neYaptin: 'a' }) === null);
-const cv = validateCoach({ feedback: [{ index: 1, neYaptin: 'x', dogruMu: 'evet', dogruAciklama: 'y', neden: '', birDahakine: '', cikis: 'dogru', etiketler: [] }] }, 2);
+const GOOD = { neOldu: { oncesi: 'a', sirasinda: 'b', sonrasi: 'c' }, cikis: { karar: 'erken', neden: 'd' }, giris: { karar: 'kovalama', neden: 'e' }, strike: { karar: 'belirsiz', neden: 'f' }, kacanFirsatYorum: 'g (tahmini)', birDahakine: ['1', '2', '3'], karne: { disiplinCikis: 14, girisZamanlamasi: 7.4, strikeSecimi: -2, aciklama: 'h' } };
+const fb = validateFeedback(GOOD as unknown as Record<string, unknown>);
+ok('feedback: geçerli yorum kabul; karar enum; puan 0–10 kırpılır', fb != null && fb.cikis.karar === 'erken' && fb.karne.disiplinCikis === 10 && fb.karne.girisZamanlamasi === 7 && fb.karne.strikeSecimi === 0);
+ok('feedback: enum dışı karar → belirsiz', validateFeedback({ ...GOOD, cikis: { karar: 'uydurma', neden: 'x' } }) ? validateFeedback({ ...GOOD, cikis: { karar: 'uydurma', neden: 'x' } })!.cikis.karar === 'belirsiz' : false);
+ok('feedback: birDahakine tam 3 madde zorunlu', validateFeedback({ ...GOOD, birDahakine: ['1', '2'] }) === null);
+ok('feedback: zorunlu alan yoksa null', validateFeedback({ neOldu: {} }) === null);
+const cv = validateCoach({ feedback: [{ index: 1, ...GOOD }] }, 2);
 ok('coach: index ile eşleşir, eksik → null', cv.ok && cv.value[0] === null && cv.value[1] != null);
 ok('coach: feedback dizisi yok → hata', validateCoach({}, 1).ok === false);
+
+// ───── 5b) Rapor: net/brüt P/L (kod), emoji, pencere, DTE ─────
+import { pnlOf, buildReport } from '../src/lib/coach/report.ts';
+import { optionEstimate, sigma1mPct } from '../src/lib/coach/context.ts';
+const PN = pnlOf({ entryPrice: 1, exitPrice: 4.4, qty: 2, status: 'kapali' });
+ok('P/L: brüt (4,40−1,00)×100×2 = 680', PN.gross === 680, JSON.stringify(PN));
+ok('P/L: komisyon 2 × 1,50 × 2 = 6 (giriş+çıkış)', PN.fees === 6);
+ok('P/L: net = brüt − komisyon = 674', PN.net === 674);
+ok('P/L: açık pozisyonda null', pnlOf({ entryPrice: 1, exitPrice: null, qty: 2, status: 'acik' }).net === null);
+const RPT = buildReport({ trade: { ...T, entryTime: '2026-11-13T18:00', exitTime: '2026-11-13T18:40' }, nums: { sBefore: null, sEntry: 600, sExit: 601, holdHigh: 602, holdLow: 599.5, holdFavPct: 0.33, holdFavAt: '18:20', afterFavPct: 0.5, afterAgainstPct: -0.1, afterAt15: 0.2, afterAt30: 0.4, afterAt60: 0.5, vwapEntry: 600.2, vwapDistPct: -0.03, otmPct: 0, otmPerEm: 0, sigma1mPct: 0.05, optHoldFav: 90, optAfterFav: 40 } as never, rules: [], noData: [], model: 'm', feedback: validateFeedback(GOOD as unknown as Record<string, unknown>)! });
+ok('rapor: çıkış emojisi erken → ⚠️', RPT.cikis.emoji === '⚠️');
+ok('rapor: başlık C yön, 0 DTE, net 674', RPT.header.side === 'C' && RPT.header.dte === 0 && RPT.header.netPnl === 674, JSON.stringify(RPT.header));
+ok('rapor: pencere içinde (18:00 İst)', RPT.giris.pencere === 'icinde');
+ok('rapor: birDahakine 3 madde', RPT.birDahakine.length === 3);
+ok('rapor: tahmini etiketi', RPT.kacanFirsat.etiket === 'tahmini');
+const oc = optionEstimate({ side: 'CALL', K: 600, entryPrice: 1, sEntry: 600, tEntryMin: 60, sExt: 602, tExtMin: 40 });
+const op = optionEstimate({ side: 'PUT', K: 600, entryPrice: 1, sEntry: 600, tEntryMin: 60, sExt: 598, tExtMin: 40 });
+ok('BS tahmini: CALL, yukarı hareket → prim artar', oc > 1, String(oc));
+ok('BS tahmini: PUT, aşağı hareket → prim artar', op > 1, String(op));
+const flat = Array.from({ length: 12 }, (_, i) => ({ t: i, o: 100, h: 100, l: 100, c: 100, v: 1 }));
+const wig = Array.from({ length: 12 }, (_, i) => ({ t: i, o: 100, h: 101, l: 99, c: i % 2 ? 100.5 : 99.5, v: 1 }));
+ok('σ(1 dk): sabit fiyat → 0; oynak → > 0', sigma1mPct(flat) === 0 && (sigma1mPct(wig) ?? 0) > 0, `${sigma1mPct(flat)} ${sigma1mPct(wig)}`);
 const kv = validateKarne({ ozet: 'özet', guclu: ['a'], tekrarlayanHata: 'x', yarinOdak: 'odak' });
 ok('karne: doğrulanır, dizi olmayan alan boş', kv.ok && kv.value.tekrarlayanHata.length === 0);
 

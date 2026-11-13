@@ -107,7 +107,7 @@ async function coachSelftest() {
   const DAY = '2026-11-13';
   const NOW = Date.UTC(2026, 10, 14, 15, 0);   // Cumartesi 18:00 İst
   const extractJson = { trades: [{ ticker: 'QQQ', side: 'CALL', strike: 600, expiry: DAY, qty: 2, entryTime: DAY + 'T18:00', entryPrice: 1.0, exitTime: DAY + 'T18:40', exitPrice: 4.4, status: 'kapali', confidence: 'yuksek' }], okunamadi: null };
-  const coachJson = { feedback: [{ index: 0, neYaptin: 'QQQ call aldın, 4,40\'ta çıktın.', dogruMu: 'evet', dogruAciklama: 'Hedef bölgesinde çıktın.', neden: 'Varsayım: kâr almak istedin.', birDahakine: 'Hedefi önceden not al.', cikis: 'dogru', etiketler: ['duygusal', 'uydurma'] }] };
+  const coachJson = { feedback: [{ index: 0, neOldu: { oncesi: 'Giriş öncesi sakin.', sirasinda: 'Yükseliş sürdü.', sonrasi: 'Devam etti.' }, cikis: { karar: 'erken', neden: 'acele etmişsin, yön doğruydu ama erken çıktın' }, giris: { karar: 'iyi', neden: 'VWAP yakını, pencere içi' }, strike: { karar: 'uygun', neden: 'OTM uygun' }, kacanFirsatYorum: 'Tahmini opsiyon kazancı kaçtı.', birDahakine: ['Hedefi önceden yaz.', 'Stop kuralını koru.', 'Hacim dönüşünü bekle.'], karne: { disiplinCikis: 7, girisZamanlamasi: 9, strikeSecimi: 8, aciklama: 'Tek işlem.' } }] };
   const karneJson = { ozet: 'Tek işlem, hedefte çıkış.', guclu: ['Pencere içi giriş'], tekrarlayanHata: [], yarinOdak: 'Hedefi işlem öncesi yaz.' };
   const bars: unknown[] = [], ts: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], v: number[] = [];
   for (let t = Date.UTC(2026, 10, 13, 14, 30); t <= Date.UTC(2026, 10, 13, 21, 0); t += 60000) {
@@ -138,7 +138,7 @@ async function coachSelftest() {
   const coach = new Coach({ cfg: mkCfg(), store, f: fake, now: () => NOW, log: m => logs.push(m) });
   const r = await coach.coachImage({ image: png, mime: 'image/png', day: DAY });
   ok('koç: işlem çıkarıldı (1)', r.trades.length === 1 && r.trades[0].trade.ticker === 'QQQ');
-  ok('koç: geri bildirim doğrulandı', r.trades[0].feedback?.cikis === 'dogru' && r.warning === null);
+  ok('koç: rapor doğrulandı, net P/L kodda (674 = 680 − 6)', r.trades[0].report?.cikis.karar === 'erken' && r.trades[0].report?.header.netPnl === 674 && r.warning === null, JSON.stringify(r.trades[0].report?.header));
   ok('koç: kurallar ve bağlam (duvar/akış yok → veri eksik listesi)', r.trades[0].rules.length >= 3 && r.trades[0].noData.some(x => x.includes('duvar')));
   ok('koç: iki Haiku çağrısı, aynı model, anahtar başlıkta', calls.length === 2 && calls.every(x => x.model === 'claude-haiku-5-5' && x.key === KEY));
   ok('koç: token kullanımı toplanır (2 × 150)', r.usage.inTok === 200 && r.usage.outTok === 100, JSON.stringify(r.usage));

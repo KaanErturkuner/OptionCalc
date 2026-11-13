@@ -30,22 +30,32 @@ export function extractUserText(day: string): string {
 
 export const COACH_SYSTEM = `${BASE}
 
-GÖREV: Her işlem için Kaan'a kısa, dürüst, Türkçe koçluk geri bildirimi yaz. Yargın hem KURALLARA hem de
-FİYATIN ÇIKIŞ SONRASI HAREKETİNE dayansın (facts.afterExit, volumeSpikeAfter, candles5m).
+GÖREV: Her işlem için Kaan'a dürüst Türkçe koçluk raporu yaz. SAYI ÜRETME: tüm fiyat, yüzde ve P/L değerleri
+"facts" içindedir (sayilar, mumlar5dk, optHoldFav/optAfterFav = BS tahmini). Yorumlarında yalnız bu sayılara atıf yap.
 Kaan'ın kuralları:
 ${KAAN_RULES_TR}
-Ölçüt örnekleri (Türkçe, doğal kullan):
-- "acele etmişsin, yön doğruydu ama erken çıktın" (çıkıştan sonra lehe hareket büyükse ve sen erken çıktıysan)
-- "iyi stopladın, tutsan zarar büyüyecekti" (çıkıştan sonra aleyhe hareket büyükse)
-- "kapatmaman gerekiyordu" (çıkıştan sonra güçlü lehe hareket + stop/hacim ters dönüş yoksa)
-- Giriş penceresi dışı, DTE > 3, stop yok → bunları etiketle.
-Alanlar (her işlem için, feedback dizisinde "index" ile giriş sırasını koru):
-{"feedback":[{"index":0,"neYaptin":"...","dogruMu":"evet"|"kismen"|"hayir","dogruAciklama":"...",
- "neden":"...","birDahakine":"...","cikis":"erken"|"gec"|"iyi_stop"|"dogru"|"kapatmamaliydin"|"belirsiz",
- "etiketler":["acele"|"erken_cikis"|"gec_cikis"|"gec_giris"|"pencere_disi"|"dte_disi"|"stop_iyi"|"stop_yok"|"kapatmamaliydi"|"kademe_disi"|"hacim_donusu_kacirildi"|"duygusal"]}]}
-Her metin alanı en çok 2 cümle. "neYaptin" = ne yaptığın (olgusal), "dogruMu" = kurallara ve sonuca göre,
-"dogruAciklama" = neden doğru/yanlış, "neden" = olası psikolojik/teknik neden (varsayım olduğunu belirt),
-"birDahakine" = tek somut eylem. Açık pozisyon için cikis "belirsiz", etiket boş.`;
+
+Bölümlerin anlamı (karar alanları SABİT değerlerden biri olmalı):
+- neOldu: oncesi (giriş öncesi 15 dk: sayilar.sBefore15dk → sayilar.sEntry), sirasinda (tutma: holdHigh / holdLow), sonrasi (çıkış sonrası: afterFavPct, afterAt15Pct/30/60).
+- cikis.karar: "dogru" (kural/stop/hedef disiplini; çıkıştan sonra hareket çıkışı destekliyor veya zarar büyümesini önledi = "iyi stopladın, tutsan zarar büyüyecekti"),
+  "erken" (yön doğruydu, çıkıştan sonra lehe hareket büyük = "acele etmişsin, yön doğruydu ama erken çıktın"),
+  "yanlis" (çıkış hatası: "kapatmaman gerekiyordu" — güçlü lehe hareket sürerken kapatıldı veya stop/dönüş kuralı ihlal edildi), "belirsiz".
+- giris.karar: "iyi" (VWAP'a yakın, pencere içi), "kovalama" (hareket sonrası, VWAP'tan uzakta giriş: vwapDistPct büyük), "riskli" (pencere dışı veya kural ihlali), "belirsiz".
+- strike.karar: "uygun" (sayilar.otmPerEm yaklaşık 0,5 civarı), "yakin" (çok ATM; otmPerEm çok küçük), "uzak" (çok OTM; otmPerEm büyük), "belirsiz".
+- kacanFirsatYorum: tutma ve çıkış sonrası kaçan hareketi TAHMİNİ opsiyon P/L ile anlat (optHoldFav, optAfterFav). Mutlaka "tahmini" de.
+- birDahakine: TAM 3 somut eylem (numara yazma, her biri tek cümle).
+- karne: disiplinCikis, girisZamanlamasi, strikeSecimi: 0–10 tamsayı; aciklama 1–2 cümle.
+
+Çıktı şeması (YALNIZ bu JSON):
+{"feedback":[{"index":0,
+ "neOldu":{"oncesi":"...","sirasinda":"...","sonrasi":"..."},
+ "cikis":{"karar":"dogru|erken|yanlis|belirsiz","neden":"..."},
+ "giris":{"karar":"iyi|kovalama|riskli|belirsiz","neden":"..."},
+ "strike":{"karar":"uygun|yakin|uzak|belirsiz","neden":"..."},
+ "kacanFirsatYorum":"...",
+ "birDahakine":["...","...","..."],
+ "karne":{"disiplinCikis":0,"girisZamanlamasi":0,"strikeSecimi":0,"aciklama":"..."}}]}
+Her metin en çok 2 cümle. Açık pozisyonda cikis "belirsiz" ve kacanFirsatYorum "pozisyon açık" de.`;
 
 export function coachUserText(items: { index: number; trade: unknown; rules: unknown; facts: unknown; noData: string[] }[]): string {
   return `Aşağıdaki işlemleri koçla. Bağlam JSON'u (sayılar hesaplanmış; uydurma değil):\n${JSON.stringify(items)}`;
@@ -53,11 +63,11 @@ export function coachUserText(items: { index: number; trade: unknown; rules: unk
 
 export const KARNE_SYSTEM = `${BASE}
 
-GÖREV: Bir işlem gününün koçluk kayıtlarından GÜNLÜK KARNE yaz (Türkçe, kısa, somut).
+GÖREV: Bir işlem gününün koçluk sonuçlarından GÜNLÜK KARNE yaz (Türkçe, kısa, somut). Sayı uydurma.
 Kaan'ın kuralları: ${KAAN_RULES_TR.replace(/\n/g, ' ')}
 Şema: {"ozet":"2–3 cümle","guclu":["..."],"tekrarlayanHata":["..."],"yarinOdak":"TEK somut odak"}
-guclu en çok 3, tekrarlayanHata en çok 3 madde. Veri azsa bunu özet'te söyle; uydurma yapma.`;
+guclu en çok 3, tekrarlayanHata en çok 3 madde. Veri azsa bunu özet'te söyle.`;
 
-export function karneUserText(day: string, trades: { trade: unknown; feedback: unknown }[]): string {
-  return `İşlem günü: ${day}. Günün koçluk kayıtları:\n${JSON.stringify(trades)}`;
+export function karneUserText(day: string, items: unknown[]): string {
+  return `İşlem günü: ${day}. Günün koçluk sonuçları (net P/L ve puanlar kodda hesaplandı):\n${JSON.stringify(items)}`;
 }
