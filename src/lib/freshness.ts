@@ -194,7 +194,7 @@ export function resetForTests(): void { recs = { 'md-options': emptyRec(), quote
 
 // ───── Biçimlendirme (saf; Türkçe) ─────
 export const PROVIDER_NAME: Record<string, string> = {
-  marketdata: 'MarketData', yahoo: 'Yahoo', cboe: 'CBOE', tradier: 'Tradier', sec: 'SEC', finnhub: 'Finnhub',
+  marketdata: 'Sunucu (MarketData)', yahoo: 'Yahoo', cboe: 'CBOE', tradier: 'Tradier', sec: 'SEC', finnhub: 'Finnhub',
 };
 export const providerName = (p: string | null | undefined) => (p ? PROVIDER_NAME[p] ?? p : '—');
 /** İstanbul saati (UTC+3, yaz saati yok): HH:MM:SS */

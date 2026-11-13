@@ -18,7 +18,7 @@ export interface AppState {
   legs: Leg[]; scn: Scenario;
   now: number; today: string;                  // ET
   // piyasa verisi
-  provider: 'auto' | ProviderId; apiKey: string; mdKey: string; quote: Quote | null; src: ProviderId | null; marketExps: string[];
+  provider: 'auto' | ProviderId; apiKey: string; flowKey: string; quote: Quote | null; src: ProviderId | null; marketExps: string[];
   /** Fiyat × Tarih tablosu: adım ($, null = otomatik), aralık (±% veya elle min/max; null = otomatik) */
   tbl: TableCfg;
 }
@@ -102,13 +102,14 @@ export function defaultState(now = Date.now()): AppState {
     legs: buildLegs('longCall', 100, expiry, 30, 1),
     scn: { target: 110, dateMode: 'exp', date: null, ivShift: 0 },
     now, today: etDate(now),
-    provider: 'auto', apiKey: '', mdKey: '', quote: null, src: null, marketExps: [],
+    provider: 'auto', apiKey: '', flowKey: '', quote: null, src: null, marketExps: [],
     tbl: { ...DEFAULT_TBL },
   };
 }
 function fix(o: any): AppState | null {
   if (!o || !Array.isArray(o.legs)) return null;
   const now = Date.now(), d = defaultState(now);
+  delete o.mdKey; // eski sürüm: MarketData tokenı telefonda saklanıyordu → artık yok (sunucuda)
   const s: AppState = { ...d, ...o, scn: { ...d.scn, ...(o.scn || {}) }, tbl: { ...DEFAULT_TBL, ...(o.tbl || {}) }, now, today: etDate(now) };
   s.legs = o.legs.map((l: Leg) => ({ ...l, id: uid++ }));
   // vadesi geçmiş bacakları en yakın vadeye taşı

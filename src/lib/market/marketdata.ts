@@ -1,22 +1,25 @@
 /*
- * MarketData.app (kullanıcı tokenı). Ücretli Trader planında gerçek zamanlı; deneme/ücretsiz planda "historical"
- * (önceki tam kapanmış seans; opsiyonlar ertesi gün 09:30 ET'de devrilir). Kredi: hisse kotu 1, zincir kontrat başına 1,
- * vade listesi 1, mum 1000 mum başına 1. Tek cihaz/IP kuralı var: aynı token iki cihazdan kullanılırsa hesap 5 dk bloklanır.
+ * MarketData.app — uygulama artık DOĞRUDAN çağırmaz: sunucu proxy'si (server/, docs/tasks/FLOW.md) üzerinden.
+ * Yollar ve yanıt biçimi MarketData'nınkiyle aynı (proxy şeffaf iletir); anahtar = Akış sunucu anahtarı (x-app-key).
+ * MarketData tokenı yalnız sunucudadır (tek IP kuralı: aynı token iki IP'den kullanılırsa hesap 5 dk bloklanır).
+ * Kredi: hisse kotu 1, zincir kontrat başına 1 (live) / istek başına 1 (cached), vade listesi 1, mum 1000 mum başına 1.
  */
 import { closeMs, etDate, isTradingDay, addDaysStr, marketOpen } from '../usmarket.ts';
 import { HttpError, num, type Chain, type OptQuote, type Provider, type ProvOpts, type Quote } from './types.ts';
+import { FLOW_BASE_URL } from '../flow/model.ts';
+import { APP_KEY_HEADER, MD_PROXY_PREFIX } from '../flow/proxy.ts';
 
-const BASE = 'https://api.marketdata.app/v1';
+const BASE = FLOW_BASE_URL.replace(/\/+$/, '') + MD_PROXY_PREFIX;
 export interface MdResp { json: any; credits: number; remaining: number | null; status: number }
 let lastCredits = { consumed: 0, remaining: null as number | null };
 export const mdCredits = () => lastCredits;
 
 export async function mdGet(path: string, key: string | undefined, signal?: AbortSignal, timeoutMs = 20000): Promise<MdResp> {
-  if (!key) throw new Error('MarketData tokenı gerekli');
+  if (!key) throw new Error('Sunucu anahtarı gerekli (Hesapla › Ayarlar)');
   const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), timeoutMs);
   if (signal) signal.addEventListener('abort', () => ctl.abort());
   let r: Response;
-  try { r = await fetch(BASE + path, { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' }, signal: ctl.signal }); }
+  try { r = await fetch(BASE + path, { headers: { [APP_KEY_HEADER]: key, Accept: 'application/json' }, signal: ctl.signal }); }
   catch (e: any) { throw new Error(e?.name === 'AbortError' ? 'Zaman aşımı' : 'Bağlantı yok'); }
   finally { clearTimeout(t); }
   const credits = num(r.headers.get('x-api-ratelimit-consumed')), remH = r.headers.get('x-api-ratelimit-remaining');
@@ -31,7 +34,7 @@ export async function mdGet(path: string, key: string | undefined, signal?: Abor
 export function mdError(status: number, j: any): string {
   const m = String(j?.errmsg || '');
   if (/one device/i.test(m)) return 'MarketData: tek cihaz kuralı — token başka bir cihaz/IP’den de kullanılıyor; 5 dk bekleyip tek cihazdan dene';
-  if (status === 401) return 'MarketData: token geçersiz';
+  if (status === 401) return 'Sunucu (MarketData proxy): anahtar geçersiz';
   if (status === 402) return 'MarketData: bu veri planında yok (402)';
   if (status === 429) return 'MarketData: günlük kredi bitti (09:30 ET’de yenilenir)';
   if (status === 404) return 'Sembol bulunamadı';
@@ -99,7 +102,7 @@ async function cached<T>(k: string, f: () => Promise<T>): Promise<T> {
 export const clearMdCache = () => cache.clear();
 
 export const marketdata: Provider = {
-  id: 'marketdata', name: 'MarketData.app (token)', delayedMin: 0, needsKey: true,
+  id: 'marketdata', name: 'Sunucu (MarketData)', delayedMin: 0, needsKey: true,
   async load(symbol, o) {
     return cached(`l:${symbol}`, async () => {
       const [q, e] = await Promise.all([mdGet(`/stocks/quotes/${encodeURIComponent(symbol)}/`, o?.key, o?.signal),

@@ -15,6 +15,7 @@ import { ensurePermission, notifySignal, permissionStatus, scheduleExit, testNot
 import { checkAlerts, DEF_NOTIF, loadNotifCfg, saveNotifCfg, syncBackgroundTask, type NotifCfg } from '@/ui/monitor';
 import { exitAtMs, localHM, MAX_SIGNALS_PER_DAY, signalAllowed } from '@/lib/alerts';
 import { C, plColor } from '@/ui/theme';
+import { flowKeyOf } from '@/lib/flow/client';
 
 export const DEFAULT_WATCH = ['QQQ', 'MU', 'AXTI', 'AAOI', 'MRVL', 'GLW', 'NBIS', 'CRWV', 'DRAM', 'AMD', 'INTC', 'SPCX', 'NVDA', 'TSLA', 'RKLB'];
 export const EXTRAS = ['SPY', 'IWM', 'GLD', 'SLV'];
@@ -69,7 +70,7 @@ export default function Odte({ active, onJournal }: { active: boolean; onJournal
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true);
     const c = cfgRef.current, list = [...c.watch, ...c.extras.filter(x => !c.watch.includes(x))];
-    const st = await loadState(); const mdKey = st?.mdKey || undefined; setHasMd(!!mdKey);
+    const st = await loadState(); const mdKey = flowKeyOf(st?.flowKey) || undefined; setHasMd(!!mdKey);
     const opts = { ...DEFAULT_OPTS, orMinutes: c.orMin };
     await pool(list, 3, sym => scanOne(sym, { marketdata: mdKey, tradier: st?.apiKey || undefined }, opts, c.strikeLimit), it0 => {
       // Günlük sınır: sembol başına günde en fazla 2 farklı sinyal (kontrat)

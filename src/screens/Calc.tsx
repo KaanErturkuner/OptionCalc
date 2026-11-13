@@ -16,6 +16,7 @@ import { Btn, Card, Chip, DateField, NumField, Seg, StepField, s, tap } from '@/
 import { C, plColor } from '@/ui/theme';
 import Chart from '@/ui/Chart';
 import Heatmap from '@/ui/Heatmap';
+import { flowKeyOf } from '@/lib/flow/client';
 
 const PCTS = [-20, -10, -5, 5, 10, 20];
 const MAIN: StratId[] = ['longCall', 'longPut'];
@@ -143,7 +144,7 @@ export default function Calc() {
   const getChain = async (e: string, mode: 'snap' | 'refresh', force = false, src = stRef.current.src, ticker = stRef.current.ticker) => {
     if (!src || !ticker) return;
     try {
-      const ch = !force && chainsRef.current[e] ? chainsRef.current[e] : await MD.loadChain(src, ticker, e, { tradier: stRef.current.apiKey || undefined, marketdata: stRef.current.mdKey || undefined });
+      const ch = !force && chainsRef.current[e] ? chainsRef.current[e] : await MD.loadChain(src, ticker, e, { tradier: stRef.current.apiKey || undefined, marketdata: flowKeyOf(stRef.current.flowKey) || undefined });
       setChains(c => ({ ...c, [e]: ch }));
       up(d => { if (d.ticker === ticker) applyChain(d, ch, mode); });
     } catch (err: any) { setMdErr('Zincir alınamadı: ' + (err?.message || 'hata')); }
@@ -155,7 +156,7 @@ export default function Calc() {
     if (refresh) MD.clearCaches();
     try {
       const s0 = stRef.current;
-      const r = await MD.loadSymbol(sym, s0.provider, { tradier: s0.apiKey || undefined, marketdata: s0.mdKey || undefined });
+      const r = await MD.loadSymbol(sym, s0.provider, { tradier: s0.apiKey || undefined, marketdata: flowKeyOf(s0.flowKey) || undefined });
       const changed = sym !== s0.ticker || r.provider !== s0.src;
       if (changed) setChains({});
       const exp = r.expirations.includes(s0.expiry) ? s0.expiry : (MD.closestExpiry(r.expirations, s0.expiry) || s0.expiry);
@@ -597,12 +598,12 @@ export default function Calc() {
               <Seg small value={state.provider} onChange={v => up(d => { d.provider = v; })}
                 options={[['auto', 'Oto'], ['marketdata', 'MData'], ['cboe', 'CBOE'], ['yahoo', 'Yahoo'], ['tradier', 'Tradier']]} />
               <View style={{ marginTop: 10 }}>
-                <Text style={s.label}>MarketData.app token (Otomatik modda önce bu denenir; deneme planı önceki seansı verir)</Text>
+                <Text style={s.label}>Akış sunucusu anahtarı (MarketData verisi bu sunucudan gelir; Otomatik modda önce bu denenir)</Text>
                 <View style={s.inputWrap}>
-                  <TextInput value={state.mdKey} onChangeText={v => up(d => { d.mdKey = v.trim(); })} secureTextEntry autoCapitalize="none" autoCorrect={false}
-                    placeholder="token" placeholderTextColor="#55617a" keyboardAppearance="dark" style={s.input} />
+                  <TextInput value={state.flowKey} onChangeText={v => up(d => { d.flowKey = v.trim(); })} secureTextEntry autoCapitalize="none" autoCorrect={false}
+                    placeholder="anahtar" placeholderTextColor="#55617a" keyboardAppearance="dark" style={s.input} />
                 </View>
-                <Text style={s.hint}>Token yalnızca bu telefonda saklanır. MarketData tek cihaz kuralı: aynı tokenı başka cihazda aynı anda kullanma.</Text>
+                <Text style={s.hint}>Anahtar yalnızca bu telefonda saklanır. MarketData tokenı telefonda bulunmaz; sunucu tek MarketData istemcisidir.</Text>
               </View>
               {state.provider === 'tradier' || state.apiKey ? (
                 <View style={{ marginTop: 10 }}>
