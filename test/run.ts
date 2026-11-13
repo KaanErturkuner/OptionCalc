@@ -359,5 +359,28 @@ chk('parseTrDate 31.02.2026 geçersiz', parseTrDate('31.02.2026'), null);
   const ctx = (S: number) => ({ ticker: 'X', S, t: 0, m: 60, bars, F, day: { ticker: 'X', date: '2026-11-12', dte: 0, prevClose: 100, openPx: 100, em0: 1 }, chain: () => ch, mem: {} });
   chk('em-breach 100,9 → call', em.evaluate(ctx(100.9), em.defaults)?.dir, 'call');
   chk('em-breach 100,5 → sinyal yok', em.evaluate(ctx(100.5), em.defaults), null);
+  // kaan-momentum: QQQ boğa rejimi (OR üstü + VWAP üstü), salınım kırılımı + 3× hacim → OTM call (0,45×em)
+  const km = STR.strategyById('kaan-momentum-0dte')!;
+  const kb = bars.map((b, i) => i === 59 ? { ...b, c: b.c + 0.1, h: b.c + 0.12, v: 3000 } : { ...b, v: 1000 });
+  const kctx: any = { ticker: 'QQQ', S: kb[59].c, t: 0, m: 60, bars: kb, F, day: { ticker: 'QQQ', date: '2026-11-12', dte: 0, prevClose: 100, openPx: 100, em0: 1 }, chain: () => ch, mem: {}, peer: (s: string) => s === 'SPY' ? kb : null };
+  const ke = km.evaluate(kctx, km.defaults);
+  chk('kaan-momentum boğa → call', ke?.dir, 'call'); eq('kaan-momentum OTM strike = S + 0,45·em', ke?.strike ?? 0, kb[59].c + 0.45, 1e-9);
+  chk('kaan-momentum hacim zayıf → sinyal yok', km.evaluate({ ...kctx, bars: kb.map(b => ({ ...b, v: 1000 })) }, km.defaults), null);
+  chk('kaan-momentum SPY ters → sinyal yok', km.evaluate({ ...kctx, peer: () => kb.map(b => ({ ...b, o: 200 - b.o, h: 200 - b.l, l: 200 - b.h, c: 200 - b.c })) }, km.defaults), null);
+  chk('kaan-momentum 1–3DTE varyantı 0DTE günde işlem açmaz', STR.strategyById('kaan-momentum-1to3dte')!.evaluate(kctx, STR.strategyById('kaan-momentum-1to3dte')!.defaults), null);
+  const rev = [...kb, { t: 60 * 60000, o: 101, h: 101.02, l: 100.5, c: 100.52, v: 2500 }];
+  chk('kaan-momentum çıkış: yüksek hacimli ters mum', ke?.exitCheck?.(rev, 60), true);
+  chk('kaan-momentum çıkış: düşük hacimde yok', ke?.exitCheck?.(rev.map((b, i) => i === 60 ? { ...b, v: 900 } : b), 60), false);
+  // gevşek rejim: endeksler nötr (OR içi), SMH kırılmış → MU için katı kural yok, gevşek kural call
+  const flat = kb.map((b, i) => ({ ...b, o: 100 + (i % 2) * 0.01, h: 100.05, l: 99.95, c: 100 + ((i + 1) % 2) * 0.01 }));
+  const mctx: any = { ...kctx, ticker: 'MU', day: { ...kctx.day, ticker: 'MU' }, peer: (s: string) => s === 'SMH' ? kb : flat };
+  chk('kaan katı rejim: endeksler nötr → sinyal yok', km.evaluate(mctx, km.defaults), null);
+  const kr = STR.strategyById('kaan-momentum-gevsek-0dte')!;
+  chk('kaan gevşek rejim: SMH kırılımı + endeksler nötr → call', kr.evaluate(mctx, kr.defaults)?.dir, 'call');
+  chk('kaan gevşek rejim: SPY ters kırılım → sinyal yok', kr.evaluate({ ...mctx, peer: (s: string) => s === 'SMH' ? kb : s === 'SPY' ? kb.map(b => ({ ...b, o: 200 - b.o, h: 200 - b.l, l: 200 - b.h, c: 200 - b.c })) : flat }, kr.defaults), null);
+  const kc2: any = { calls: [99, 100, 103].map(k => ({ strike: k, bid: 1, ask: 1.1, volume: k === 103 ? 0 : 100, oi: 0 })), puts: [] };
+  chk('pickStrike S verilince ITM\'e kaymaz (likit OTM yok → null)', STR.pickStrike(kc2, 'call', 102.5, { maxSpread: 0.2, minVol: 10, minOI: 100 }, 101), null);
+  const kc: any = { calls: [99, 100, 101, 102].map(k => ({ strike: k, bid: 1, ask: 1.1, volume: k === 101 ? 0 : 100, oi: 0 })), puts: [] };
+  chk('pickStrike: en yakın LİKİT strike (101 hacimsiz → 100)', STR.pickStrike(kc, 'call', 100.9, { maxSpread: 0.2, minVol: 10, minOI: 100 })?.strike, 100);
 }
 console.log(fail ? `\n${fail} TEST BAŞARISIZ` : '\nTüm testler geçti'); process.exit(fail ? 1 : 0);

@@ -54,3 +54,16 @@ Maliyet duyarlılığı: `BT_FEE` (vars. 0,65 $/kontrat/yön), `BT_SLIP` (0,01 $
 - Çıkış: dayanak hedef/stop (aynı barda ikisi → stop, muhafazakâr), zaman stopu (`maxHoldMin`), gün sonu (0DTE 15:30, diğer 15:45 ET).
 - Göstergeler (GEX, duvarlar, em) model zincirden; OI D−1 seansından (yayın açılıştan önce).
 - Eski motor ile birebir eşlik doğrulandı: `confluence-v2` (maxPerDay 99) = `bt.run(DEFAULT_OPTS)` → 290 işlem, −%4,65.
+
+## Yardımcı semboller ve vade varyantları (2026-11-12)
+- Strateji `peers: ['QQQ','SPY','SMH']` bildirirse `compare.mts` bu sembollerin 1 dk barlarını önbellekten yükler (`peers.mts`, kredi harcamaz) ve
+  `ctx.peer(sym)` ile o ana kadar tamamlanmış barları verir. Önbellekte olmayan sembol: `MARKETDATA_TOKEN=$(cat ~/.secrets/marketdata_token) node backtest/peers.mts SMH` (~9 kredi/ay; önce `BT_DRYRUN=1`).
+- 1–3DTE gün dosyaları: `BT_OFFLINE=1 BT_TICKERS=MU,QQQ,INTC BT_DAYS=/workspace/backtest/days-dte13 BT_MIN_DTE=1 BT_MAX_DTE=3 node backtest/prep.mts`,
+  sonra `node backtest/compare.mts --t MU,QQQ,INTC --s kaan-momentum-1to3dte --days /workspace/backtest/days-dte13 --out /workspace/backtest/reports-dte13`.
+- `StratEntry.strike` (hedef strike → en yakın likit kontrat) ve `StratEntry.exitCheck(bars, i)` (özel çıkış; i. bar kapanınca, i+1 açılışında).
+
+## Anlık tavsiye (token'sız)
+`npm run bt:live -- MU,QQQ,INTC` — `record.mts` çalışırken onun son zincir görüntüsünü + Yahoo 1 dk barlarını kullanır; ikinci token süreci açmaz. Kağıt işlem içindir.
+
+## Gün tekrarı (token'sız)
+`npm run bt:replay -- MU,QQQ,INTC,AAOI,AXTI,AMD,NBIS` — bugünün Yahoo 1 dk barları + önceki günün önbellekteki EOD zinciri (+ varsa kayıtlı kotlar) ile confluence-v2 ve kaan-momentum (katı/gevşek, 0DTE/1–3DTE) dakika dakika; kapanış seviyeleri ve yarın kurulumu. `BT_OUT=dosya.md` ile kaydeder. `BT_STEP` (bt.mts) varsayılan 5 dk.

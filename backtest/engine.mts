@@ -6,15 +6,17 @@
  */
 import { metrics, group, type Day, type Met } from './bt.mts';
 import { defaultCosts, makeSource, type Costs, type QuoteSource, type Side } from './sources.mts';
-import { pickContract, type CommonParams, type DayInfo, type StratCtx, type StratEntry, type Strategy } from '../src/lib/odte/strategies/index.ts';
+import { pickContract, pickStrike, type CommonParams, type DayInfo, type StratCtx, type StratEntry, type Strategy } from '../src/lib/odte/strategies/index.ts';
 import type { Bar } from '../src/lib/odte/analytics.ts';
 
 export interface ETrade {
   strat: string; ticker: string; D: string; m: number; dir: Side; dte: number; K: number;
-  entry: number; exit: number; pnl: number; pct: number; why: 'target' | 'stop' | 'time' | 'hold';
+  entry: number; exit: number; pnl: number; pct: number; why: 'target' | 'stop' | 'time' | 'hold' | 'exit';
   score: number; exitT: number; holdMin: number; src: string; note?: string;
 }
-export interface RunOpts { source?: QuoteSource; costs?: Costs }
+export interface RunOpts { source?: QuoteSource; costs?: Costs;
+  /** Diğer sembollerin gün içi 1 dk barları (rejim/sektör stratejileri için): (sembol, gün) → barlar */
+  peers?: (symbol: string, D: string) => Bar[] | null }
 
 export function dayInfo(d: Day): DayInfo {
   const p0 = d.pts.find(p => p.F.em); const em = p0?.F.em?.move ?? null;
@@ -27,7 +29,8 @@ function validEntry(e: StratEntry, S: number) {
 export function simulateEntry(d: Day, t: number, S: number, e: StratEntry, p: CommonParams, src: QuoteSource, costs: Costs, strat: string): ETrade | null {
   if (!validEntry(e, S)) return null;
   const ch = src.chain(d, S, t, e.dir);
-  const q = pickContract(ch, e.dir, S, { targetDelta: e.targetDelta ?? p.targetDelta, maxSpread: p.maxSpread, minVol: p.minVol, minOI: p.minOI });
+  const q = e.strike != null ? pickStrike(ch, e.dir, e.strike, { maxSpread: p.maxSpread, minVol: p.minVol, minOI: p.minOI }, S)
+    : pickContract(ch, e.dir, S, { targetDelta: e.targetDelta ?? p.targetDelta, maxSpread: p.maxSpread, minVol: p.minVol, minOI: p.minOI });
   if (!q) return null;
   let k = d.bars.findIndex(b => b.t >= t); if (k < 0) return null;
   const b0 = d.bars[k], f0 = src.quote(d, e.dir, q.strike, b0.o, b0.t); if (!f0) return null;
@@ -44,6 +47,7 @@ export function simulateEntry(d: Day, t: number, S: number, e: StratEntry, p: Co
     if (stopHit) { Sx = e.undStop; tx = b.t + 30000; why = 'stop'; break; }
     if (tgtOpen) { Sx = b.o; tx = b.t; why = 'target'; break; }
     if (tgtHit) { Sx = e.undTarget; tx = b.t + 30000; why = 'target'; break; }
+    if (e.exitCheck && e.exitCheck(d.bars, k) && k + 1 < d.bars.length) { Sx = d.bars[k + 1].o; tx = d.bars[k + 1].t; why = 'exit'; break; }
   }
   if (!isFinite(Sx)) { const b = d.bars[d.bars.length - 1]; Sx = b.c; tx = b.t + 60000; }
   const fx = src.quote(d, e.dir, q.strike, Sx, tx); if (!fx) return null;
@@ -61,7 +65,8 @@ export function runStrategy<P extends CommonParams>(days: Day[], s: Strategy<P>,
       while (n < d.bars.length && d.bars[n].t + 60000 <= pt.t) n++;
       if (pt.t < busy || cnt >= p.maxPerDay) continue;
       const bars: Bar[] = d.bars.slice(0, n);
-      const ctx: StratCtx = { ticker: d.ticker, S: pt.S, t: pt.t, m: pt.m, bars, F: pt.F, day: info, chain: side => src.chain(d, pt.S, pt.t, side), mem };
+      const ctx: StratCtx = { ticker: d.ticker, S: pt.S, t: pt.t, m: pt.m, bars, F: pt.F, day: info, chain: side => src.chain(d, pt.S, pt.t, side), mem,
+        peer: o.peers ? sym => { const b = o.peers!(sym, d.D); if (!b) return null; let j = 0; while (j < b.length && b[j].t + 60000 <= pt.t) j++; return b.slice(0, j); } : undefined };
       const e = s.evaluate(ctx, p); if (!e) continue;
       const tr = simulateEntry(d, pt.t, pt.S, e, p, src, costs, s.id); if (!tr) continue;
       out.push(tr); busy = tr.exitT + 60000; cnt++;

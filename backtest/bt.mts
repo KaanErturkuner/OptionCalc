@@ -9,7 +9,7 @@ import type { Chain, OptQuote } from '../src/lib/market/types.ts';
 import type { Bar } from '../src/lib/odte/analytics.ts';
 
 const NC = !!process.env.BT_NOCOST; // maliyet ayrıştırması: spread/kayma/komisyon sıfır
-export const R = 0.04, FEE = NC ? 0 : 0.65, SLIP = NC ? 0 : 0.01, STEP = 5;
+export const R = 0.04, FEE = NC ? 0 : 0.65, SLIP = NC ? 0 : 0.01, STEP = +(process.env.BT_STEP || 5);
 export interface Row { type: 'call' | 'put'; K: number; oi: number; iv: number; half: number; vol: number; dMid: number | null; filled?: number }
 export interface Day { ticker: string; D: string; P: string; E: string; dte: number; SP: number; SD: number; TD: number; bars: Bar[]; rows: Row[]; open: number; close: number; pts: Pt[] }
 export interface Pt { m: number; t: number; S: number; F: SG.Features; or30: ReturnType<typeof An.openingRange> }
@@ -45,7 +45,7 @@ export function snapshot(d: Day, S: number, t: number, side?: 'call' | 'put'): C
   }
   return { expiry: d.E, calls, puts };
 }
-export function loadDays(tickers: string[], dir = '/workspace/backtest/days'): Day[] {
+export function loadDays(tickers: string[], dir = process.env.BT_DAYS || '/workspace/backtest/days'): Day[] {
   const out: Day[] = [];
   for (const tk of tickers) {
     const f = `${dir}/${tk}.json`; if (!fs.existsSync(f)) continue;

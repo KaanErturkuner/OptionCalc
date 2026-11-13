@@ -10,6 +10,8 @@ import { C } from '@/ui/theme';
 import { checkOpenPositions, syncBackgroundTask } from '@/ui/monitor';
 import { radar } from '@/ui/radarStore';
 import { runRadarScan } from '@/ui/radarScan';
+import { firsat } from '@/ui/firsatStore';
+import { runSignalScan } from '@/ui/signalScan';
 import { marketOpen } from '@/lib/usmarket';
 
 type Tab = 'calc' | 'radar' | 'odte' | 'journal';
@@ -26,6 +28,7 @@ export default function Home() {
   // Uygulama açıkken: açık pozisyonları 2 dk'da bir kontrol et (hedef/stop bildirimi); arka plan görevini eşitle
   useEffect(() => {
     radar.load();
+    firsat.load();
     syncBackgroundTask().catch(() => {});
     const tick = () => { if (AppState.currentState === 'active' && marketOpen()) checkOpenPositions().catch(() => {}); };
     const id = setInterval(tick, 120000);
@@ -37,6 +40,15 @@ export default function Home() {
     const id = setInterval(() => {
       if (AppState.currentState === 'active' && marketOpen() && radar.get().settings.auto) runRadarScan().catch(() => {});
     }, RADAR_EVERY_MS);
+    return () => clearInterval(id);
+  }, []);
+  // Fırsat taraması: seans içinde ve uygulama açıkken, ayarlanan aralıkta (varsayılan 2 dk; kontrol dakikada bir)
+  useEffect(() => {
+    const id = setInterval(() => {
+      const f = firsat.get();
+      const due = !f.lastScan || Date.now() - f.lastScan >= f.settings.intervalMin * 60000;
+      if (AppState.currentState === 'active' && marketOpen() && f.settings.tickers.length && due) runSignalScan().catch(() => {});
+    }, 60000);
     return () => clearInterval(id);
   }, []);
   const go = (t: Tab) => {

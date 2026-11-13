@@ -28,6 +28,8 @@ export interface StratCtx {
   chain: (side?: Dir) => Chain;
   /** Aynı hisse-gün içinde değerlendirmeler arası kalıcı not defteri (ör. "ilk kırılım oldu mu") */
   mem: Record<string, unknown>;
+  /** Başka bir sembolün bugünkü TAMAMLANMIŞ 1 dk barları (piyasa rejimi / sektör için; yoksa null) */
+  peer?: (symbol: string) => Bar[] | null;
 }
 export interface StratEntry {
   dir: Dir;
@@ -36,6 +38,10 @@ export interface StratEntry {
   maxHoldMin?: number;
   /** Bu giriş için hedef delta (yoksa parametredeki targetDelta) */
   targetDelta?: number;
+  /** Hedef strike (verilirse delta yerine buna en yakın likit kontrat seçilir) */
+  strike?: number;
+  /** Strateji tanımlı çıkış: i. bar tamamlandığında true → sonraki barın açılışında çık (ör. yüksek hacimli ters mum) */
+  exitCheck?: (bars: Bar[], i: number) => boolean;
   score?: number; note?: string;
 }
 /** Tüm stratejilerde ortak: zaman penceresi + kontrat seçimi + günlük limit */
@@ -53,6 +59,8 @@ export interface Strategy<P extends CommonParams = CommonParams> {
   /** Önerilen sembol evreni (motor yine de istenen tüm sembollerde çalıştırabilir) */
   universe?: string[];
   defaults: P;
+  /** Rejim/sektör için gereken diğer semboller (motor bunların 1 dk barlarını `ctx.peer` ile verir) */
+  peers?: string[];
   /** Arama uzayı (walk-forward optimizasyonu için ızgara değerleri) */
   space: ParamSpace<P>;
   evaluate(ctx: StratCtx, p: P): StratEntry | null;

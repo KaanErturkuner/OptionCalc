@@ -7,7 +7,8 @@ import { TICKERS, tradingDays, addDaysStr, START, END } from './common.mts';
 import * as BS from '../src/lib/bs.ts';
 import { tauYears } from './bt.mts';
 import { closeMs, etDate, YEAR_MS } from '../src/lib/usmarket.ts';
-const OUT = '/workspace/backtest/days'; fs.mkdirSync(OUT, { recursive: true });
+/* BT_DAYS: çıktı dizini; BT_MIN_DTE/BT_MAX_DTE: vade seçimi (vars. en yakın vade; ör. 1–3DTE varyantı için BT_MIN_DTE=1 BT_MAX_DTE=3) */
+const OUT = process.env.BT_DAYS || '/workspace/backtest/days', MIN_DTE = +(process.env.BT_MIN_DTE || 0), MAX_DTE = +(process.env.BT_MAX_DTE || 99); fs.mkdirSync(OUT, { recursive: true });
 const R = 0.04;
 const tickers = process.env.BT_TICKERS?.split(',') ?? TICKERS;
 const months: [string, string][] = [];
@@ -41,7 +42,8 @@ for (const t of tickers) {
     const cD = await chainOf(D), cP = await chainOf(P); if (!cD || !cP) continue;
     const expOf = (j: any, k: number) => etDate(j.expiration[k] * 1000);
     const exps = [...new Set(cD.optionSymbol.map((_: any, k: number) => expOf(cD, k)))].filter((e: any) => e >= D).sort() as string[];
-    const E = exps[0]; if (!E) continue;
+    const dteOf = (e: string) => Math.round((Date.parse(e) - Date.parse(D)) / 864e5);
+    const E = exps.find(e => dteOf(e) >= MIN_DTE); if (!E || dteOf(E) > MAX_DTE) continue;
     const pIdx = new Map<string, number>(); cP.optionSymbol.forEach((s: string, k: number) => pIdx.set(s, k));
     const SP = closes.get(P)!, TP = (closeMs(E) - closeMs(P)) / YEAR_MS, SD = closes.get(D)!, TD = (closeMs(E) - closeMs(D)) / YEAR_MS;
     let rows: any[] = [];

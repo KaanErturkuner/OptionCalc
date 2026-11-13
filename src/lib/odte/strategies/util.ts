@@ -34,3 +34,10 @@ export const clampStop = (S: number, stop: number, dir: Dir, minD: number, maxD:
   if (!(d > 0)) d = minD; d = Math.min(Math.max(d, minD), maxD);
   return S - sg * d;
 };
+/** Hedef strike'a en yakın likit kontrat (OTM seçimi için) */
+export function pickStrike(ch: Chain, dir: Dir, strike: number, o: Omit<PickOpts, 'targetDelta'>, S?: number): OptQuote | null {
+  const list = dir === 'call' ? ch.calls : ch.puts;
+  // S verilirse yalnız OTM taraf (call K ≥ S, put K ≤ S): hedef strike likit değilse ITM'e kaymasın
+  const ok = list.filter(q => (S == null || (dir === 'call' ? q.strike >= S : q.strike <= S)) && q.bid > 0 && q.ask > 0 && spreadPct(q) <= o.maxSpread && (q.volume >= o.minVol || q.oi >= o.minOI) && mid(q) > 0.05);
+  return ok.length ? ok.reduce((a, b) => Math.abs(b.strike - strike) < Math.abs(a.strike - strike) ? b : a) : null;
+}

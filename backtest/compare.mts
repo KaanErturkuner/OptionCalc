@@ -15,6 +15,7 @@ import { walkForward } from './wf.mts';
 import { makeSource, defaultCosts } from './sources.mts';
 import { verdict, CRITERIA } from './criteria.mts';
 import { STRATEGIES, type Strategy } from '../src/lib/odte/strategies/index.ts';
+import { loadPeers } from './peers.mts';
 
 const A = process.argv.slice(2), arg = (k: string, d?: string) => { const i = A.indexOf('--' + k); return i >= 0 && A[i + 1] && !A[i + 1].startsWith('--') ? A[i + 1] : d; };
 const quick = A.includes('--quick');
@@ -25,23 +26,27 @@ const tOverride = arg('t')?.split(',');
 const strats: Strategy<any>[] = sel === 'all' ? STRATEGIES : sel.split(',').map(id => { const s = STRATEGIES.find(x => x.id === id); if (!s) throw new Error('bilinmeyen strateji: ' + id + ' (mevcut: ' + STRATEGIES.map(x => x.id).join(', ') + ')'); return s; });
 const need = new Set<string>(); for (const s of strats) for (const t of tOverride ?? s.universe ?? TICKERS) need.add(t);
 const t0 = Date.now();
-const all = loadDays([...need]); for (const d of all) precompute(d);
+const daysDir = arg('days', process.env.BT_DAYS || '/workspace/backtest/days')!;
+const all = loadDays([...need], daysDir); for (const d of all) precompute(d);
+const peerSyms = [...new Set(strats.flatMap(s => s.peers ?? []))];
+const peers = peerSyms.length ? await loadPeers(peerSyms, all.reduce((a, d) => d.D < a ? d.D : a, '9999'), all.reduce((a, d) => d.D > a ? d.D : a, '0000')) : null;
+if (peers) console.error('yardımcı semboller (gün sayısı):', JSON.stringify(peers.cover));
 if (!all.length) { console.error('gün verisi yok: önce fetch.mts + prep.mts (bkz. backtest/README.md)'); process.exit(1); }
 const dates = [...new Set(all.map(d => d.D))].sort();
 console.error(`yüklendi ${all.length} hisse-gün, ${dates[0]} → ${dates[dates.length - 1]} (${dates.length} gün), ${((Date.now() - t0) / 1000).toFixed(0)} sn`);
-const costs = defaultCosts(), src = makeSource(srcKind, costs);
+const costs = defaultCosts(), src = makeSource(srcKind, costs), peerFn = peers?.get;
 const r4 = (x: number) => isFinite(x) ? +x.toFixed(4) : null;
 const slim = (m: XMet) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, Array.isArray(v) ? v.map(r4) : r4(v as number)]));
 const rows: any[] = [];
 for (const s of strats) {
   const t1 = Date.now(), uni = tOverride ?? s.universe ?? TICKERS, days: Day[] = all.filter(d => uni.includes(d.ticker));
-  const def = runStrategy(days, s, s.defaults, { source: src, costs });
+  const def = runStrategy(days, s, s.defaults, { source: src, costs, peers: peerFn });
   const sens = Object.fromEntries([0, 1, 1.5].map(k => {
     const c = { ...costs, spreadMult: k, slip: k ? costs.slip : 0, fee: k ? costs.fee : 0 };
-    return [`x${k}`, slim(xmetrics(runStrategy(days, s, s.defaults, { source: makeSource(srcKind, c), costs: c }), 0))];
+    return [`x${k}`, slim(xmetrics(runStrategy(days, s, s.defaults, { source: makeSource(srcKind, c), costs: c, peers: peerFn }), 0))];
   }));
   const hasSpace = Object.values(s.space).some(v => (v as any[] | undefined)?.length);
-  const wf = hasSpace ? walkForward(days, s, { source: src, costs, k: folds, n: nS, minN: minN || undefined }) : null;
+  const wf = hasSpace ? walkForward(days, s, { source: src, costs, peers: peerFn, k: folds, n: nS, minN: minN || undefined }) : null;
   const oos: ETrade[] = wf ? wf.oos : def.filter(t => t.D >= (dates[Math.floor(dates.length * 0.4)] ?? ''));
   const oosM = wf ? wf.oosMet : xmetrics(oos);
   rows.push({ id: s.id, name: s.name, description: s.description, universe: uni, defaults: s.defaults,
@@ -53,7 +58,7 @@ for (const s of strats) {
 }
 const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19), dir = path.join(outRoot, stamp);
 fs.mkdirSync(dir, { recursive: true });
-const meta = { generated: new Date().toISOString(), source: src.id, costs, folds, samples: nS, dates: { first: dates[0], last: dates[dates.length - 1], n: dates.length }, criteria: CRITERIA };
+const meta = { generated: new Date().toISOString(), source: src.id, daysDir, peers: peers?.cover ?? null, costs, folds, samples: nS, dates: { first: dates[0], last: dates[dates.length - 1], n: dates.length }, criteria: CRITERIA };
 fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify({ meta, strategies: rows }));
 const pct = (x: any) => x == null ? '—' : (x * 100).toFixed(1) + '%', f2 = (x: any) => x == null ? '—' : (+x).toFixed(2);
 const md: string[] = [];

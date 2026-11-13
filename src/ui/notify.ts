@@ -103,3 +103,9 @@ export async function notifyRadar(title: string, body: string, id: string) {
   const short = body.length > 180 ? body.slice(0, 177) + '…' : body;
   return show(title, short, { kind: 'radar', id });
 }
+
+/** Fırsat bildirimi (onay isteği). Soğuma ve günlük tavan ayrı kapıda (lib/signals/gate.ts). Gövde 180 karakterle sınırlı. */
+export async function notifyFirsat(title: string, body: string, id: string) {
+  const short = body.length > 180 ? body.slice(0, 177) + '…' : body;
+  return show(title, short, { kind: 'firsat', id });
+}

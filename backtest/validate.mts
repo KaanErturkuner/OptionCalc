@@ -5,7 +5,7 @@ import { closeMs } from '../src/lib/usmarket.ts';
 import { TICKERS } from './common.mts';
 import * as BS from '../src/lib/bs.ts';
 import { americanPrice, FAST_STEPS } from '../src/lib/american.ts';
-const days = loadDays(TICKERS);
+const days = loadDays(process.env.BT_TICKERS?.split(',') ?? TICKERS);
 const errs: number[] = [], amer: number[] = [], per: Record<string, number[]> = {};
 for (const d of days) {
   if (d.dte < 1 || !d.SD) continue;

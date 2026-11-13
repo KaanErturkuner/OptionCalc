@@ -1,0 +1,8 @@
+OptionCalc Aşama 3 Grok düzeltmeleri — yalnızca değişen/yeni dosyalar
+
+created	src/lib/signals/session.ts
+changed	src/ui/signalScan.ts
+changed	test/setups.test.ts
+changed	docs/TASKS.md
+changed	docs/CHANGELOG.md
+created	docs/tasks/handoff/SINYAL-FIRSAT-asama-3.md

@@ -43,7 +43,7 @@
   },
   "scripts": {
     "start": "expo start",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/run.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/prob.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/radar.test.ts",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/run.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/prob.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/radar.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/signals.test.ts && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/setups.test.ts",
     "typecheck": "tsc --noEmit",
     "android": "expo start --android",
     "ios": "expo start --ios",
@@ -56,7 +56,9 @@
     "bt:prep": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON backtest/prep.mts",
     "bt:probe": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON backtest/probe.mts",
     "bt:record": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON backtest/record.mts",
-    "check": "npm test && npm run typecheck && npm run lint && npm run bt:selftest"
+    "check": "npm test && npm run typecheck && npm run lint && npm run bt:selftest",
+    "bt:live": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON backtest/live.mts",
+    "bt:replay": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=backtest/replay.defaults.env backtest/replay.mts"
   },
   "private": true
 }

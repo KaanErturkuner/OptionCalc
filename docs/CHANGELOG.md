@@ -2,6 +2,59 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-13 — Grok — [grok] fix of stage 3 verification
+
+**Ne:** Claude'un SINYAL-FIRSAT Aşama 3 kodu (S1–S6, `optionRR`, strike tarayıcı, `signalScan` bağlantısı) doğrulandı. İlk `npm test` / `tsc --noEmit` / lint / `bt:selftest` yeşildi; Claude'un şüpheleri (eksik import, çalışmayan align testleri, `firsatStore` başlangıç `setups`) typecheck/testte doğrulanmadı. İncelemede net hatalar bulundu ve düzeltildi:
+- `T0` takvim `dte × 390` kullanıyordu (Cuma→Pazartesi 3 hayali seans). Artık yalnız işlem günleri sayılıyor.
+- `sessionLeftMin` hafta sonu ve tatilde de pozitif kalabiliyordu; artık 0.
+- Kalan EM canlı ATM straddle'ı `√(kalan/390)` ile tekrar küçültüyordu (0DTE'de çift iskonto). Artık `EM_vade × √(kalan seans / vadeye işlem dk)`.
+- QQQ rejiminde kendisi var; `aux` kendi barlarını içermediği için A1 asla true olmuyordu. `scanOne` artık `aux[t] = sessionBars`.
+- Tarama hatasında `TickerStatus.setups` tanımsız kalabiliyordu; boş dizi varsayılanı eklendi.
+- `test/setups.test.ts` ortasındaki `import` üstte toplandı; T0 / `leftMin` / `emRemain` / QQQ uyum testleri eklendi.
+**Dosyalar:** yeni `src/lib/signals/session.ts`; değişen `src/ui/signalScan.ts`, `test/setups.test.ts`, `docs/TASKS.md` (#23 done, D9), bu kayıt, `docs/tasks/handoff/SINYAL-FIRSAT-asama-3.md`.
+**Doğrulama:** `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run bt:selftest` geçti. MarketData token kullanılmadı, ağ çekimi ve Expo yayını yok.
+**Açık / sonraki:** Aşama 4 (kâğıt hesap durum makinesi, %50 kademe değişmez, risk izleyici, maliyet). Skor ve bildirim hâlâ taramaya bağlı değil. A2 göreli güç (RS) henüz yok (sektör = yalnız VWAP). IV takvim yılı (`buildSnapshot`) ile T0 işlem yılı (252×390) karışımı duruyor; canlı veriyle fiyat kıyası gerekir. `sessionBars` günü `now` değil son barın tarihine bakıyor.
+
+## 2026-11-13 — Claude — SINYAL-FIRSAT Aşama 1 (tamam) + Aşama 2 (çekirdek)
+**Ne:**
+- **Aşama 1 (#21):** sinyal tickerları ayarı (varsayılan QQQ, GLD, SLV, NVDA; en fazla 8; doğrulama; 0–3 DTE uyarısı), ticker profilleri (`profiles.ts`), OTM sabit/oto k (`otm.ts`), `firsatStore` (AsyncStorage `firsat-v1`), 60 sn paylaşılan önbellek (`scanCache.ts`), tarama turu (`signalScan.ts`, 2 dk), `notifyFirsat`, ayar bileşeni (geçici olarak Radar ayarlarında).
+- **Aşama 2 (#22, çekirdek):** `scoreSignal` (A1–H, vetolar, gecikmeli veri tavanı, Beta küçültme, etiketler), `features.ts`, `outcome.ts` (hedef/stop/zaman, MFE/MAE R), `log.ts` (kayıt + kalibrasyon özeti). Kalibrasyon ekranı, CSV, canlı bağlama ve "Güvenilir" rozeti açık.
+- **Replay hatası:** `backtest/replay.mts` için `--help` ve Türkçe ağ hatası; token kullanmaz.
+**Dosyalar:** yeni `src/lib/signals/*` (9 dosya), `src/ui/firsatStore.ts`, `src/ui/scanCache.ts`, `src/ui/signalScan.ts`, `src/ui/SignalTickers.tsx`, `test/signals.test.ts`. Değişen: `src/ui/notify.ts` (ekleme), `src/screens/Radar.tsx` (ayar bileşeni), `src/app/index.tsx` (firsat.load + 2 dk tarama aralığı), `package.json` (test betiği), `backtest/replay.mts`.
+**Doğrulama:** temiz kopyada typecheck, `npm test` (signals 67 + radar + prob + run), lint, `bt:selftest` geçti. `replay --help` çıkış 0; ağsız çalıştırma Türkçe hata verir.
+**Açık:** seans modu (keep-awake paketi yok); NBIS/GLW sektör kararı (§11.2 #4, SMH varsayılan; Radar hâlâ QQQ); minOi/minVol/spread varsayılanları Aşama 6'da; Aşama 3–7 yapılmadı; Expo'da görsel test ve yayın yok; MarketData token kullanılmadı.
+**Grok'a devir:** `docs/tasks/handoff/SINYAL-FIRSAT-asama-1.md` ve `-asama-2.md`.
+
+## 2026-11-13 — Claude — SINYAL-FIRSAT Aşama 0 (port + bağlama)
+**Ne:** Grok'un box dosyaları ana repoya kopyalandı (kaanMomentum, strateji tipleri/util/index, backtest engine/bt/compare/prep/validate/peers/live/replay, replay.defaults.env, test/run.ts, backtest/README, docs/tasks, docs/reports). `package.json`'a yalnız `bt:live` ve `bt:replay` eklendi.
+**Doğrulama:** temiz kopyada `npm ci` (835 paket). `npm test`, `npm run typecheck`, `npm run lint`, `npm run bt:selftest` geçti. `replay.mts --help` bayrağı yok; komut Yahoo'ya gidiyor, ağ yokken ham hata veriyor (Türkçe değil, açık).
+**Açık:** replay hata mesajı; Radar ve kaanMomentum SECTOR/ETF tanımları Aşama 1'de birleşecek; Aşama 0 sonunda dur, Başkan onayı bekleniyor. Expo yayını yapılmadı (Kaan istemedi); commit henüz yok.
+**Grok'a devir:** `docs/tasks/handoff/SINYAL-FIRSAT-asama-0.md`.
+
+## 2026-11-13 — Grok — SINYAL-FIRSAT: Kaan'ın cevapları işlendi
+
+**Ne:** `docs/tasks/SINYAL-FIRSAT.md` güncellendi. §11 ikiye ayrıldı: §11.1 Kaan'ın kesin kararları (K0–K7), §11.2 açık sorular (DURDU, kış saati, 1 kontrat/kesirli, NBIS/GLW).
+- Kademe: kayıptan sonra her kazanç bir adım yükseltir (30 → 40 → 50); kademe ertesi güne taşınır (§7.2, §7.4).
+- Manuel onay: yeni §7.7 "Onayla" akışı; süre dolumu (0DTE 3 dk, 1–3 DTE 5 dk, %25 fiyat kayması, stop/hedef yarısı, pencere sonu, geçersizleşme), onayda yeniden fiyatlama ("fiyat kaçtı": ask +%10 veya RR düşüşü). Çıkışlar otomatik.
+- Gece: yeni §7.8; 0DTE 15:45 ET'de kapanır, 1–3 DTE ön koşullarla taşınır (olay yok, rejim uyumlu, 2σ gece gap senaryosu ≤ 1,5R), ertesi sabah 09:31 gap çıkışı.
+- Prim stopu %67 kesinleşti. OTM uzaklığı: yeni §4.2.1 `otm.ts` / `autoK` (60 günlük trend günü uzanması, IV rank düzeltmesi, kMin/kMax); MU/INTC/QQQ çapaları sabit.
+- Komisyon: Midas 1,50 $/kontrat açılış ve kapanışta, RR'a ve adet hesabına dahil; Fırsat backtest'lerinde `BT_FEE=1.5`.
+- Birim test listeleri (Aşama 3 ve 4) ve dosya planı (`otm.ts`, `approval.ts`, `overnight.ts`) güncellendi. TASKS #28 daraltıldı, D8 eklendi.
+**Kod değişikliği yok** (yalnızca belgeler).
+
+## 2026-11-13 — Grok — box işlerinin portu + SINYAL-FIRSAT görev tanımı
+**Ne:**
+- Box'ta kalıp GitHub'a gitmemiş işler GitHub sürümüne uyarlandı: `src/lib/odte/strategies/kaanMomentum.ts` (4 varyant), `types.ts` (`peer`, `strike`, `exitCheck`, `peers`),
+  `util.ts` (`pickStrike`, yalnız OTM), `index.ts` (kayıt), `backtest/engine.mts` / `compare.mts` / `bt.mts` / `prep.mts` / `validate.mts` / `README.md`,
+  yeni `backtest/peers.mts`, `live.mts`, `replay.mts`, `replay.defaults.env` (yalnız `BT_STEP=1`; Windows'ta da çalışsın diye `--env-file-if-exists`),
+  `test/run.ts` (kaan-momentum + pickStrike testleri), `package.json` (`bt:live`, `bt:replay`; Claude'un `test` betiği korundu),
+  `docs/tasks/RADAR.md`, `docs/reports/2026-11-12-*.md`.
+- Yeni görev tanımı `docs/tasks/SINYAL-FIRSAT.md` (Sinyal tickerları, Güven Skoru, Fırsat Penceresi 1:5 RR, kâğıt hesap durum makinesi, backtest + iflas raporu);
+  TASKS #20–#28; `AGENTS.md` §1/§2/§8/§10 güncellendi, yeni §11 (orkestra/uygulayıcı akışı); `CLAUDE.md` iş akışı maddeleri.
+**Doğrulama:** GitHub sürümünün kopyasında port uygulanmış halde `npx tsc --noEmit` temiz, `npm test` (run + prob + radar) geçti,
+`npm run bt:selftest` geçti (`BT_CACHE`/`BT_SNAPS` geçici dizin), `npx eslint src test` temiz; `live/replay/peers/compare/engine.mts` ayrı tsc ile temiz. Token kullanılmadı.
+**Claude için:** Aşama 0 = bu dosyaları bağla/doğrula (SINYAL-FIRSAT §3). Radar `universe.ts` ile kaan-momentum `SECTOR`/`ETFS` farklı; Aşama 1'de birleştirilecek.
+
 ## 2026-11-13 — Claude — Radar (Aşama A–E)
 **Ne:**
 - **A. Olasılık** `src/lib/prob/implied.ts`: OTM smile (ln(K/F), 3'lü medyan, doğrusal enterpolasyon, düz ekstrapolasyon), risk-nötr `pAbove` (N(d2) − e^{rT}·vega·∂σ/∂K), `pBelow`/`pBetween`, dokunma olasılığı (≈ 2·P), kantiller, dijital çapraz kontrol, 25Δ risk reversal ve put kanadı eğimi.
