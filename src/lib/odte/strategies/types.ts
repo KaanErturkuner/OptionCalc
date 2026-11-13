@@ -14,6 +14,8 @@ export interface DayInfo {
   prevClose: number | null; openPx: number;
   /** Günlük beklenen hareket ($): ilk değerlendirmedeki ATM straddle / √(1+dte) (dte>0 vadeler için kaba ölçek) */
   em0: number | null;
+  /** Önceki günlerin OTM oynaklık oranları (oto k için; yalnız geçmiş günler, sızıntı yok). Yoksa boş. */
+  ratios?: number[];
 }
 export interface StratCtx {
   ticker: string; S: number; t: number;

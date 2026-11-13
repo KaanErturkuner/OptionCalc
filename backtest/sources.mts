@@ -4,7 +4,7 @@
  *  - recorded : GERÇEK gün içi zincir anlık görüntüleri (backtest/record.mts ile ileriye dönük kaydedilir; MarketData geçmişte
  *               gün içi opsiyon kotu SUNMUYOR — geçmiş opsiyon verisi yalnızca EOD). En yakın önceki anlık görüntünün bid/ask'ı.
  *  - hybrid   : kayıt varsa recorded, yoksa modeled (işlem kaydında hangisinin kullanıldığı `src` alanında).
- * Maliyet ayarları: SPREAD_MULT (modeled spread çarpanı), SLIP, FEE — duyarlılık analizi için ortam değişkeniyle de değişir.
+ * Maliyet ayarları: SPREAD_MULT (modeled spread çarpanı), SLIP, FEE (varsayılan 1,50 $/kontrat/yön, Midas — Kaan D8/D12) — duyarlılık için ortam değişkeniyle değişir.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,7 +16,7 @@ import type { Chain, OptQuote } from '../src/lib/market/types.ts';
 export type Side = 'call' | 'put';
 export interface Fill { bid: number; ask: number; src: 'model' | 'real' }
 export interface Costs { fee: number; slip: number; spreadMult: number }
-export const defaultCosts = (): Costs => ({ fee: +(process.env.BT_FEE ?? 0.65), slip: +(process.env.BT_SLIP ?? 0.01), spreadMult: +(process.env.BT_SPREAD_MULT ?? 1) });
+export const defaultCosts = (): Costs => ({ fee: +(process.env.BT_FEE ?? 1.5), slip: +(process.env.BT_SLIP ?? 0.01), spreadMult: +(process.env.BT_SPREAD_MULT ?? 1) });
 export interface QuoteSource {
   id: string;
   /** t anında zincir (kontrat seçimi için) */

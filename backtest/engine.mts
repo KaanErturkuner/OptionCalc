@@ -2,7 +2,9 @@
  * Genel backtest motoru: herhangi bir Strategy (src/lib/odte/strategies) + herhangi bir QuoteSource (sources.mts).
  * Değerlendirme 5 dk'da bir (uygulamanın yenileme aralığı), yalnızca TAMAMLANMIŞ 1 dk barlarla; hisse başına aynı anda tek pozisyon.
  * Giriş: sinyalden sonraki barın açılışında ASK + kayma. Çıkış: dayanak hedef/stop (aynı barda ikisi → stop), zaman stopu
- * (maxHoldMin) ya da gün sonu (0DTE 15:30, diğer 15:45 ET) — BID − kayma. Komisyon kontrat/yön başına.
+ * (maxHoldMin) ya da gün sonu 15:45 ET (her DTE; B7 — Kaan kuralı) — BID − kayma. Komisyon kontrat/yön başına (varsayılan 1,50 $).
+ * KAAN kuralları (RunOpts.kaan, D12): prim stopu %67 (prim giriş × 0,33'e inerse çık) ve risk bazlı prim hedefi
+ * (giriş + N × risk, risk = giriş × 0,67). Her N için ayrı koşu yapılır (1:5, 1:4, 1:2, 1:1,5 sonuç kolonları).
  */
 import { metrics, group, type Day, type Met } from './bt.mts';
 import { defaultCosts, makeSource, type Costs, type QuoteSource, type Side } from './sources.mts';
@@ -11,22 +13,34 @@ import type { Bar } from '../src/lib/odte/analytics.ts';
 
 export interface ETrade {
   strat: string; ticker: string; D: string; m: number; dir: Side; dte: number; K: number;
-  entry: number; exit: number; pnl: number; pct: number; why: 'target' | 'stop' | 'time' | 'hold' | 'exit';
+  entry: number; exit: number; pnl: number; pct: number; why: 'target' | 'stop' | 'time' | 'hold' | 'exit' | 'prim-stop' | 'prim-target';
   score: number; exitT: number; holdMin: number; src: string; note?: string;
 }
+/** Kaan kuralları (D12): prim stopu = giriş × (1 − pmax); prim hedefi = giriş + targetN × (giriş × pmax). */
+export interface KaanRules { targetN: number; pmax?: number }
+export const KAAN_PMAX = 0.67;
 export interface RunOpts { source?: QuoteSource; costs?: Costs;
   /** Diğer sembollerin gün içi 1 dk barları (rejim/sektör stratejileri için): (sembol, gün) → barlar */
-  peers?: (symbol: string, D: string) => Bar[] | null }
+  peers?: (symbol: string, D: string) => Bar[] | null;
+  /** Kaan prim kuralları (prim stopu %67 + risk bazlı prim hedefi 1:N). Yoksa yalnız dayanak hedef/stop. */
+  kaan?: KaanRules }
 
-export function dayInfo(d: Day): DayInfo {
+export function dayInfo(d: Day, ratios?: number[]): DayInfo {
   const p0 = d.pts.find(p => p.F.em); const em = p0?.F.em?.move ?? null;
-  return { ticker: d.ticker, date: d.D, dte: d.dte, prevClose: d.SP ?? null, openPx: d.bars[0]?.o ?? NaN, em0: em != null ? em / Math.sqrt(1 + d.dte) : null };
+  return { ticker: d.ticker, date: d.D, dte: d.dte, prevClose: d.SP ?? null, openPx: d.bars[0]?.o ?? NaN, em0: em != null ? em / Math.sqrt(1 + d.dte) : null, ratios };
+}
+/** Günün OTM oynaklık oranı (oto k geçmişi için): max(yüksek − açılış, açılış − düşük) / EM0. Yalnız tamamlanmış gün. */
+export function dayRatio(d: Day): number {
+  const info = dayInfo(d), o = d.bars[0]?.o, em = info.em0;
+  if (o == null || em == null || !(em > 0) || !d.bars.length) return NaN;
+  const hi = Math.max(...d.bars.map(b => b.h)), lo = Math.min(...d.bars.map(b => b.l));
+  return Math.max(hi - o, o - lo) / em;
 }
 function validEntry(e: StratEntry, S: number) {
   const sg = e.dir === 'call' ? 1 : -1;
   return isFinite(e.undTarget) && isFinite(e.undStop) && sg * (e.undTarget - S) > 0 && sg * (S - e.undStop) > 0;
 }
-export function simulateEntry(d: Day, t: number, S: number, e: StratEntry, p: CommonParams, src: QuoteSource, costs: Costs, strat: string): ETrade | null {
+export function simulateEntry(d: Day, t: number, S: number, e: StratEntry, p: CommonParams, src: QuoteSource, costs: Costs, strat: string, kaan?: KaanRules): ETrade | null {
   if (!validEntry(e, S)) return null;
   const ch = src.chain(d, S, t, e.dir);
   const q = e.strike != null ? pickStrike(ch, e.dir, e.strike, { maxSpread: p.maxSpread, minVol: p.minVol, minOI: p.minOI }, S)
@@ -35,8 +49,12 @@ export function simulateEntry(d: Day, t: number, S: number, e: StratEntry, p: Co
   let k = d.bars.findIndex(b => b.t >= t); if (k < 0) return null;
   const b0 = d.bars[k], f0 = src.quote(d, e.dir, q.strike, b0.o, b0.t); if (!f0) return null;
   const entry = +(f0.ask + costs.slip).toFixed(2); if (!(entry > 0.05)) return null;
-  const eod = d.close - (d.dte === 0 ? 30 : 15) * 60000, hold = e.maxHoldMin != null ? b0.t + e.maxHoldMin * 60000 : Infinity;
+  // Gün sonu: 15:45 ET (Kaan kuralı, B7). Gece taşıma backtest'te modellenmez → her pozisyon gün içi kapanır.
+  const eod = d.close - 15 * 60000, hold = e.maxHoldMin != null ? b0.t + e.maxHoldMin * 60000 : Infinity;
   const exitT = Math.min(eod, hold), call = e.dir === 'call';
+  const pmax = kaan?.pmax ?? KAAN_PMAX;
+  const primStopAt = entry * (1 - pmax), primTgtAt = entry + (kaan ? kaan.targetN : 0) * (entry - primStopAt);
+  const primBid = (Sx: number, tm: number) => { const f = src.quote(d, e.dir, q.strike, Sx, tm); return f ? f.bid - costs.slip : NaN; };
   let Sx = NaN, tx = 0, why: ETrade['why'] = 'time';
   for (; k < d.bars.length; k++) {
     const b = d.bars[k];
@@ -47,6 +65,11 @@ export function simulateEntry(d: Day, t: number, S: number, e: StratEntry, p: Co
     if (stopHit) { Sx = e.undStop; tx = b.t + 30000; why = 'stop'; break; }
     if (tgtOpen) { Sx = b.o; tx = b.t; why = 'target'; break; }
     if (tgtHit) { Sx = e.undTarget; tx = b.t + 30000; why = 'target'; break; }
+    if (kaan) {   // prim kuralları: aleyhte uç fiyatta prim stopu, lehte uç fiyatta risk bazlı prim hedefi
+      const adv = call ? b.l : b.h, fav = call ? b.h : b.l;
+      if (primBid(adv, b.t) <= primStopAt) { Sx = adv; tx = b.t + 30000; why = 'prim-stop'; break; }
+      if (primBid(fav, b.t) >= primTgtAt) { Sx = fav; tx = b.t + 30000; why = 'prim-target'; break; }
+    }
     if (e.exitCheck && e.exitCheck(d.bars, k) && k + 1 < d.bars.length) { Sx = d.bars[k + 1].o; tx = d.bars[k + 1].t; why = 'exit'; break; }
   }
   if (!isFinite(Sx)) { const b = d.bars[d.bars.length - 1]; Sx = b.c; tx = b.t + 60000; }
@@ -58,8 +81,14 @@ export function simulateEntry(d: Day, t: number, S: number, e: StratEntry, p: Co
 /** Bir stratejiyi bir parametre setiyle günler üzerinde oynat (günler precompute() edilmiş olmalı) */
 export function runStrategy<P extends CommonParams>(days: Day[], s: Strategy<P>, p: P, o: RunOpts = {}): ETrade[] {
   const costs = o.costs ?? defaultCosts(), src = o.source ?? makeSource(undefined, costs), out: ETrade[] = [];
-  for (const d of days) {
-    const info = dayInfo(d), mem: Record<string, unknown> = {};
+  // Gün sırası: sembol başına kronolojik. Oto k geçmişi (DayInfo.ratios) yalnız ÖNCEKİ günlerden gelir (sızıntı yok).
+  const ordered = [...days].sort((a, b) => a.ticker === b.ticker ? a.D.localeCompare(b.D) : a.ticker.localeCompare(b.ticker));
+  const hist = new Map<string, number[]>();
+  for (const d of ordered) {
+    const past = hist.get(d.ticker) ?? [];
+    const info = dayInfo(d, past.slice(-60)), mem: Record<string, unknown> = {};
+    const rr = dayRatio(d);
+    if (Number.isFinite(rr)) hist.set(d.ticker, [...past, rr]);
     let busy = 0, cnt = 0, n = 0;
     for (const pt of d.pts) {
       while (n < d.bars.length && d.bars[n].t + 60000 <= pt.t) n++;
@@ -68,7 +97,7 @@ export function runStrategy<P extends CommonParams>(days: Day[], s: Strategy<P>,
       const ctx: StratCtx = { ticker: d.ticker, S: pt.S, t: pt.t, m: pt.m, bars, F: pt.F, day: info, chain: side => src.chain(d, pt.S, pt.t, side), mem,
         peer: o.peers ? sym => { const b = o.peers!(sym, d.D); if (!b) return null; let j = 0; while (j < b.length && b[j].t + 60000 <= pt.t) j++; return b.slice(0, j); } : undefined };
       const e = s.evaluate(ctx, p); if (!e) continue;
-      const tr = simulateEntry(d, pt.t, pt.S, e, p, src, costs, s.id); if (!tr) continue;
+      const tr = simulateEntry(d, pt.t, pt.S, e, p, src, costs, s.id, o.kaan); if (!tr) continue;
       out.push(tr); busy = tr.exitT + 60000; cnt++;
     }
   }
