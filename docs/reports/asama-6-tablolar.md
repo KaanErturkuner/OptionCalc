@@ -1,0 +1,103 @@
+# Aşama 6 tabloları (otomatik)
+
+Pencere: 2025-11-14 → 2026-11-11 · maliyet: $1.5/kontrat/yön, kayma $0.01, spread ×1 · walk-forward 5 kat, 60 parametre seti, ilk %40 seçim · MC 10000 yol
+
+## Ticker × grup (OOS; replay $300)
+
+| Grup | Ticker | Sinyal n | Kazanma (R>0) | Ort. R | PF(R) | GA alt (R) | Spread×1,5 ort. R | Alınan n | Meşgul | DURDU | Yetersiz sermaye | Nihai | Maks. düşüş | Getiri |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0DTE | QQQ | 44 | 6.8% | -0.48 | 0.28 | -0.71 | -0.50 | 8 | 0 | 0 | 36 | 167 $ | 291 $ | -44.3% |
+| 0DTE | GLD | 50 | 10.0% | -0.41 | 0.18 | -0.56 | -0.45 | 6 | 0 | 0 | 44 | 114 $ | 186 $ | -62.0% |
+| 0DTE | SLV | 52 | 5.8% | -0.37 | 0.30 | -0.58 | -0.40 | 14 | 2 | 0 | 36 | 52 $ | 248 $ | -82.7% |
+| 0DTE | NVDA | 29 | 10.3% | -0.41 | 0.33 | -0.71 | -0.43 | 13 | 0 | 0 | 16 | 96 $ | 383 $ | -67.9% |
+| 0DTE | Tümü | 175 | 8.0% | -0.42 | 0.27 | -0.54 | -0.44 | 25 | 11 | 0 | 139 | 50 $ | 405 $ | -83.4% |
+| 1–3 DTE | QQQ | 30 | 16.7% | -0.12 | 0.54 | -0.27 | -0.13 | 2 | 0 | 0 | 28 | 401 $ | 44 $ | 33.7% |
+| 1–3 DTE | GLD | 47 | 8.5% | -0.30 | 0.08 | -0.35 | -0.33 | 3 | 0 | 0 | 44 | 232 $ | 68 $ | -22.7% |
+| 1–3 DTE | SLV | 44 | 2.3% | -0.28 | 0.19 | -0.37 | -0.31 | 16 | 2 | 0 | 26 | 108 $ | 192 $ | -64.0% |
+| 1–3 DTE | NVDA | 22 | 18.2% | -0.16 | 0.50 | -0.37 | -0.18 | 6 | 0 | 0 | 16 | 205 $ | 95 $ | -31.7% |
+| 1–3 DTE | Tümü | 143 | 9.8% | -0.23 | 0.26 | -0.29 | -0.26 | 23 | 4 | 0 | 116 | 116 $ | 329 $ | -61.3% |
+
+## Setup × ticker (OOS) ve kriter kapısı
+
+| Grup | Setup | Ticker | n | Kazanma | Ort. R | PF | GA alt | Spread×1,5 | IS n | IS ort. R | Karar |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 0DTE | firsat-s1 | QQQ | 8 | 25.0% | -0.04 | 0.90 | -0.61 | -0.05 | 3 | -0.58 | YETERSİZ VERİ |
+| 0DTE | firsat-s1 | GLD | 12 | 16.7% | -0.22 | 0.54 | -0.64 | -0.25 | 2 | -0.51 | YETERSİZ VERİ |
+| 0DTE | firsat-s1 | SLV | 17 | 5.9% | -0.36 | 0.31 | -0.65 | -0.38 | 10 | 0.14 | YETERSİZ VERİ |
+| 0DTE | firsat-s1 | NVDA | 1 | 0.0% | -0.46 | 0.00 | — | -0.47 | 0 | — | YETERSİZ VERİ |
+| 0DTE | firsat-s2 | QQQ | 9 | 0.0% | -0.64 | 0.00 | -0.80 | -0.66 | 7 | -0.69 | YETERSİZ VERİ |
+| 0DTE | firsat-s2 | GLD | 17 | 0.0% | -0.56 | 0.00 | -0.68 | -0.58 | 10 | -0.13 | YETERSİZ VERİ |
+| 0DTE | firsat-s2 | SLV | 22 | 0.0% | -0.55 | 0.00 | -0.65 | -0.59 | 30 | -0.31 | KALDI |
+| 0DTE | firsat-s2 | NVDA | 12 | 25.0% | -0.08 | 0.86 | -0.77 | -0.10 | 11 | -0.49 | YETERSİZ VERİ |
+| 0DTE | firsat-s3 | QQQ | 27 | 3.7% | -0.56 | 0.25 | -0.85 | -0.57 | 6 | -0.64 | KALDI |
+| 0DTE | firsat-s3 | GLD | 21 | 14.3% | -0.41 | 0.16 | -0.61 | -0.45 | 17 | -0.05 | KALDI |
+| 0DTE | firsat-s3 | SLV | 13 | 15.4% | -0.08 | 0.84 | -0.66 | -0.10 | 13 | -0.51 | YETERSİZ VERİ |
+| 0DTE | firsat-s3 | NVDA | 16 | 0.0% | -0.65 | 0.00 | -0.80 | -0.68 | 10 | 0.12 | YETERSİZ VERİ |
+| 0DTE | firsat-s4 | QQQ | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 0DTE | firsat-s4 | GLD | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 0DTE | firsat-s4 | SLV | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 0DTE | firsat-s4 | NVDA | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 0DTE | firsat-s5 | QQQ | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 0DTE | firsat-s5 | GLD | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 0DTE | firsat-s5 | SLV | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 0DTE | firsat-s5 | NVDA | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 0DTE | firsat-s6 | QQQ | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 0DTE | firsat-s6 | GLD | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 0DTE | firsat-s6 | SLV | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 0DTE | firsat-s6 | NVDA | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s1 | QQQ | 6 | 16.7% | -0.06 | 0.75 | -0.34 | -0.08 | 4 | 0.04 | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s1 | GLD | 15 | 6.7% | -0.27 | 0.11 | -0.36 | -0.31 | 1 | -0.34 | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s1 | SLV | 16 | 6.3% | -0.14 | 0.55 | -0.38 | -0.18 | 11 | 0.22 | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s1 | NVDA | 1 | 0.0% | -0.51 | 0.00 | — | -0.52 | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s2 | QQQ | 11 | 18.2% | -0.14 | 0.38 | -0.31 | -0.16 | 7 | -0.26 | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s2 | GLD | 20 | 5.0% | -0.33 | 0.02 | -0.40 | -0.37 | 13 | -0.21 | KALDI |
+| 1–3 DTE | firsat-s2 | SLV | 21 | 0.0% | -0.37 | 0.00 | -0.41 | -0.40 | 33 | -0.13 | KALDI |
+| 1–3 DTE | firsat-s2 | NVDA | 12 | 25.0% | -0.03 | 0.87 | -0.33 | -0.05 | 10 | -0.13 | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s3 | QQQ | 13 | 15.4% | -0.12 | 0.57 | -0.36 | -0.13 | 7 | -0.15 | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s3 | GLD | 12 | 16.7% | -0.26 | 0.15 | -0.39 | -0.31 | 22 | -0.12 | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s3 | SLV | 7 | 0.0% | -0.33 | 0.00 | -0.41 | -0.36 | 16 | -0.31 | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s3 | NVDA | 9 | 11.1% | -0.29 | 0.23 | -0.56 | -0.31 | 9 | -0.26 | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s4 | QQQ | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s4 | GLD | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s4 | SLV | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s4 | NVDA | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s5 | QQQ | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s5 | GLD | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s5 | SLV | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s5 | NVDA | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s6 | QQQ | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s6 | GLD | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s6 | SLV | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+| 1–3 DTE | firsat-s6 | NVDA | 0 | — | — | — | — | — | 0 | — | YETERSİZ VERİ |
+
+## Monte Carlo (gün bloklu, OOS günleri)
+
+| Grup | Varyant | Ufuk (gün) | Medyan | %5 | %95 | P(<başlangıç) | İflas (<%10, herhangi an) | Ort. maks. düşüş | Ort. işlem | Yetersiz sermaye | En uzun kayıp |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0DTE | birincil | 20 | 132 $ | 86 $ | 279 $ | 95.8% | 0.0% | 210 $ | 7.29 | 12.06 | 15 |
+| 0DTE | birincil | 60 | 80 $ | 47 $ | 162 $ | 99.3% | 0.0% | 282 $ | 13.48 | 49.27 | 27 |
+| 0DTE | yedek14 | 20 | 131 $ | 86 $ | 257 $ | 97.1% | 0.0% | 202 $ | 7.21 | 12.18 | 15 |
+| 0DTE | yedek14 | 60 | 79 $ | 47 $ | 146 $ | 99.7% | 0.0% | 266 $ | 13.05 | 49.94 | 25 |
+| 0DTE | durdu-kapali | 20 | 132 $ | 86 $ | 279 $ | 95.8% | 0.0% | 210 $ | 7.29 | 12.06 | 15 |
+| 0DTE | durdu-kapali | 60 | 80 $ | 47 $ | 162 $ | 99.3% | 0.0% | 282 $ | 13.48 | 49.27 | 27 |
+| 0DTE | kesirli | 20 | 47 $ | 26 $ | 204 $ | 97.7% | 29.4% | 296 $ | 14.65 | 0.00 | 22 |
+| 0DTE | kesirli | 60 | 28 $ | 24 $ | 30 $ | 99.9% | 98.5% | 340 $ | 21.09 | 0.00 | 34 |
+| 1–3 DTE | birincil | 20 | 204 $ | 157 $ | 296 $ | 95.4% | 0.0% | 105 $ | 5.27 | 13.16 | 13 |
+| 1–3 DTE | birincil | 60 | 147 $ | 113 $ | 213 $ | 99.5% | 0.0% | 164 $ | 10.71 | 46.09 | 20 |
+| 1–3 DTE | yedek14 | 20 | 204 $ | 157 $ | 296 $ | 95.4% | 0.0% | 105 $ | 5.27 | 13.16 | 13 |
+| 1–3 DTE | yedek14 | 60 | 147 $ | 113 $ | 213 $ | 99.5% | 0.0% | 164 $ | 10.71 | 46.09 | 20 |
+| 1–3 DTE | durdu-kapali | 20 | 204 $ | 157 $ | 296 $ | 95.4% | 0.0% | 105 $ | 5.27 | 13.16 | 13 |
+| 1–3 DTE | durdu-kapali | 60 | 147 $ | 113 $ | 213 $ | 99.5% | 0.0% | 164 $ | 10.71 | 46.09 | 20 |
+| 1–3 DTE | kesirli | 20 | 134 $ | 74 $ | 268 $ | 96.8% | 0.0% | 185 $ | 13.17 | 0.00 | 23 |
+| 1–3 DTE | kesirli | 60 | 30 $ | 27 $ | 95 $ | 99.9% | 52.5% | 283 $ | 35.70 | 0.00 | 36 |
+
+## Gece taşıma kapısı (1–3 DTE, OOS işlem günleri) — yalnız bilgi amaçlı
+
+Motor gün içi kapanış simüle eder (gece taşıma modellenmedi); bu tablo taşınabilecek gün sayısını gösterir.
+
+| Ticker | İşlem günü | Kapıdan geçen | Bilanço durumu |
+|---|---:|---:|---|
+| GLD | 38 | 0 | etf |
+| NVDA | 22 | 0 | bilinmiyor |
+| QQQ | 28 | 0 | etf |
+| SLV | 36 | 2 | etf |

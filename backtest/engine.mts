@@ -15,7 +15,17 @@ export interface ETrade {
   strat: string; ticker: string; D: string; m: number; dir: Side; dte: number; K: number;
   entry: number; exit: number; pnl: number; pct: number; why: 'target' | 'stop' | 'time' | 'hold' | 'exit' | 'prim-stop' | 'prim-target';
   score: number; exitT: number; holdMin: number; src: string; note?: string;
+  /** Giriş zamanı (ms). */
+  entryT: number;
+  /** Gerçekleşen R (prim riski = giriş × 0,67; komisyon dâhil): net = R × risk − 2 × komisyon */
+  R: number;
+  /** Prim yolunda hedef seviyesine (R) İLK geçiş bilgisi (yalnız stop'tan önce görülenler). Hesap modu hedefi için kullanılır. */
+  hit: Record<number, boolean>;
+  /** Stop ile mi kapandı (dayanak ya da prim stopu) */
+  stopped: boolean;
 }
+/** Hedef seviyeleri (R): 1:1,5 / 1:2 güvenli mod, 1:4 yedek, 1:5 birincil (Kaan D12). */
+export const HIT_LEVELS = [1.5, 2, 4, 5] as const;
 /** Kaan kuralları (D12): prim stopu = giriş × (1 − pmax); prim hedefi = giriş + targetN × (giriş × pmax). */
 export interface KaanRules { targetN: number; pmax?: number }
 export const KAAN_PMAX = 0.67;
@@ -55,6 +65,7 @@ export function simulateEntry(d: Day, t: number, S: number, e: StratEntry, p: Co
   const pmax = kaan?.pmax ?? KAAN_PMAX;
   const primStopAt = entry * (1 - pmax), primTgtAt = entry + (kaan ? kaan.targetN : 0) * (entry - primStopAt);
   const primBid = (Sx: number, tm: number) => { const f = src.quote(d, e.dir, q.strike, Sx, tm); return f ? f.bid - costs.slip : NaN; };
+  const risk = entry - primStopAt, hit: Record<number, boolean> = {};
   let Sx = NaN, tx = 0, why: ETrade['why'] = 'time';
   for (; k < d.bars.length; k++) {
     const b = d.bars[k];
@@ -69,7 +80,9 @@ export function simulateEntry(d: Day, t: number, S: number, e: StratEntry, p: Co
     if (kaan) {   // prim kuralları: aleyhte uç fiyatta prim stopu, lehte uç fiyatta risk bazlı prim hedefi
       const adv = call ? b.l : b.h, fav = call ? b.h : b.l;
       if (primBid(adv, b.t) <= primStopAt) { Sx = adv; tx = b.t + 30000; why = 'prim-stop'; break; }
-      if (primBid(fav, b.t) >= primTgtAt) { Sx = fav; tx = b.t + 30000; why = 'prim-target'; break; }
+      const fb = primBid(fav, b.t);
+      for (const L of HIT_LEVELS) if (fb >= entry + L * risk) hit[L] = true;
+      if (fb >= primTgtAt) { Sx = fav; tx = b.t + 30000; why = 'prim-target'; break; }
     }
     if (e.exitCheck && e.exitCheck(d.bars, k) && k + 1 < d.bars.length) { Sx = d.bars[k + 1].o; tx = d.bars[k + 1].t; why = 'exit'; break; }
   }
@@ -77,7 +90,8 @@ export function simulateEntry(d: Day, t: number, S: number, e: StratEntry, p: Co
   const fx = src.quote(d, e.dir, q.strike, Sx, tx); if (!fx) return null;
   const exit = Math.max(0, +(fx.bid - costs.slip).toFixed(2)), pnl = (exit - entry) * 100 - 2 * costs.fee;
   return { strat, ticker: d.ticker, D: d.D, m: Math.round((t - d.open) / 60000), dir: e.dir, dte: d.dte, K: q.strike, entry, exit, pnl, pct: pnl / (entry * 100), why,
-    score: e.score ?? 0, exitT: tx, holdMin: Math.round((tx - b0.t) / 60000), src: f0.src === fx.src ? f0.src : 'mixed', note: e.note };
+    score: e.score ?? 0, exitT: tx, holdMin: Math.round((tx - b0.t) / 60000), src: f0.src === fx.src ? f0.src : 'mixed', note: e.note,
+    entryT: b0.t, R: (pnl + 2 * costs.fee) / (risk * 100), hit, stopped: why === 'stop' || why === 'prim-stop' };
 }
 /** Bir stratejiyi bir parametre setiyle günler üzerinde oynat (günler precompute() edilmiş olmalı) */
 export function runStrategy<P extends CommonParams>(days: Day[], s: Strategy<P>, p: P, o: RunOpts = {}): ETrade[] {

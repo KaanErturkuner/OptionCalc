@@ -3,6 +3,7 @@
  *   Yükleme (çevrimdışı, kredi yok): loadPeers(['QQQ','SPY','SMH'])
  *   Eksik sembolü indirme (token gerekir, ~9 kredi/ay):  MARKETDATA_TOKEN=... node backtest/peers.mts SMH [SOXX]
  */
+import fs from 'node:fs';
 import { etDate, closeMs } from '../src/lib/usmarket.ts';
 import { START, END } from './common.mts';
 import type { Bar } from '../src/lib/odte/analytics.ts';
@@ -26,13 +27,25 @@ async function barsFor(sym: string, start: string, end: string): Promise<Map<str
   for (const v of byD.values()) v.sort((x, y) => x.t - y.t);
   return byD;
 }
-/** Önbellekten yükle (istek atmaz). Dönen fonksiyon motorun RunOpts.peers'ına verilir. */
+/** ^VIX için 1 dk yok (MarketData planında yok). Çevrimdışıyken Yahoo günlük kapanışları kullanılır (aux/VIX-yahoo-daily.json). */
+export const VIX_DAILY_FILE = process.env.BT_VIX_FILE || '/workspace/backtest/aux/VIX-yahoo-daily.json';
+export function loadVixDaily(file = VIX_DAILY_FILE): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!fs.existsSync(file)) return out;
+  const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (const r of j.rows ?? []) if (Number.isFinite(r.c)) out.set(r.D, r.c);
+  return out;
+}
+/** Önbellekten yükle (istek atmaz). Dönen fonksiyon motorun RunOpts.peers'ına verilir.
+ *  ^VIX: 1 dk barı yok → get() null döner; günlük kapanış için vix(D) kullanılır (yalnız çevrimdışı dosyadan). */
 export async function loadPeers(symbols: string[], start = START, end = END) {
   const prev = process.env.BT_OFFLINE; process.env.BT_OFFLINE = '1';
   const m = new Map<string, Map<string, Bar[]>>();
-  try { for (const s of symbols) m.set(s, await barsFor(s, start, end)); } finally { if (prev == null) delete process.env.BT_OFFLINE; else process.env.BT_OFFLINE = prev; }
-  const cover = Object.fromEntries([...m].map(([s, v]) => [s, v.size]));
-  return { get: (sym: string, D: string) => m.get(sym)?.get(D) ?? null, cover };
+  const vixDaily = symbols.includes('^VIX') ? loadVixDaily() : new Map<string, number>();
+  try { for (const s of symbols) if (s !== '^VIX') m.set(s, await barsFor(s, start, end)); } finally { if (prev == null) delete process.env.BT_OFFLINE; else process.env.BT_OFFLINE = prev; }
+  const cover: Record<string, number> = Object.fromEntries([...m].map(([s, v]) => [s, v.size]));
+  if (symbols.includes('^VIX')) cover['^VIX(günlük)'] = [...vixDaily.keys()].filter(d => d >= start && d <= end).length;
+  return { get: (sym: string, D: string) => m.get(sym)?.get(D) ?? null, vix: (D: string) => vixDaily.get(D) ?? null, cover };
 }
 if (import.meta.url === `file://${process.argv[1]}`) {
   const { close, summary } = await import('./md.mts');

@@ -2,6 +2,22 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-13 — Claude — [claude] SINYAL-FIRSAT Aşama 6 tamamlandı (çevrimdışı backtest, D13)
+**Ne:**
+- **D13 (Kaan kararı, TASKS):** (1) 1:5 brüt ölçülür, komisyon hariç; komisyon yalnız P&L'de. (2) 4 kazanç → 1:2 modunda 2 kayıp → güvenli; güvenli modda 2 kayıp daha → o gün dur; mevcut davranış, `test/paper-path.test.ts` D13(2) testiyle doğrulandı. (3) NVDA bilanço: Finnhub anahtarı yalnız ortam değişkeni/uygulama ayarı; kodda ve çıktıda yok.
+- **Walk-forward + replay + MC:** `backtest/firsat.mts` (5 kat, 60 parametre, 10 000 yol, $300, kademe 50/40/30, DURDU açık). Yol MC'si `src/lib/paper/path.ts` (gerçek OOS işlemleri, hedef başına ayrı sonuç, güvenli mod hedefi 1:2).
+- **Sonuç:** `docs/reports/asama-6-backtest.md` (rapor), `docs/reports/asama-6-tablolar.md` (otomatik tablolar). Hiçbir hücre kriteri geçmedi; OOS ortalama R negatif; S4–S6 veri yok.
+- **NVDA bilanço tarihleri:** `backtest/aux-earnings.mts` (tek seferlik çekim). Finnhub bu planda yalnız gelecek tarihi (2026-11-17) döndürdü; `backtest/aux/earnings-NVDA.json` `complete: false` → kapı NVDA'yı "bilinmiyor" sayıyor.
+- **Hata düzeltmeleri:** zincir önbellek anahtarında son kullanım tarihi (E) yoktu; 0DTE zinciri 1–3 DTE koşusuna sızıyordu (`backtest/sources.mts`, `backtest/bt.mts`). 1–3 DTE sayıları düzeldi (OOS 137 → 143). Yol MC'sinde işlem dizisi kırpıldı (495 sn → 49 sn duman koşusu).
+**Dosyalar:** `backtest/{firsat,aux-earnings}.mts` (yeni), `backtest/{engine,peers,sources,bt}.mts`, `package.json` (test betiğine paper-path), `src/lib/paper/path.ts` (yeni), `test/paper-path.test.ts` (yeni), `docs/reports/asama-6-*.md`, `docs/TASKS.md` (#26 done, D13), bu kayıt.
+**Doğrulama:** MarketData'ya bağlanılmadı (`unset MARKETDATA_TOKEN`; firsat.mts token varsa çıkar). Tam koşu: `BT_OFFLINE=1 BT_START=2025-11-14 BT_END=2026-11-11 BT_FEE=1.5 node backtest/firsat.mts --n 60 --folds 5 --paths 10000` (88 sn). `npm test` (paper-path dâhil), typecheck çalıştırıldı.
+**Açık / Kaan'a sorular:**
+- Yarım kalan MC iflas tanımı: sermaye 1 kontratı alamayınca hesap durur ama "iflas" sayılmaz (spec: < %10). Kaan tanımı değiştirmek isterse söylesin.
+- 1–3 DTE gece taşıma backtest'te modellenmedi (gün içi kapanış). Taşıma kazancı/gap riski ölçülmedi.
+- S4 (duvar), S5 (haber), S6 (IV rank) için veri yok; test edilemedi.
+- NVDA geçmiş bilanço tarihleri: Finnhub planı/başka kaynak gerekir (`complete: true` olmadan kapı açılmaz).
+- Grok'a: `src/lib/paper/path.ts` ile `mc.ts` (sentetik sonuçlu MC) iki ayrı yol MC'si var; path.ts Aşama 6'da kullanılan, mc.ts karşılaştırma. Birleştirme isterseniz söyleyin.
+
 ## 2026-11-13 — Claude — [claude] Başkan incelemesi 6 (oc-review-6) düzeltmeleri: D12, DURDU, takvim, B7/B9
 
 **Ne:**

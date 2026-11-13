@@ -90,7 +90,7 @@ export function fastScore(F: SG.Features, S: number, m: number, W: SG.EngineWeig
 }
 const snapCache = new Map<string, Chain>();
 function snapFor(d: Day, p: Pt, side: 'call' | 'put') {
-  const k = d.ticker + d.D + p.m + side; let c = snapCache.get(k);
+  const k = d.ticker + d.D + d.E + p.m + side; let c = snapCache.get(k);   // E şart: 0DTE ve 1–3 DTE aynı gün/ticker'da farklı zincir
   if (!c) { c = snapshot(d, p.S, p.t, side); if (snapCache.size > 60000) snapCache.clear(); snapCache.set(k, c); }
   return c;
 }

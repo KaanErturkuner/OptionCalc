@@ -28,13 +28,16 @@ export interface QuoteSource {
 }
 const tOf = (d: Day, t: number) => Math.max((closeMs(d.E) - t) / YEAR_MS, 1e-7);
 
+/** Zincir önbelleği üst sınırı (girdi). Her girdi ~200 kontrat satırı: 50 000 girdi GB'larca bellek → GC duraklamaları. Sonuçları değiştirmez. */
+const CHAIN_CACHE_MAX = +(process.env.BT_CHAIN_CACHE || 4000);
 export function modeledSource(costs = defaultCosts()): QuoteSource {
   const cache = new Map<string, Chain>();
   return {
     id: 'modeled',
     chain(d, S, t, side) {
-      const k = `${d.ticker}|${d.D}|${t}|${side ?? ''}`; let c = cache.get(k);
-      if (!c) { c = snapshot(d, S, t, side); if (cache.size > 50000) cache.clear(); cache.set(k, c); }
+      // Anahtarda son kullanım (E) şart: aynı ticker+gün için 0DTE ve 1–3 DTE zincirleri farklıdır (önbellek karışmasın).
+      const k = `${d.ticker}|${d.D}|${d.E}|${t}|${side ?? ''}`; let c = cache.get(k);
+      if (!c) { c = snapshot(d, S, t, side); if (cache.size > CHAIN_CACHE_MAX) cache.clear(); cache.set(k, c); }
       return c;
     },
     quote(d, type, K, S, t) {
@@ -65,7 +68,7 @@ export function snapToChain(s: Snap, side?: Side): Chain {
 export function recordedSource(opts: { maxStaleMs?: number; fallback?: QuoteSource; costs?: Costs } = {}): QuoteSource {
   const maxStale = opts.maxStaleMs ?? 6 * 60000, fb = opts.fallback, costs = opts.costs ?? defaultCosts();
   const mem = new Map<string, Snap[]>();
-  const snaps = (d: Day) => { const k = d.ticker + d.D; let s = mem.get(k); if (!s) { s = loadSnaps(d.ticker, d.D).filter(x => x.E === d.E); mem.set(k, s); } return s; };
+  const snaps = (d: Day) => { const k = d.ticker + '|' + d.D + '|' + d.E; let s = mem.get(k); if (!s) { s = loadSnaps(d.ticker, d.D).filter(x => x.E === d.E); mem.set(k, s); } return s; };
   const at = (d: Day, t: number) => { const s = snaps(d); let lo = 0, hi = s.length - 1, best = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (s[m].t <= t) { best = m; lo = m + 1; } else hi = m - 1; }
     return best >= 0 && t - s[best].t <= maxStale ? s[best] : null; };
   return {
