@@ -7,6 +7,7 @@ import { effectiveStopPrem, modeTargetR } from './riskwatch.ts';
 import { eligibility, signalModeFor, MODE_RULES, type SignalMode } from '../paper/account.ts';
 import { sizePosition } from '../paper/sizing.ts';
 import type { Kademe, PaperMode } from '../paper/types.ts';
+import { isQ, Q_PAPER_ELIGIBLE, Q_NOT_ELIGIBLE } from './qull/policy.ts';
 
 /** Normal dağılım fonksiyonu (Abramowitz–Stegun 7.1.26, |hata| < 1,5e-7). */
 export function normCdf(x: number): number {
@@ -48,6 +49,7 @@ export interface OppInput {
   account: { mode: PaperMode; capital: number; kademe: Kademe; commission: number; fractional: boolean };
   ttlMin: number;                                                          // onay süresi (dk), metinde
   quote: { bid: number; ask: number; iv: number | null };                 // seçilen kontrat (zincirden)
+  qual?: { score: number; note: string } | null;                          // Q-kalite (yalnız Q setupları; bilgi amaçlı)
 }
 
 /** Kart: tarama turunun ürettiği aday. Onay durumu store'da tutulur. */
@@ -63,11 +65,14 @@ export interface Opp {
   text: { title: string; body: string };
   delayedMin: number; barAgeSec: number; chainAgeSec: number;
   regimeVwap: boolean; regimeOr: boolean;
+  qual: { score: number; note: string } | null;   // Q-kalite satırı (kartta gösterilir)
 }
 
 const SETUP_AD: Record<SetupId, string> = {
   S1: 'uyumlu açılış aralığı kırılımı', S2: 'sıkışma sonrası kırılım', S3: 'trend içi VWAP geri alma',
   S4: 'gamma/OI duvarı kırılımı', S5: 'haber sonrası devam', S6: 'ucuz IV + hareket öncesi',
+  Q1: 'ORH kırılımı (Qullamaggie uyarlaması)', Q1S: 'ORL kırılımı, zayıf isim (Qullamaggie uyarlaması)',
+  Q2: 'Episodic Pivot (Qullamaggie uyarlaması)', Q3: 'parabolik short, deneysel (Qullamaggie uyarlaması)',
 };
 
 /** Aday kartı: skor, RR, mod uygunluğu, boyut önizlemesi, metin. */
@@ -107,20 +112,23 @@ export function buildOpp(i: OppInput): Opp {
   const sz = sizePosition(i.account.capital, i.account.kademe, fill, { commission: i.account.commission, fractional: i.account.fractional });
   const sizing = sz.contracts > 0 ? { contracts: sz.contracts, cost: sz.cost, budget: sz.budget, openComm: sz.openComm } : null;
 
-  // Uygunluk: veto yok, mod var, skor ≥ mod asgarisi, adet ≥ 1 (§7.7)
+  // Uygunluk: veto yok, mod var, skor ≥ mod asgarisi, adet ≥ 1 (§7.7). Q setupları kâğıda uygun değil (Q_PAPER_ELIGIBLE, Kaan onayı yok).
   let reason = '';
   const mode = modeN;
   const el = eligibility(i.account.mode, q.rr, conf.score);
-  if (conf.vetoes.length) reason = `veto: ${conf.vetoes[0]}`;
+  const qGate = isQ(i.setup) && !Q_PAPER_ELIGIBLE.has(i.setup);
+  if (qGate) reason = Q_NOT_ELIGIBLE;
+  else if (conf.vetoes.length) reason = `veto: ${conf.vetoes[0]}`;
   else if (!el.ok) reason = el.reason;
   else if (!sizing) reason = 'sermaye bu kontrat için yetmiyor';
-  const eligible = !conf.vetoes.length && el.ok && !!sizing;
+  const eligible = !qGate && !conf.vetoes.length && el.ok && !!sizing;
 
   const overnightOk = i.dte >= 1;
   const kPct = Math.round(i.account.kademe * 100);
   const body = [
     `Başkan, ${i.reasons[0] ?? SETUP_AD[i.setup]}.`,
     `Güven ${conf.score}/100 (${conf.label}, doğrulanmamış 0/30).`,
+    ...(i.qual ? [`Q-kalite ${i.qual.score}/100.`] : []),
     `RR 1:${trNum(q.rr, 1)}.`,
     `Giriş ${trNum(fill)} $, stop ${trNum(stopPrem)} $, hedef ${trNum(primTarget)} $ (1:${trNum(N, 0)}).`,
     sizing ? `Kâğıt: %${kPct} kademe, ${sizing.contracts} kontrat, ${trNum(sizing.cost, 0)} $ + komisyon.` : 'Kâğıt: sermaye yetmiyor.',
@@ -136,5 +144,6 @@ export function buildOpp(i: OppInput): Opp {
     text: { title: `${i.ticker} ${type === 'call' ? 'Call' : 'Put'} ${i.pick.strike} · ${i.setup}`, body },
     delayedMin: i.delayedMin, barAgeSec: i.barAgeSec, chainAgeSec: i.chainAgeSec,
     regimeVwap: i.regime.vwapAll, regimeOr: i.regime.orAll,
+    qual: i.qual ?? null,
   };
 }
