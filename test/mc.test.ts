@@ -15,10 +15,10 @@ const LOSS: McOutcome = { kind: 'stop' };
   ok('PRNG: aynı tohum → aynı dizi', xs.every((x, i) => x === ys[i]));
   ok('PRNG: [0,1) aralığında', xs.every(x => x >= 0 && x < 1));
 }
-// Hedef tanımları (K8 vs eski R650)
-ok('K8: 1:5 → 6R (çıkış 5 × giriş, 750 $ / 150 $ pozisyon)', near(targetR('K8', 5), 6));
-ok('R650: 1:5 → 5R (eski tanım, çıkış 650 $)', near(targetR('R650', 5), 5));
-ok('sonuç: hedef → tanımın R değeri, stop → −1R', near(outcomeR({ kind: 'hedef' }, 'K8', 5), 6) && near(outcomeR({ kind: 'hedef' }, 'R650', 5), 5) && outcomeR(LOSS, 'K8') === -1);
+// Hedef tanımları (D12: RISK birincil; K8 yalnız karşılaştırma)
+ok('RISK: 1:5 → 5R (giriş 150 + 5 × risk 100 = 650 $)', near(targetR('RISK', 5), 5));
+ok('K8 (karşılaştırma): 1:5 → 6R (çıkış 5 × giriş, 750 $)', near(targetR('K8', 5), 6));
+ok('sonuç: hedef → tanımın R değeri, stop → −1R', near(outcomeR({ kind: 'hedef' }, 'RISK', 5), 5) && near(outcomeR({ kind: 'hedef' }, 'K8', 5), 6) && outcomeR(LOSS, 'RISK') === -1);
 ok('çıkış: −1R = stop (fill/3), +1R = fill × 5/3', near(exitForR(-1, 0.8), 0.8 / 3) && near(exitForR(1, 1), 5 / 3));
 
 // Analitik: 1 gün, 3 kazanç (+1R), komisyon 0, fill 0,80 → 300 → 400 → 533,33 → 711,11
@@ -28,13 +28,13 @@ ok('çıkış: −1R = stop (fill/3), +1R = fill × 5/3', near(exitForR(-1, 0.8)
   ok('MC analitik: 3 kazanç → 711,11 $', near(r[0].medianCapital, 711.11, 0.01), String(r[0].medianCapital));
   ok('MC analitik: yol başına 3 işlem, iflas 0', r[0].meanTrades === 3 && r[0].ruinProb === 0);
 }
-// K8 hedefi (6R) → tek hedef işlemi 150 $ pozisyonda +600 → 900; R650 (5R) → +500 → 800
+// D12 RISK hedefi (5R): fill 1,50 (150 $), risk 100 $ → tek hedef +500 → 800; K8 (6R) → +600 → 900 (karşılaştırma)
 {
   const s = { commission: 0, slippage: 0, fractional: true };
-  const k8 = runMonteCarlo([[{ kind: 'hedef' }]], { startCapital: 300, paths: 5, horizons: [1], fill: 0.8, targetConvention: 'K8', settings: s });
-  const r6 = runMonteCarlo([[{ kind: 'hedef' }]], { startCapital: 300, paths: 5, horizons: [1], fill: 0.8, targetConvention: 'R650', settings: s });
-  ok('K8 hedef: 300 → 900 (+600)', near(k8[0].medianCapital, 900, 0.01), String(k8[0].medianCapital));
-  ok('R650 hedef: 300 → 800 (+500)', near(r6[0].medianCapital, 800, 0.01), String(r6[0].medianCapital));
+  const risk = runMonteCarlo([[{ kind: 'hedef' }]], { startCapital: 300, paths: 5, horizons: [1], fill: 1.5, targetConvention: 'RISK', settings: s });
+  const k8 = runMonteCarlo([[{ kind: 'hedef' }]], { startCapital: 300, paths: 5, horizons: [1], fill: 1.5, targetConvention: 'K8', settings: s });
+  ok('RISK hedef: 300 → 800 (+500 = 5R, 650 $ çıkış)', near(risk[0].medianCapital, 800, 0.01), String(risk[0].medianCapital));
+  ok('K8 hedef (karşılaştırma): 300 → 900 (+600)', near(k8[0].medianCapital, 900, 0.01), String(k8[0].medianCapital));
 }
 // Tek kayıp: kademe 50 → ilk kayıptan sonra 1 kontrat alınamıyor → her yol iflas
 {
@@ -68,8 +68,8 @@ ok('çıkış: −1R = stop (fill/3), +1R = fill × 5/3', near(exitForR(-1, 0.8)
 // Varyantlar: birincil + 3 karşılaştırma, aynı tohum
 {
   const v = runMcVariants([[W(1), LOSS], [W(0.5)]], { startCapital: 300, paths: 50, horizons: [20], seed: 9 });
-  ok('varyant: 4 kombinasyon, birincil K8 + DURDU açık', v.length === 4 && v[0].targetConvention === 'K8' && v[0].durduEnabled === true);
-  ok('varyant: karşılaştırmalar R650 ve DURDU kapalı içerir', v.some(x => x.targetConvention === 'R650') && v.some(x => !x.durduEnabled));
+  ok('varyant: 4 kombinasyon, birincil RISK + DURDU açık', v.length === 4 && v[0].targetConvention === 'RISK' && v[0].durduEnabled === true);
+  ok('varyant: karşılaştırmalar K8 ve DURDU kapalı içerir', v.some(x => x.targetConvention === 'K8') && v.some(x => !x.durduEnabled));
 }
 ok('MC: boş gün kümesi hata verir', (() => { try { runMonteCarlo([[]], { startCapital: 300, paths: 1, horizons: [1] }); return false; } catch { return true; } })());
 

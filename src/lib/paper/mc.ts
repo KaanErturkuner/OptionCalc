@@ -2,8 +2,8 @@
  * Her işlem §7 hesap durum makinesinden (account.ts) geçer: kademe, mod, komisyon, başabaş. Gün bloklu bootstrap:
  * ufuk = işlem günü sayısı; her gün, OOS gün kümesinden rastgele bir günün işlem dizisiyle doldurulur.
  *
- * Varsayılanlar (Başkan incelemesi, 2026-11-13): DURDU AÇIK; hedef tanımı K8 (1:N = çıkış/giriş = N, yani 1:5 → 750 $).
- * Karşılaştırma: eski R tabanlı 1:5 (+5R, çıkış 650 $) ve DURDU kapalı — bilgi amaçlıdır; ürün varsayılanını değiştirmez.
+ * Varsayılanlar (Kaan kararı D12, 2026-11-13): hedef RİSK BAZLI (1:N = giriş + N × risk; 150/50 → 1:5 = 650 $, +5R);
+ * DURDU AÇIK. Karşılaştırma varyantı K8 (çıkış/giriş çarpanı, 1:5 = 750 $) yalnızca bilgi amaçlıdır, Kaan tanımı DEĞİL.
  * Kaan kuralı (%50, kademe 30/40/50) değişmez. */
 import { initAccount, openPosition, closePosition, startDay } from './account.ts';
 import type { PaperAccount, PaperSettings, Kademe } from './types.ts';
@@ -20,8 +20,11 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
-/** Hedef tanımı: K8 = çıkış/giriş = N (1:5 → 5 kat prim → R = 1,5 × (N−1) = 6R). R650 = eski tanım, hedef +5R (N'den bağımsız, 1:5 → 5R). */
-export type TargetConvention = 'K8' | 'R650';
+/**
+ * Hedef tanımı. RISK (Kaan, D12): 1:N = giriş + N × risk → N R (1:5 → 5R, 650 $).
+ * K8 (karşılaştırma, Kaan tanımı DEĞİL): 1:N = çıkış/giriş = N → R = 1,5 × (N−1) (1:5 → 6R, 750 $).
+ */
+export type TargetConvention = 'RISK' | 'K8';
 export function targetR(conv: TargetConvention, N = 5): number {
   return conv === 'K8' ? 1.5 * (N - 1) : N;
 }
@@ -47,7 +50,7 @@ export interface McOpts {
   seed?: number;
   fixedKademe?: Kademe;                // yalnız karşılaştırma: kademe sabitlenir (Kaan kuralı değil, bilgi amaçlı)
   fill?: number;                       // giriş primi ($/hisse); varsayılan 0,80
-  targetConvention?: TargetConvention; // varsayılan K8
+  targetConvention?: TargetConvention; // varsayılan RISK (D12)
   targetN?: number;                    // hedef çarpanı N (1:N); varsayılan 5
 }
 
@@ -68,7 +71,7 @@ export function runMonteCarlo(days: McOutcome[][], o: McOpts): HorizonStats[] {
   const rnd = mulberry32(o.seed ?? 20261113);
   const start = o.startCapital;
   const fill = o.fill ?? 0.8;
-  const conv = o.targetConvention ?? 'K8', N = o.targetN ?? 5;
+  const conv = o.targetConvention ?? 'RISK', N = o.targetN ?? 5;
   // DURDU varsayılan AÇIK (Başkan incelemesi); ayar ile kapatılabilir.
   const settings: Partial<PaperSettings> = { fractional: true, durduEnabled: true, ...(o.settings ?? {}) };
   const comm = settings.commission ?? 1.5;
@@ -123,15 +126,15 @@ export function runMonteCarlo(days: McOutcome[][], o: McOpts): HorizonStats[] {
 export interface McVariant { name: string; targetConvention: TargetConvention; durduEnabled: boolean; stats: HorizonStats[] }
 
 /**
- * Başkan'ın istediği iki karşılaştırma: birincil (K8 + DURDU açık) ve yan varyantlar (650 = R650; DURDU kapalı).
+ * Birincil (RISK + DURDU açık) ve karşılaştırma varyantları (K8 = çıkış/giriş, Kaan tanımı değil; DURDU kapalı).
  * Tüm varyantlar aynı tohum ve aynı gün dizisiyle koşar (kıyas adil).
  */
 export function runMcVariants(days: McOutcome[][], base: Omit<McOpts, 'targetConvention' | 'settings'>): McVariant[] {
   const defs: { name: string; targetConvention: TargetConvention; durduEnabled: boolean }[] = [
-    { name: 'birincil: K8 (1:5 = 750 $), DURDU açık', targetConvention: 'K8', durduEnabled: true },
-    { name: 'karşılaştırma: R650 (1:5 = 650 $), DURDU açık', targetConvention: 'R650', durduEnabled: true },
-    { name: 'karşılaştırma: K8, DURDU kapalı', targetConvention: 'K8', durduEnabled: false },
-    { name: 'karşılaştırma: R650, DURDU kapalı', targetConvention: 'R650', durduEnabled: false },
+    { name: 'birincil: risk bazlı (1:5 = 650 $, +5R), DURDU açık', targetConvention: 'RISK', durduEnabled: true },
+    { name: 'karşılaştırma: risk bazlı, DURDU kapalı', targetConvention: 'RISK', durduEnabled: false },
+    { name: 'karşılaştırma: K8 çıkış/giriş (1:5 = 750 $, Kaan tanımı değil), DURDU açık', targetConvention: 'K8', durduEnabled: true },
+    { name: 'karşılaştırma: K8 çıkış/giriş, DURDU kapalı', targetConvention: 'K8', durduEnabled: false },
   ];
   return defs.map(d => ({
     name: d.name, targetConvention: d.targetConvention, durduEnabled: d.durduEnabled,
