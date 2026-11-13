@@ -28,6 +28,11 @@ export class Store {
       CREATE TABLE IF NOT EXISTS cooldown (occ TEXT PRIMARY KEY, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS push_tokens (token TEXT PRIMARY KEY, created INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS push_count (day TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, day TEXT NOT NULL,
+        ts INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, push_title TEXT NOT NULL, push_body TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS reports_ts ON reports (ts);
+      CREATE TABLE IF NOT EXISTS snap (day TEXT NOT NULL, ticker TEXT NOT NULL, kind TEXT NOT NULL, ts INTEGER NOT NULL, data TEXT NOT NULL,
+        PRIMARY KEY (day, ticker, kind));
     `);
   }
 
@@ -122,6 +127,46 @@ export class Store {
     this.db.prepare('INSERT INTO push_count (day, n) VALUES (?, ?) ON CONFLICT (day) DO UPDATE SET n = n + excluded.n').run(day, n);
   }
 
+  // ── rapor duvar anlık görüntüleri (gün başı 'open' = ilk tarama; 'last' = her tarama) ──
+  snapPut(day: string, ticker: string, kind: 'open' | 'last', ts: number, data: object): void {
+    const json = JSON.stringify(data);
+    if (kind === 'open') this.db.prepare('INSERT OR IGNORE INTO snap (day, ticker, kind, ts, data) VALUES (?, ?, ?, ?, ?)').run(day, ticker, kind, ts, json);
+    else this.db.prepare('INSERT INTO snap (day, ticker, kind, ts, data) VALUES (?, ?, ?, ?, ?) ON CONFLICT (day, ticker, kind) DO UPDATE SET ts = excluded.ts, data = excluded.data').run(day, ticker, kind, ts, json);
+  }
+  snapGet<T = unknown>(day: string, ticker: string, kind: 'open' | 'last'): T | null {
+    const r = this.db.prepare('SELECT data FROM snap WHERE day = ? AND ticker = ? AND kind = ?').get(day, ticker, kind) as { data: string } | undefined;
+    return r ? JSON.parse(r.data) as T : null;
+  }
+  /** Bugünkü teyitli+teyitsiz olayların kontrat bazlı toplamı (dV ve prim) */
+  flowAgg(day: string): { ticker: string; expiry: string; side: 'call' | 'put'; strike: number; contracts: number; premium: number }[] {
+    return (this.db.prepare(`SELECT ticker, expiry, side, strike, SUM(dv) AS contracts, SUM(prem) AS premium FROM events WHERE day = ?
+      GROUP BY ticker, expiry, side, strike ORDER BY premium DESC LIMIT 40`).all(day) as
+      { ticker: string; expiry: string; side: string; strike: number; contracts: number; premium: number }[])
+      .map(r => ({ ...r, side: r.side === 'put' ? 'put' as const : 'call' as const }));
+  }
+
+  // ── raporlar (30 gün) ──
+  hasReport(key: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM reports WHERE key = ?').get(key);
+  }
+  insertReport(r: { key: string; kind: string; day: string; ts: number; title: string; body: string; pushTitle: string; pushBody: string }): number {
+    const x = this.db.prepare(`INSERT OR IGNORE INTO reports (key, kind, day, ts, title, body, push_title, push_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(r.key, r.kind, r.day, r.ts, r.title, r.body, r.pushTitle, r.pushBody);
+    return Number(x.lastInsertRowid);
+  }
+  listReports(limit: number): ReportRow[] {
+    return (this.db.prepare('SELECT id, kind, day, ts, title, body FROM reports ORDER BY ts DESC, id DESC LIMIT ?').all(Math.min(50, Math.max(1, limit))) as unknown as ReportRow[]);
+  }
+  getReport(id: number): ReportRow | null {
+    return (this.db.prepare('SELECT id, kind, day, ts, title, body FROM reports WHERE id = ?').get(id) as unknown as ReportRow | undefined) ?? null;
+  }
+  /** Saklama: ts'si cutoffMs'den eski raporlar silinir */
+  pruneReports(cutoffMs: number): number {
+    return Number(this.db.prepare('DELETE FROM reports WHERE ts < ?').run(cutoffMs).changes);
+  }
+  /** Duvar anlık görüntüleri: 14 gün */
+  snapPrune(day: string): void { this.db.prepare('DELETE FROM snap WHERE day < ?').run(day); }
+
   close(): void { this.db.close(); }
 }
 
@@ -134,3 +179,5 @@ function toEvent(r: Record<string, unknown>): FlowEvent {
   };
 }
 export type { ChainRow };
+
+export interface ReportRow { id: number; kind: string; day: string; ts: number; title: string; body: string }

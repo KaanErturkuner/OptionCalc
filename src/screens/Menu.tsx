@@ -4,17 +4,19 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Journal from '@/screens/Journal';
 import Watchlist from '@/screens/Watchlist';
+import Raporlar from '@/screens/Raporlar';
 import { useWatch } from '@/ui/watchStore';
 import { Btn, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 
-export type CardId = 'journal' | 'watch';
+export type CardId = 'journal' | 'watch' | 'reports';
 interface MenuCard { id: CardId; icon: string; title: string; desc: (ctx: { watchCount: number }) => string }
 
 /** Kart kaydı: sıra = ekranda görünen sıra */
 const CARDS: MenuCard[] = [
   { id: 'journal', icon: '☰', title: 'Geçmiş', desc: () => 'İşlem günlüğü, sinyal kayıtları, açık pozisyonlar' },
   { id: 'watch', icon: '★', title: 'Takip Listesi', desc: ({ watchCount }) => `Hesapla'dan eklenen opsiyonlar · ${watchCount} kalem` },
+  { id: 'reports', icon: '▤', title: 'Raporlar', desc: () => 'Piyasa öncesi, açılış +30 dk / +1,5 / +2,5 sa, gün sonu' },
 ];
 
 export default function Menu({ active, start = null }: { active: boolean; start?: CardId | null }) {
@@ -25,6 +27,7 @@ export default function Menu({ active, start = null }: { active: boolean; start?
   const SCREENS: Record<CardId, ReactNode> = {
     journal: <Journal active={active && open === 'journal'} />,
     watch: <Watchlist active={active && open === 'watch'} onBack={back} />,
+    reports: <Raporlar active={active && open === 'reports'} onBack={back} />,
   };
 
   if (open) {

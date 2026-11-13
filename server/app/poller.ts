@@ -38,6 +38,8 @@ export function toEvent(row: ChainRow, m: Measure, confirmed: boolean, ts: numbe
   };
 }
 
+export interface PollHooks { onRows?: (ticker: string, rows: ChainRow[], nowMs: number, day: string) => void }
+
 export class Poller {
   lastPollAt = 0;
   lastOkAt = 0;
@@ -52,8 +54,9 @@ export class Poller {
   private readonly src: ChainSource;
   private readonly push: PushSender | null;
   private readonly log: (m: string) => void;
-  constructor(cfg: Config, store: Store, src: ChainSource, push: PushSender | null, log: (m: string) => void = () => {}) {
-    this.cfg = cfg; this.store = store; this.src = src; this.push = push; this.log = log;
+  private readonly hooks: PollHooks;
+  constructor(cfg: Config, store: Store, src: ChainSource, push: PushSender | null, log: (m: string) => void = () => {}, hooks: PollHooks = {}) {
+    this.cfg = cfg; this.store = store; this.src = src; this.push = push; this.log = log; this.hooks = hooks;
   }
 
   get intervalMs(): number { return this.cfg.intervalMin * 60000; }
@@ -97,6 +100,7 @@ export class Poller {
         if (!OK(r.status)) { stats.tickers[ticker] = `HTTP ${r.status}`; continue; }
         const rows = parseChainRows(r.json).filter(x => targetSet.has(x.expiry));
         if (!rows.length) { stats.tickers[ticker] = 'boş'; continue; }
+        try { this.hooks.onRows?.(ticker, rows, nowMs, day); } catch (e) { this.log('rapor kancası: ' + errText(e)); }
         if (!first) cands.push(...candidates(rows, base, th, false, occ => cooldown.has(occ)));
         for (const [occ, b] of nextBaseline(rows, base)) {
           if (base.get(occ)?.upd !== b.upd || base.get(occ)?.vol !== b.vol) { base.set(occ, b); changed.set(occ, b); }
@@ -167,5 +171,5 @@ export class Poller {
 /** Hata metni: tokenlar hiçbir zaman yazılmaz (kaynak mesajlar yalnız kendi Türkçe metinlerimizdir) */
 export function errText(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e);
-  return m.replace(/Bearer\s+\S+/gi, 'Bearer ***').slice(0, 160);
+  return m.replace(/Bearer\s+\S+/gi, 'Bearer ***').replace(/((?:token|key|apikey)=)[^&\s]+/gi, '$1***').slice(0, 160);
 }

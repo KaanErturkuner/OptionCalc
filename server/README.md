@@ -31,6 +31,8 @@ Spec: [`docs/tasks/FLOW.md`](../docs/tasks/FLOW.md). Uygulama tarafı: `src/lib/
 | GET | `/flow/summary` | ✓ | Bugünkü teyitli olaylarda ticker bazında call/put prim toplamı |
 | POST | `/push/register` `{"token":"ExponentPushToken[…]"}` | ✓ | Expo push tokenı kaydı (en çok 50 token) |
 | POST | `/push/unregister` `{"token":…}` | ✓ | Tokenı sil |
+| GET | `/reports?limit=` | ✓ | Son raporlar (yeni → eski, tam metin; en çok 50, varsayılan 10) |
+| GET | `/reports/<id>` | ✓ | Tek rapor |
 | GET | `/api/md/<MarketData yolu>?<sorgu>` | ✓ | MarketData proxy'si (yanıt MarketData ile aynı; `X-Flow-Cache`, `X-Api-Ratelimit-Consumed` başlıkları) |
 
 Saklama: olaylar son 5 işlem günü için tutulur (`store.prune`); eski günler silinir.
@@ -138,6 +140,26 @@ Sonra uygulamada **Hesapla › Ayarlar › “Akış sunucusu anahtarı”** ala
 Alternatif (derleme zamanı, OTA ile dağıtılır, anahtar JS paketine girer; tercih edilmez): EAS ortam değişkeni
 `EXPO_PUBLIC_FLOW_API_KEY`. **Anahtarı yenilemek:** sunucuda dosyayı sil, 3. adımı yeniden çalıştır, `systemctl restart optioncalc-flow`,
 uygulamada yeni anahtarı gir.
+
+## Raporlar (zamanlanmış piyasa özetleri)
+
+`server/app/reporter.ts` + saf mantık `src/lib/reports/`. Kural tabanlı metin (LLM yok), Türkçe.
+
+| Rapor | Zaman (İst, kış / yaz) | İçerik |
+|---|---|---|
+| Piyasa öncesi | açılış −30 dk (17:00 / 16:00) | Asya (Nikkei, Hang Seng), Avrupa (FTSE, DAX), vadeliler (ES, NQ), izleme listesi ön piyasa, haberler, makro (FOMC/CPI/NFP), bilanço, beklenti |
+| Açılış +30 dk, +1,5 sa, +2,5 sa | 18:00 / 19:00 / 20:00 (yaz: −1 sa) | Açılıştan beri hareket, duvar kayması (açılış → şimdi: call/put duvarı, gamma flip, max pain), opsiyon birikimi, haberler, beklenti |
+| Gün sonu | kapanış +30 dk (yaz 23:30; kış 00:30) | Gün değişimi, duvar kayması, SMA20/50/200, birikim, haberler, yarın beklentisi |
+
+- Zamanlar ABD açılış/kapanışına çapalıdır (ET, DST dâhil): ABD tatilinde rapor yok; erken kapanış (13:00 ET) günlerinde gün sonu kapanışa göre kayar.
+- **Veri:** duvarlar poller'ın önbelleğe aldığı zincirlerden (MarketData'ya EK kredi yok). Yahoo chart (anahtarsız, seri, 350 ms aralık). Finnhub (haber, bilanço) — anahtar `/etc/optioncalc-flow/finnhub_key` (root 600), systemd `LoadCredential`; **anahtar URL'de değil, `X-Finnhub-Token` başlığında gider**.
+- Kaynak hatası → metinde “veri alınamadı” satırı; rapor yine üretilir. Saklama 30 gün (`reports` tablosu). Her rapor sonunda kısa Expo push (kayıtlı tokenlara).
+- Kapatma: `REPORTS=off` (ortam). Finnhub anahtarı yoksa haber/bilanço “veri alınamadı” olur.
+- **Kuru çalıştırma** (ağ YOK, DB YOK, push YOK; sentetik fixture):
+  ```bash
+  node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON server/app/main.ts --report-dry-run premarket   # premarket | intra1 | intra2 | intra3 | eod
+  ```
+- Sınır: duvar anlık görüntüsü, akış tarayıcısı çalışırken alınır (seans dışında ve tarayıcı kapalıyken rapor “anlık görüntü yok” der). Gün içi birikim yalnız eşik üstü olaylardan toplanır (dV).
 
 ## Doğrulama
 

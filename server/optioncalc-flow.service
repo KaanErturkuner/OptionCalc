@@ -14,6 +14,7 @@ EnvironmentFile=-/etc/optioncalc-flow/env
 # Sırlar: root'a ait 600 dosyalardan, systemd okur; ortam değişkeni olarak GÖRÜNMEZ
 LoadCredential=md_token:/etc/optioncalc-flow/md_token
 LoadCredential=app_key:/etc/optioncalc-flow/app_key
+LoadCredential=finnhub_key:/etc/optioncalc-flow/finnhub_key
 ExecStart=/usr/bin/node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON /opt/optioncalc-flow/server/app/main.ts
 Restart=always
 RestartSec=10

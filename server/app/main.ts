@@ -17,9 +17,26 @@ import { FixtureSource, type FixturePoll } from './fixture.ts';
 import { estimateCredits, planPoll } from '../../src/lib/flow/plan.ts';
 import { flowExpiries } from '../../src/lib/flow/expiry.ts';
 import { fmtIst, contractLabel } from '../../src/lib/flow/model.ts';
+import { buildReport } from '../../src/lib/reports/text.ts';
+import { REPORT_KINDS, type ReportKind } from '../../src/lib/reports/schedule.ts';
+import { Reporter } from './reporter.ts';
+import { YahooClient, FinnhubClient } from './sources.ts';
 
 const log = (m: string) => console.log(`${new Date().toISOString()} ${m}`);
 const args = process.argv.slice(2);
+
+/** Rapor kuru çalıştırma: sentetik fixture ile metni yazar. Ağ YOK, DB YAZILMAZ, push YOK. */
+function reportDryRun(kind: string): void {
+  if (!(REPORT_KINDS as string[]).includes(kind)) { console.error('kullanım: --report-dry-run ' + REPORT_KINDS.join('|')); process.exit(1); }
+  const fixture = argVal('--fixture') ?? 'server/fixtures/reports-sample.json';
+  const all = JSON.parse(readFileSync(fixture, 'utf8'));
+  const rep = buildReport(all[kind as ReportKind]);
+  console.log('— SENTETİK fixture (gerçek piyasa verisi DEĞİL). Ağ çağrısı: 0; DB yazımı: 0; push: 0.');
+  console.log(`— Başlık: ${rep.title}`);
+  console.log(`— Push: ${rep.pushTitle} | ${rep.pushBody}`);
+  console.log('— Metin:');
+  console.log(rep.body);
+}
 const argVal = (k: string) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : undefined; };
 
 function dryRun(cfg: Config): Promise<void> | void {
@@ -61,21 +78,26 @@ async function serve(cfg: Config) {
   const store = new Store(cfg.dbPath);
   const md = new MdClient(cfg.mdToken, store, { flowDailyCap: cfg.flowDailyCap, proxyDailyCap: cfg.proxyDailyCap, creditReserve: cfg.creditReserve });
   const push: PushSender = new ExpoPush(store, cfg.expoAccessToken, fetch, log);
+  const reporter = new Reporter({ cfg, store, yahoo: new YahooClient(), finnhub: cfg.finnhubKey ? new FinnhubClient(cfg.finnhubKey) : null, push, log });
   const poller = new Poller(cfg, store, {
     chain: (ticker, q, nowMs) => md.get(`/options/chain/${ticker}/?dte=${encodeURIComponent(q.dte)}&mode=cached&maxage=${encodeURIComponent(q.maxage)}`, 'flow', { nowMs }),
     quote: (occ, nowMs) => md.get(`/options/quotes/${occ}/`, 'flow', { nowMs }),
-  }, push, log);
+  }, push, log, { onRows: (t, rows, nowMs, day) => reporter.recordRows(t, rows, nowMs, day) });
+  const reportTimer = reporter.start();
+  log(`raporlar: ${cfg.reportsEnabled ? 'açık' : 'kapalı'}, Finnhub anahtarı ${cfg.finnhubKey ? 'var' : 'yok'}`);
   const handler = createHandler({ cfg, store, md, poller });
   const server = createServer((req, res) => { void handler(req, res); });
   server.listen(cfg.port, cfg.host, () => log(`dinleniyor ${cfg.host}:${cfg.port}`));
   const timer = poller.start();
   log(`tarayıcı: ${cfg.pollEnabled ? 'açık' : 'kapalı'}, ${cfg.intervalMin} dk, ${cfg.tickers.join(' ')}`);
-  const stop = () => { clearInterval(timer); server.close(); store.close(); log('kapanıyor'); process.exit(0); };
+  const stop = () => { clearInterval(timer); clearInterval(reportTimer); server.close(); store.close(); log('kapanıyor'); process.exit(0); };
   process.on('SIGTERM', stop); process.on('SIGINT', stop);
 }
 
 const cfg = loadConfig(process.env);
-if (args.includes('--dry-run')) {
+if (args.includes('--report-dry-run')) {
+  reportDryRun(argVal('--report-dry-run') ?? '');
+} else if (args.includes('--dry-run')) {
   Promise.resolve(dryRun(cfg)).catch(e => { console.error('dry-run hatası:', (e as Error).message); process.exit(1); });
 } else {
   serve(cfg).catch(e => { console.error('başlatma hatası:', (e as Error).message); process.exit(1); });

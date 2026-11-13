@@ -6,6 +6,8 @@
  *  GET  /flow/summary           — (anahtar) bugün ticker bazında teyitli prim dengesi
  *  POST /push/register {token}  — (anahtar) Expo push tokenı kaydı
  *  POST /push/unregister {token}— (anahtar)
+ *  GET  /reports?limit=         — (anahtar) son raporlar, yeni → eski, tam metin (en çok 50, varsayılan 10)
+ *  GET  /reports/<id>           — (anahtar) tek rapor
  *  GET  /api/md/<yol>?<sorgu>   — (anahtar) MarketData proxy'si; yalnız src/lib/flow/proxy.ts izinli listesi
  * Anahtar: başlık x-app-key (sabit zamanlı karşılaştırma). Anahtar/token asla loglanmaz.
  */
@@ -103,6 +105,14 @@ export function createHandler(d: Deps) {
           return send(res, 200, { ok: true });
         }
         return send(res, 200, { ok: true, removed: d.store.removePushToken(token) });
+      }
+      if (method === 'GET' && path === '/reports') {
+        const limit = Number(url.searchParams.get('limit') ?? 10) || 10;
+        return send(res, 200, { reports: d.store.listReports(limit), serverTime: t });
+      }
+      if (method === 'GET' && /^\/reports\/\d+$/.test(path)) {
+        const r = d.store.getReport(Number(path.slice('/reports/'.length)));
+        return r ? send(res, 200, { report: r }) : send(res, 404, { error: 'rapor bulunamadı' });
       }
       if (method === 'GET' && path.startsWith(MD_PROXY_PREFIX + '/')) return mdProxy(req, res, url, t);
       return send(res, 404, { error: 'bulunamadı' });

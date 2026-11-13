@@ -14,6 +14,7 @@ export interface Config {
   flowDailyCap: number; proxyDailyCap: number; creditReserve: number;
   rateLimitPerMin: number; cacheSec: number;
   mdToken: string; appKey: string; expoAccessToken: string;
+  finnhubKey: string; reportsEnabled: boolean;
 }
 
 type Env = Record<string, string | undefined>;
@@ -58,6 +59,8 @@ export function loadConfig(env: Env = process.env): Config {
     mdToken: secret(env, 'md_token', env.FLOW_MD_TOKEN_FILE),
     appKey: secret(env, 'app_key', env.FLOW_APP_KEY_FILE),
     expoAccessToken: secret(env, 'expo_access_token', env.FLOW_EXPO_TOKEN_FILE),
+    finnhubKey: secret(env, 'finnhub_key', env.FLOW_FINNHUB_FILE),
+    reportsEnabled: (env.REPORTS ?? 'on') !== 'off',
   };
 }
 
@@ -68,5 +71,6 @@ export function publicConfig(c: Config) {
     thresholds: c.thresholds, cooldownMin: c.cooldownMin, pushMinPremium: c.pushMinPremium, pushMaxPerDay: c.pushMaxPerDay,
     flowDailyCap: c.flowDailyCap, proxyDailyCap: c.proxyDailyCap, creditReserve: c.creditReserve,
     hasMdToken: c.mdToken.length > 0, hasAppKey: c.appKey.length > 0, hasExpoAccessToken: c.expoAccessToken.length > 0,
+    reportsEnabled: c.reportsEnabled, hasFinnhubKey: c.finnhubKey.length > 0,
   };
 }

@@ -2,6 +2,33 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-14 — Claude — [grok] Zamanlanmış piyasa raporları (sunucu + Menü › Raporlar) (TASKS #36)
+
+Commit öneki kullanıcı isteğiyle `[grok]`; işi yapan Claude.
+
+**Ne:**
+- **Zamanlama** (`src/lib/reports/schedule.ts`): ABD açılış/kapanışına çapalı (ET, DST dâhil). Piyasa öncesi = açılış −30 dk; açılış +30 dk / +1,5 sa / +2,5 sa; gün sonu = kapanış +30 dk. Kış (EST): 17:00 / 18:00 / 19:00 / 20:00 İst; gün sonu 00:30 İst. Yaz (EDT): hepsi 1 saat erken, gün sonu 23:30 İst. Tatil: rapor yok. Erken kapanış (13:00 ET): 27 Kas, 24 Ara, 3 Tem kuralı; gün sonu kapanışa göre kayar. Sunucu yeniden başlarsa 45 dk'dan eski slotlar üretilmez.
+- **Metin** (`src/lib/reports/text.ts`, saf, LLM yok): Asya/Avrupa/vadeliler/ön piyasa, haber, makro, bilanço, açılış eğilimi (vadeli %70 + Asya/Avrupa %30, eşik ±0,25); seans içi yön ve duvar kayması (açılış → şimdi); opsiyon birikimi (dV toplamı, prim); gün sonu SMA20/50/200 ve yarın beklentisi. Veri yoksa "veri alınamadı" yazar, rapor düşmez.
+- **Sunucu:** `server/app/reporter.ts` (zamanlayıcı, toplama, kayıt, push), `server/app/sources.ts` (Yahoo chart seri 350 ms; Finnhub `X-Finnhub-Token` başlığıyla, 1,1 sn aralık), `server/app/store.ts` (`reports`, `snap` tabloları; 30 gün saklama), `server/app/poller.ts` (her taramada duvar anlık görüntüsü; gün başı "open"), `server/app/http.ts` (`GET /reports?limit=`, `GET /reports/<id>`), `server/app/push.ts` (`broadcast`), `server/app/config.ts` (Finnhub anahtarı, `REPORTS=off`), `server/optioncalc-flow.service` (`LoadCredential=finnhub_key`).
+- **Duvarlar:** `src/lib/reports/walls.ts` — poller satırlarından analytics.ts (oiWalls, gex flip, maxPain). IV satırda yok; Γ için analytics varsayılanı 0,30 kullanılır.
+- **MarketData:** rapor için EK kredi yok (duvarlar mevcut taramadan).
+- **Uygulama:** Menü'ye "Raporlar" kartı (`src/screens/Raporlar.tsx`): liste (tür, İst saati, başlık), dokununca tam metin, aşağı çekerek yenileme. İstemci `src/lib/reports/client.ts` (anahtar yalnız başlıkta).
+- **Kuru çalıştırma:** `node server/app/main.ts --report-dry-run <tür>` — sentetik fixture (`server/fixtures/reports-sample.json`), ağ/DB/push yok.
+- **Dosyalar:** `src/lib/reports/{schedule,types,sources,text,walls,client}.ts`, `test/reports.test.ts` (yeni), `server/app/{reporter,sources}.ts` (yeni), `server/fixtures/reports-sample.json` (yeni), `server/app/{store,poller,http,push,config,main}.ts`, `server/optioncalc-flow.service`, `server/README.md`, `src/screens/{Raporlar,Menu}.tsx`, `package.json` (test zinciri), `docs/{TASKS,CHANGELOG}.md`.
+
+**Nasıl doğrulandı:**
+- `npm run check` yeşil (test incl. `test/reports.test.ts`; typecheck; lint; bt:selftest; flow:selftest).
+- Zamanlama testleri: kış ve yaz haftaları (2026-03-16, DST uyumsuz hafta dâhil), Şükran/Noel tatili, erken kapanışlar, vakti gelmiş slotlar ve grace.
+- Metin: sentetik fixture ile üç rapor türü; veri yokken düşmeme.
+- Sunucu kuru çalıştırma çıktısı deploy raporunda.
+
+**Açık sorular / sınırlar:**
+- Erken kapanış tablosu kural tabanlı (27 Kas, 24 Ara, 3 Tem); NYSE takvimiyle yıllık doğrulanmalı.
+- Gün sonu kaymasına karar: çapa "kapanış +30 dk" (yaz 23:30 İst, kış 00:30 İst). Kaan "23.30" dediği için yazda tutuyor; kışın 00:30 olur.
+- Yahoo ve Finnhub kaynakları resmi değil; hız sınırı/engelleme olursa "veri alınamadı" ile düşer.
+- Duvar anlık görüntüsü tarayıcı açıkken alınır; tarayıcı kapalıysa intra raporlar bunu belirtir.
+- Pazartesi 16.11'e kadar hafta sonu olduğu için ilk gerçek rapor 16.11 17:00 İst'te beklenir.
+
 ## 2026-11-14 — Claude — [grok] Sonuç kartı (0DTE + Fırsat) ve Fırsat dayanak gecikmesi düzeltmesi (TASKS #34, #35)
 
 Commit öneki kullanıcı isteğiyle `[grok]`; işi yapan Claude.
