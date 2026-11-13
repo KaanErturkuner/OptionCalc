@@ -16,6 +16,7 @@ Bilanço geçmişi yok → “veri alınamadı”. Başlıkta “Örnek ·”, `
 
 **Doğrulama:** `npm run check` geçti (test, typecheck, lint, bt:selftest, flow:selftest — örnek satır ve akış sorgusu kontrolleri dâhil).
 Sunucu yerelde kuru çalıştırıldı (`--dry-run`, yalnız Yahoo; Finnhub anahtarı yok, haberler “veri alınamadı”).
+**Dağıtım ve gerçek koşu:** `server/deploy.sh` (servis active, `/health` 200). `backfill.ts --day 2026-11-13` droplette `ocflow` olarak (systemd-run + LoadCredential, anahtar yazdırılmadı): 5/5 yazıldı (id 1–5, `example: true`, push yok). `GET /reports?limit=50`: 5 örnek. Haberler yayın saatine göre (18:00 raporunda en yeni 17:59 İst).
 
 **Açık / dikkat:** (a) Genel haber akışı (`/news?category=general`) geriye dönük sorgulanamıyor; kapsam dışıysa rapor bunu “Veri sorunları”nda yazar.
 (b) Örnek raporlar 30 gün sonra diğer raporlarla birlikte silinir. (c) Canlı raporlarda duvar/birikim hâlâ anlık görüntüden; geçmiş günlerde yalnız akış kaydı
