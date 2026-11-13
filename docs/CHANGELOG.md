@@ -2,6 +2,27 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-14 — Grok — [grok] Radar: hisse detay grafiği (OI / hacim × strike, duvarlar, gamma flip, max pain) (TASKS #33)
+
+Kaan'ın talebi: Radar'da hisseye dokununca görsel grafik. Yeni bağımlılık yok (react-native-svg 15.16.0 zaten var).
+
+**Ne:**
+- **Radar:** “Piyasa nabzı” satırları ve “Hisse grafiği” çipleri (ayarlardaki izleme listesi) dokunulabilir → detay ekranı; “‹ Radar” ile dönüş.
+- **Detay** (`src/screens/RadarDetail.tsx`): tek zincir isteği, en yakın vade (`expirations`: Cuma/aylık; günlük 0DTE listesi yok). Sunucu anahtarı varsa MarketData (proxy, `mdMode: cached`, 1 kredi); yoksa CBOE. Yükleniyor / hata (Türkçe) / ⟳ tekrar. Üstte spot, vade (gün), Call/Put OI, P/C.
+- **Grafik** (`src/ui/OiChart.tsx`, react-native-svg): strike başına çubuklar; call yukarı (yeşil), put aşağı (kırmızı). Metrik: Açık pozisyon / Hacim. Çizgiler: spot (beyaz), Call duvarı, Put duvarı (kesikli yeşil/kırmızı), Gamma flip (sarı), Max pain (mavi). Aralık dışı değer legend'da “(aralık dışı)” ile yazılır.
+- **Saf mantık** `src/lib/radar/detail.ts`: `strikeRows` (calls+puts birleşimi), `windowRows` (spot ±%15, en fazla 200 → spot'a en yakın), `bucketRows` (en fazla 40 çubuk, kovalama), `metricMax`, `markers` (analytics: `oiWalls`, `gex` flip, `maxPain`), `nearestExpiry`, `inRange`.
+- **Dosyalar:** `src/lib/radar/detail.ts`, `src/ui/OiChart.tsx`, `src/screens/RadarDetail.tsx`, `src/screens/Radar.tsx`, `test/radar-detail.test.ts`, `package.json` (test zinciri), `docs/{TASKS,CHANGELOG}.md`.
+
+**Nasıl doğrulandı:**
+- `npm run check` yeşil (test incl. yeni `test/radar-detail.test.ts`, typecheck, lint, bt:selftest, flow:selftest).
+- Birim testler: birleştirme, pencere, kovalama (toplam korunur), ölçek, duvar/max pain/spot işaretleri, boş zincir, vade seçimi (açık/kapalı seans).
+- Ağ/MarketData çağrısı YOK; ekran Expo Go'da görsel olarak test edilmedi.
+
+**Açık sorular / notlar:**
+- Vade: `expirations()` Cuma ve aylık vadeleri listeler; SPY/QQQ gibi günlük 0DTE vadeleri bu listede yok. İstenirse ayrı bir vade seçici (her seçim = 1 istek).
+- Strike penceresi ±%15 sabit; ETF'ler için daha dar istenirse `WINDOW_PCT`.
+- Gamma flip yaklaşık (analytics.ts varsayımları); “Yatırım tavsiyesi değildir” notu ekranda.
+- Commit öneki kullanıcı isteğiyle `[grok]`.
 ## 2026-11-14 — Grok — [grok] Takip listesi + Menü sekmesi (TASKS #32)
 
 Kaan'ın talebi: Hesapla'da kurulan opsiyonu takip listesine ekle, ekleme gününden beri K/Z'yi gör. "Geçmiş" sekmesi "Menü" oldu; Menü kartları: Geçmiş (mevcut Journal) ve Takip Listesi.
