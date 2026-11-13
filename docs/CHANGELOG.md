@@ -1,5 +1,30 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — [grok] koç: dolum çıkarma sağlamlaştırma (JSON yok hatası)
+
+**Ne:** Canlı `POST /coach` (sentetik görüntü, 2026-11-13) `Model çıktısında JSON yok` döndü; sunucu hiçbir şey loglamadı. Kök neden
+adayları: (a) çıkarma `max_tokens` 400 idi — 6 satır dolum JSON'u ≈ 450 token, kesilme riski; (b) model düz metin/önsöz yazıp hiç `{`
+üretmediyse ayrıştırıcı sessizce hata veriyordu; (c) görüntüde "Sentetik ekran" yazısı modelin metin yazmasına yol açmış olabilir. Hangisi
+olduğu bu koşuda loglanmadı; yeni log bunu bir sonraki yüklemede gösterir. **Paralı Haiku çağrısı yapılmadı.**
+Düzeltmeler: (1) çıkarma zorunlu araçla (`tool_choice: {type:"tool", name:"record_fills"}`, şema `EXTRACT_TOOL`) — çıktı şema-uyumlu girdi;
+(2) `max_tokens` 1024; (3) ayrıştırıcı: ```json çitleri, önsöz/sonsöz, dize-duyarlı dengeli `{…}`/`[…]`, assistant prefill devam metni,
+çıplak dolum dizisi (giriş+çıkış); kesik çıktı → "tam JSON yok (kesilmiş olabilir)"; (4) ayrıştırma hatasında log: `stop=`, `in/out`
+token, `tool=`, ≤300 karakter örnek (base64 kırpılır, anahtar yok); koçluk ve karne hatalarında da aynı tanı; (5) görüntü bloğu
+(image/png|jpeg, base64, görüntü önce) doğrulandı — değişiklik yok.
+
+**Dosyalar:** `src/lib/coach/validate.ts` (`parseModelJson`, `balancedEnd`, `sampleText`, `validateFills` dizi kabulü),
+`src/lib/coach/anthropic.ts` (`ToolDef`, `tool` → `tools`+`tool_choice`, `toolInput`), `src/lib/coach/prompt.ts` (`EXTRACT_TOOL`, çoklu satır
+kuralı), `server/app/coach.ts` (araç, 1024, `parseWarn`), `server/app/selftest.ts` (sahte araç yanıtı, düz metin hatası, max_tokens),
+`test/coach.test.ts` (+21 ayrıştırma/araç testi), selftest (+4), `server/README.md`.
+
+**Doğrulama:** `npm run check` geçti (birim + tsc + lint + bt:selftest + flow:selftest). Sunucu öz-testi sahte Anthropic ile.
+Canlı çağrı yok. Deploy sonucu aşağıda (server/deploy.sh).
+
+**Açık sorular / takip:** (a) Canlı ilk yüklemede `KOÇ UYARI: dolum çıkarılamadı` satırına bak; `tool=0` ve `stop=end_turn` ise
+model araç yerine metin yazdı (API/model araç desteği veya prompt sorunu). (b) Araç desteği bu modelde 400 dönerse hata
+`Anthropic 400 (invalid_request_error)` olarak görünür — o durumda `tools` kaldırılıp yalnız metin+prefill'e dönülür. (c) Bir görüntüde
+6'dan fazla satır varsa fazlası atılır (şema ve `validateFills` sınırı 6); gerekirse artırılır.
+
 ## 2026-11-14 — Claude — [grok] Raporlar: örnek geri doldurma (nokta-zamanlı) + gün klasörleri (TASKS #36 devamı)
 
 **Ne:** (1) 2026-11-13 (Cuma) için 5 örnek rapor (17:00, 18:00, 19:00, 20:00 İst, gün sonu) sunucuda yeniden kuruldu. Her rapor yalnız

@@ -159,7 +159,7 @@ raporu yazar. Eğitim amaçlıdır; tavsiye değildir. Uygulama: Menü › **Ko�
 
 1. **Yükleme** (`POST /coach`, tek görüntü; uygulama 40 görüntüyü sırayla gönderir): sha256 hesaplanır. Aynı görüntü daha önce
    işlendiyse **önbellek**: Haiku çağrısı yok, sayaç işlemez.
-2. **Dolum çıkarma** (Haiku #1, `EXTRACT_SYSTEM`, `max_tokens` 400): her satır = bir dolum (`tk, exp, k, cp, q, side buy|sell, px, t, conf`).
+2. **Dolum çıkarma** (Haiku #1, `EXTRACT_SYSTEM` + zorunlu araç `record_fills` = `EXTRACT_TOOL`, `max_tokens` 1024): her satır = bir dolum (`tk, exp, k, cp, q, side buy|sell, px, t, conf`); giriş + çıkış aynı görüntüde olabilir (dizi). Araç girdisi yoksa metin toleranslı ayrıştırılır (çit, önsöz, dizi). Ayrıştırma başarısızsa log: `KOÇ UYARI: dolum çıkarılamadı … stop=… in=… out=… tool=… örnek="…"` (≤300 karakter, anahtar/base64 yok).
    Dolumlar SQLite `coach_fills` tablosuna yazılır; aynı dolum (zaman+sözleşme+yön+fiyat+adet) tekrar gelirse yeni sayılmaz.
 3. **Eşleştirme** (saf kod, `src/lib/coach/fills.ts`): sözleşme başına (tk+vade+strike+C/P), zaman sırasıyla **FIFO**. Alış bir parti açar;
    satış en eski partiden düşer. Parti **tamamen** kapanınca bir işlem oluşur (kademeli çıkışlar tek işlemde, çıkış fiyatı ağırlıklı

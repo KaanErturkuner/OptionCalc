@@ -114,7 +114,8 @@ async function coachSelftest() {
   let nextFills: unknown[] = [];
   let coachBroken = false;
   let modelReject = false;
-  const calls: { kind: string; model: string; key: string; maxTokens: number; images: number }[] = [];
+  let extractProse = false;   // true: çıkarma modeli araç çağırmaz, düz metin yazar (ayrıştırma hatası yolu)
+  const calls: { kind: string; model: string; key: string; maxTokens: number; images: number; tool: string | null; toolChoice: string | null }[] = [];
   const bars: unknown[] = [], ts: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], v: number[] = [];
   for (let t = Date.UTC(2026, 10, 13, 14, 30); t <= Date.UTC(2026, 10, 13, 21, 0); t += 60000) {
     const i = ts.length; ts.push(t / 1000); const px = 600 + (i % 7) * 0.05;
@@ -127,8 +128,10 @@ async function coachSelftest() {
       const body = JSON.parse(String(init?.body));
       const key = String((init?.headers as Record<string, string>)['x-api-key']);
       const kind = body.system.includes('Midas') ? 'extract' : body.system.includes('GÖREV: Her işlem') ? 'coach' : 'karne';
-      calls.push({ kind, model: body.model, key, maxTokens: body.max_tokens, images: body.messages[0].content.filter((b: { type: string }) => b.type === 'image').length });
+      calls.push({ kind, model: body.model, key, maxTokens: body.max_tokens, images: body.messages[0].content.filter((b: { type: string }) => b.type === 'image').length, tool: body.tools?.[0]?.name ?? null, toolChoice: body.tool_choice?.name ?? null });
       if (modelReject && body.model === 'bad-model') return new Response(JSON.stringify({ type: 'error', error: { type: 'not_found_error', message: 'model: bad-model not found' } }), { status: 404 });
+      if (kind === 'extract' && extractProse) return new Response(JSON.stringify({ content: [{ type: 'text', text: 'Bu görüntü bir test görüntüsü, işlem satırı yok.' }], usage: { input_tokens: 1235, output_tokens: 12 }, stop_reason: 'end_turn' }), { status: 200 });
+      if (kind === 'extract' && body.tools) return new Response(JSON.stringify({ content: [{ type: 'tool_use', id: 'toolu_selftest', name: 'record_fills', input: { fills: nextFills, note: null } }], usage: { input_tokens: 100, output_tokens: 50 }, stop_reason: 'tool_use' }), { status: 200 });
       let payload: unknown = kind === 'extract' ? { fills: nextFills, note: null } : kind === 'coach' ? (coachBroken ? { oops: true } : coachFeedback) : karneJson;
       if (kind === 'coach' && coachBroken) payload = { oops: true };
       return new Response(JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(payload) }], usage: { input_tokens: 100, output_tokens: 50 }, stop_reason: 'end_turn' }), { status: 200 });
@@ -224,6 +227,12 @@ async function coachSelftest() {
   nextFills = [{ tk: 'QQQ' }];
   try { await coach.coachImage({ image: img(16), mime: 'image/png', day: DAY }); ok('koç: geçersiz dolum → 422', false); }
   catch (e) { ok('koç: geçersiz dolum 422 (kısmi kayıt yok)', e instanceof CoachError && e.status === 422); }
+  // Araç yanıtı yerine düz metin (JSON yok): 422 + sunucu logunda stop/token/örnek
+  extractProse = true; const nLogs = logs.length; clock += 5000;
+  try { await coach.coachImage({ image: img(20), mime: 'image/png', day: DAY }); ok('koç: JSON yoksa 422', false); }
+  catch (e) { const line = logs.slice(nLogs).find(l => l.includes('dolum çıkarılamadı')) ?? ''; ok('koç: JSON yok → 422 ve log (stop, token, örnek)', e instanceof CoachError && e.status === 422 && line.includes('stop=end_turn') && line.includes('out=12') && line.includes('test görüntüsü') && !line.includes(KEY), line); }
+  extractProse = false;
+  ok('koç: çıkarma isteği zorunlu araç + max_tokens ≥ 1000', calls.filter(c => c.kind === 'extract').every(c => c.tool === 'record_fills' && c.toolChoice === 'record_fills' && c.maxTokens >= 1000));
   modelReject = true;
   const coachFb = new Coach({ cfg: mkCfg({ coachModel: 'bad-model', coachFallbackModel: 'claude-haiku-5-5' }), store: new Store(':memory:'), f: fake, now: () => clock, log: m => logs.push(m) });
   nextFills = [fill({ px: 1.0 })];
@@ -239,7 +248,7 @@ async function coachSelftest() {
   const dump = JSON.stringify(coach.view(DAY)) + JSON.stringify(r2) + logs.join('\n');
   ok('koç: anahtar ne yanıtta ne görünümde ne logda', !dump.includes(KEY) && !dump.includes('SELFTEST'));
   ok('koç: çağrı logu durma nedenini (stop=) yazar', logs.some(m => m.includes('koç extract') && m.includes('stop=end_turn')));
-  ok('koç: max_tokens çıkarma 400 / koçluk 3500', calls.filter(x => x.kind === 'extract').every(x => x.maxTokens === 400) && calls.filter(x => x.kind === 'coach').every(x => x.maxTokens === 3500));
+  ok('koç: max_tokens çıkarma 1024 / koçluk 3500', calls.filter(x => x.kind === 'extract').every(x => x.maxTokens === 1024) && calls.filter(x => x.kind === 'coach').every(x => x.maxTokens === 3500));
   ok('koç: çıkarma çağrısı tek görüntü', calls.filter(x => x.kind === 'extract').every(x => x.images === 1));
   ok('koç: token kaydı SQLite\'ta (çıkarma + koçluk)', store.coachUsageOn(DAY).calls > 0 && store.coachUsageOn(DAY).inTok > 0);
   store.close();

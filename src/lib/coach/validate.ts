@@ -7,15 +7,54 @@ import { istToMs } from './time.ts';
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
+/** Dize-duyarlı dengeli kapanış: s[i] '{' veya '[' ise karşılık gelen kapanışın indeksi, yoksa -1 (kesik çıktı). */
+export function balancedEnd(s: string, i: number): number {
+  const close = s[i] === '{' ? '}' : ']';
+  let depth = 0, inStr = false, esc = false;
+  for (let k = i; k < s.length; k++) {
+    const c = s[k];
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === '{' || c === '[') depth++;
+    else if (c === '}' || c === ']') { if (--depth === 0) return c === close ? k : -1; }
+  }
+  return -1;
+}
+
+/** Kabul: nesne, ya da en az bir öğeli ve hepsi nesne olan dizi (sayı dizisi gibi önsöz parçalarını eler). */
+const acceptable = (v: unknown): boolean =>
+  Array.isArray(v) ? v.length > 0 && v.every(x => !!x && typeof x === 'object' && !Array.isArray(x)) : !!v && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * Model metninden ilk geçerli JSON değerini (nesne veya nesne dizisi) çıkarır. Toleranslı: ```json çitleri, önsöz/sonsöz,
+ * dize içindeki süslü parantezler. prefill: istekte assistant önyüklemesi ("{") verildiyse metnin başına eklenir (devam metni).
+ */
+export function parseModelJson(text: string, prefill = ''): Result<unknown> {
+  const s = (prefill + (text ?? '')).replace(/```[a-zA-Z]*/g, '');
+  if (!s.trim()) return { ok: false, error: 'Model yanıtı boş' };
+  let opened = false, balanced = false, tried = 0;
+  for (let i = 0; i < s.length && tried < 50; i++) {
+    if (s[i] !== '{' && s[i] !== '[') continue;
+    opened = true; tried++;
+    const e = balancedEnd(s, i);
+    if (e < 0) continue;
+    balanced = true;
+    try { const v = JSON.parse(s.slice(i, e + 1)); if (acceptable(v)) return { ok: true, value: v }; } catch { /* sonraki aday */ }
+  }
+  if (!opened) return { ok: false, error: 'Model çıktısında JSON yok' };
+  return { ok: false, error: balanced ? 'JSON ayrıştırılamadı' : 'Model çıktısında tam JSON yok (çıktı kesilmiş olabilir)' };
+}
+
 /** Metinden ilk JSON nesnesini çıkarır (```json çitleri ve önsöz/sonsöz toleranslı). */
-export function parseJsonLoose(text: string): Result<Record<string, unknown>> {
-  const s = text.replace(/```(?:json)?/gi, '').trim();
-  const a = s.indexOf('{'), b = s.lastIndexOf('}');
-  if (a < 0 || b <= a) return { ok: false, error: 'Model çıktısında JSON yok' };
-  try {
-    const v = JSON.parse(s.slice(a, b + 1));
-    return v && typeof v === 'object' && !Array.isArray(v) ? { ok: true, value: v as Record<string, unknown> } : { ok: false, error: 'JSON nesnesi değil' };
-  } catch { return { ok: false, error: 'JSON ayrıştırılamadı' }; }
+export function parseJsonLoose(text: string, prefill = ''): Result<Record<string, unknown>> {
+  const r = parseModelJson(text, prefill);
+  if (!r.ok) return r;
+  return Array.isArray(r.value) ? { ok: false, error: 'JSON nesnesi değil' } : { ok: true, value: r.value as Record<string, unknown> };
+}
+
+/** Günlük için model metninin kısa ve güvenli örneği (≤ n karakter; kontrol karakterleri boşluk, uzun base64 benzeri dizgiler kırpılır). */
+export function sampleText(text: string, n = 300): string {
+  return String(text ?? '').replace(/[A-Za-z0-9+/]{60,}={0,2}/g, '[…]').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
 }
 
 const str = (x: unknown, max = 400): string => (typeof x === 'string' ? x.trim().slice(0, max) : '');
@@ -32,9 +71,11 @@ const SIDE: Record<string, 'buy' | 'sell'> = {
   sell: 'sell', sat: 'sell', satis: 'sell', 'satış': 'sell', kapanis: 'sell', 'kapanış': 'sell',
 };
 
-/** Görüntüden çıkan dolumlar (en çok 6). Zorunlu alanı eksik/geçersiz satır atılır; hiç satır kalmazsa hata (note ile). */
-export function validateFills(o: Record<string, unknown>): Result<{ fills: FillInput[]; note: string | null }> {
-  const raw = Array.isArray(o.fills) ? o.fills.slice(0, 6) : [];
+/** Görüntüden çıkan dolumlar (en çok 6). Girdi: {fills,note} nesnesi VEYA doğrudan dolum dizisi. Zorunlu alanı eksik/geçersiz satır atılır; hiç satır kalmazsa hata (note ile). */
+export function validateFills(input: unknown): Result<{ fills: FillInput[]; note: string | null }> {
+  const o: Record<string, unknown> = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {};
+  const list = Array.isArray(input) ? input : Array.isArray(o.fills) ? o.fills : [];
+  const raw = list.slice(0, 6);
   const fills: FillInput[] = [];
   for (const x of raw) {
     if (!x || typeof x !== 'object') continue;

@@ -11,13 +11,13 @@
 import { createHash } from 'node:crypto';
 import { etDate } from '../../src/lib/usmarket.ts';
 import { isTradingDay, sessionCloseMs } from '../../src/lib/usmarket.ts';
-import { ANTHROPIC_URL, ANTHROPIC_VERSION, buildMessagesBody, parseMessagesReply, type ContentBlock } from '../../src/lib/coach/anthropic.ts';
+import { ANTHROPIC_URL, ANTHROPIC_VERSION, buildMessagesBody, parseMessagesReply, type ContentBlock, type ToolDef } from '../../src/lib/coach/anthropic.ts';
 import { checkImage } from '../../src/lib/coach/image.ts';
 import { canCoach } from '../../src/lib/coach/limits.ts';
 import { buildTradeContext, type FlowLite, type WallsLite } from '../../src/lib/coach/context.ts';
 import { parseYahooBars, type Bar } from '../../src/lib/coach/bars.ts';
-import { COACH_SYSTEM, coachUserText, EXTRACT_SYSTEM, extractUserText, KARNE_SYSTEM, karneUserText } from '../../src/lib/coach/prompt.ts';
-import { parseJsonLoose, validateCoach, validateFills, validateKarne } from '../../src/lib/coach/validate.ts';
+import { COACH_SYSTEM, coachUserText, EXTRACT_SYSTEM, EXTRACT_TOOL, extractUserText, KARNE_SYSTEM, karneUserText } from '../../src/lib/coach/prompt.ts';
+import { parseJsonLoose, parseModelJson, sampleText, validateCoach, validateFills, validateKarne } from '../../src/lib/coach/validate.ts';
 import type { CoachDayView, CoachOpenView, CoachTradeView, Fill, Karne, TradeReport } from '../../src/lib/coach/types.ts';
 import { buildReport } from '../../src/lib/coach/report.ts';
 import { pairFills, type PairedTrade } from '../../src/lib/coach/fills.ts';
@@ -30,7 +30,7 @@ const YAHOO = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; OptionCalcCoach/1.0)' };
 const DAY_MS = 86400000;
 const RETAIN_MS = 30 * DAY_MS;
-const MAX_TOKENS = { extract: 400, coach: 3500, karne: 900 } as const;   // coach: 2000 kesti (2026-11-13), rapor için 3500; extract: en çok 6 satır
+const MAX_TOKENS = { extract: 1024, coach: 3500, karne: 900 } as const;   // extract: 400 çok düşüktü (6 satır JSON ≈ 450 token); coach: 2000 kesti, 3500
 const EXTRACT_MAX_DAYS_BACK = 7;   // Yahoo 1 dk verisi son 7 gün
 const WINDOW_DAYS = 30;           // eşleştirme ve saklama penceresi
 const INLINE_COACH = 3;           // yükleme isteği başına en çok koçluk (kalanı /coach/process)
@@ -38,6 +38,8 @@ const PROCESS_MAX = 5;            // /coach/process isteği başına en çok ko�
 const FAIL_COOLDOWN_MS = 3600000; // aynı işlemde başarısız koçluk: 1 sa bekle (maliyet koruması)
 
 export type CoachKind = keyof typeof MAX_TOKENS;
+/** Anthropic yanıtının sunucuda kullanılan özeti (toolInput: zorunlu araç girdisi, varsa) */
+export interface CallOut { text: string; toolInput: Record<string, unknown> | null; model: string; inTok: number; outTok: number; fallback: boolean; stopReason: string | null }
 
 export interface CoachDeps { cfg: Config; store: Store; f?: Fetch; now?: () => number; log?: (m: string) => void }
 
@@ -56,13 +58,13 @@ export class CoachClient {
     this.f = d.f ?? fetch; this.now = d.now ?? (() => Date.now()); this.log = d.log ?? (m => console.log(m));
   }
 
-  async call(kind: CoachKind, day: string, system: string, content: ContentBlock[]): Promise<{ text: string; model: string; inTok: number; outTok: number; fallback: boolean; stopReason: string | null }> {
+  async call(kind: CoachKind, day: string, system: string, content: ContentBlock[], tool?: ToolDef): Promise<CallOut> {
     const key = this.d.cfg.anthropicKey;
     if (!key) throw new CoachError(503, 'Koç yapılandırılmadı: sunucuda Anthropic anahtarı yok');
     const primary = this.d.cfg.coachModel, fb = this.d.cfg.coachFallbackModel;
     const t0 = this.now();
     try {
-      const r = await this.send(key, primary, system, content, MAX_TOKENS[kind]);
+      const r = await this.send(key, primary, system, content, MAX_TOKENS[kind], tool);
       this.logCall(kind, day, primary, r, false, t0, null);
       return { ...r, model: primary, fallback: false };
     } catch (e) {
@@ -71,7 +73,7 @@ export class CoachClient {
       this.log(`KOÇ UYARI: birincil model reddedildi (${err.type ?? 'hata'}); yedek kullanılıyor: ${fb}`);
       const t1 = this.now();
       try {
-        const r = await this.send(key, fb, system, content, MAX_TOKENS[kind]);
+        const r = await this.send(key, fb, system, content, MAX_TOKENS[kind], tool);
         this.logCall(kind, day, fb, r, true, t1, null);
         return { ...r, model: fb, fallback: true };
       } catch (e2) {
@@ -81,8 +83,8 @@ export class CoachClient {
     }
   }
 
-  private async send(key: string, model: string, system: string, content: ContentBlock[], maxTokens: number): Promise<{ text: string; inTok: number; outTok: number; stopReason: string | null }> {
-    const body = buildMessagesBody({ model, system, content, maxTokens });
+  private async send(key: string, model: string, system: string, content: ContentBlock[], maxTokens: number, tool?: ToolDef): Promise<CallOut> {
+    const body = buildMessagesBody({ model, system, content, maxTokens, tool });
     const r = await this.f(ANTHROPIC_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': ANTHROPIC_VERSION },
@@ -102,7 +104,7 @@ export class CoachClient {
     let j: unknown;
     try { j = JSON.parse(raw); } catch { throw new CoachError(502, 'Anthropic yanıtı okunamadı'); }
     const p = parseMessagesReply(j);
-    return { text: p.text, inTok: p.inTokens, outTok: p.outTokens, stopReason: p.stopReason };
+    return { text: p.text, toolInput: p.toolInput, inTok: p.inTokens, outTok: p.outTokens, stopReason: p.stopReason };
   }
 
   private logCall(kind: CoachKind, day: string, model: string, r: { inTok: number; outTok: number; stopReason?: string | null } | null, fallback: boolean, t0: number, err: string | null) {
@@ -167,10 +169,14 @@ export class Coach {
 
     // (2) Dolum çıkarma (tek Haiku çağrısı)
     const imgBlock: ContentBlock = { type: 'image', source: { type: 'base64', media_type: img.mime, data: b64 } };
-    const ex = await this.client.call('extract', day, EXTRACT_SYSTEM, [imgBlock, { type: 'text', text: extractUserText(day) }]);
-    const exJson = parseJsonLoose(ex.text);
+    const ex = await this.client.call('extract', day, EXTRACT_SYSTEM, [imgBlock, { type: 'text', text: extractUserText(day) }], EXTRACT_TOOL);
+    // Zorunlu araç (tool_use) girdisi varsa doğrudan kullanılır; yoksa metin toleranslı ayrıştırılır (önsöz/çit/dizi).
+    const exJson = ex.toolInput ? { ok: true as const, value: ex.toolInput as unknown } : parseModelJson(ex.text);
     const exV = exJson.ok ? validateFills(exJson.value) : { ok: false as const, error: exJson.error };
-    if (!exV.ok) throw new CoachError(422, exV.error);
+    if (!exV.ok) {
+      this.parseWarn('dolum çıkarılamadı', day, ex, exV.error);
+      throw new CoachError(422, exV.error);
+    }
 
     // (3) Dolumları kaydet (aynı dolum tekrar gelirse kimliği döner, yeni sayılmaz)
     const stored = exV.value.fills.map(f => ({ f, r: this.d.store.coachFillInsert({ day: f.t.slice(0, 10), t: f.t, tk: f.tk, exp: f.exp, k: f.k, cp: f.cp, q: f.q, side: f.side, px: f.px, conf: f.conf, shot: hash }) }));
@@ -230,7 +236,7 @@ export class Coach {
     const fb = coV.ok ? coV.value[0] : null;
     if (!fb) {
       const why = coV.ok ? 'öğe yok' : coV.error;
-      this.log(`KOÇ UYARI: koçluk doğrulanamadı (${p.tk} ${p.k}${p.cp}): ${why} (durma: ${co.stopReason ?? '?'}, ${co.outTok} çıktı tokeni)`);
+      this.parseWarn(`koçluk doğrulanamadı (${p.tk} ${p.k}${p.cp})`, day, co, why);
       throw new CoachError(502, `Koçluk yanıtı doğrulanamadı: ${why}${co.stopReason === 'max_tokens' ? ' (çıktı üst sınıra takıldı)' : ''}`);
     }
     const report = buildReport({ trade: p.trade, nums: ctx.nums, rules: ctx.rules, noData: ctx.noData, model: co.model, feedback: fb });
@@ -249,7 +255,7 @@ export class Coach {
     const r = await this.client.call('karne', day, KARNE_SYSTEM, [{ type: 'text', text: karneUserText(day, payload) }]);
     const j = parseJsonLoose(r.text);
     const v = j.ok ? validateKarne(j.value) : { ok: false as const, error: j.error };
-    if (!v.ok) throw new CoachError(502, 'Karne doğrulanamadı: ' + v.error);
+    if (!v.ok) { this.parseWarn('karne doğrulanamadı', day, r, v.error); throw new CoachError(502, 'Karne doğrulanamadı: ' + v.error); }
     const ts = this.now();
     this.d.store.coachSaveKarne(day, ts, r.model, v.value);
     return { day, model: r.model, karne: v.value, ts };
@@ -304,6 +310,12 @@ export class Coach {
       karne: this.d.store.coachKarneOn(day) as CoachDayView['karne'],
       usage: this.d.store.coachUsageOn(day),
     };
+  }
+
+  /** Ayrıştırma hatasında tanı: durma nedeni, token kullanımı ve model metninin ≤300 karakterlik örneği (anahtar/base64 yok). */
+  private parseWarn(what: string, day: string, r: { text: string; toolInput?: Record<string, unknown> | null; stopReason: string | null; inTok: number; outTok: number }, why: string) {
+    const sample = r.text ? sampleText(r.text) : r.toolInput ? sampleText(JSON.stringify(r.toolInput)) : '';
+    this.log(`KOÇ UYARI: ${what} (${day}): ${why}; stop=${r.stopReason ?? '?'} in=${r.inTok} out=${r.outTok} tool=${r.toolInput ? 1 : 0} örnek="${sample}"`);
   }
 
   private pendingCount(t: number): number {

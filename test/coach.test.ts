@@ -157,3 +157,33 @@ ok('prompt: kural özeti (1:5, %67, 16:30)', COACH_SYSTEM.includes('1:5') && COA
 
 console.log(fail ? `\n${fail} BAŞARISIZ` : '\nTüm koç testleri geçti');
 process.exit(fail ? 1 : 0);
+
+// ───── Çıkarma: toleranslı JSON ayrıştırma, araç yanıtı, dolum dizisi, günlük örneği ─────
+import { parseModelJson, sampleText, balancedEnd } from '../src/lib/coach/validate.ts';
+import { EXTRACT_TOOL } from '../src/lib/coach/prompt.ts';
+const ROW = '{"tk":"QQQ","exp":"2026-11-13","k":600,"cp":"C","q":2,"side":"buy","px":1.85,"t":"2026-11-13T18:05"}';
+const ROWX = '{"tk":"QQQ","exp":"2026-11-13","k":600,"cp":"C","q":2,"side":"sell","px":2.4,"t":"2026-11-13T18:32"}';
+const fillsOf = (r: { ok: boolean; value?: unknown }) => (r.ok ? (validateFills(r.value) as { ok: boolean; value?: { fills: unknown[] } }) : null);
+
+ok('parse: ```json çitli', fillsOf(parseModelJson('```json\n{"fills":[' + ROW + '],"note":null}\n```'))?.value?.fills.length === 1);
+ok('parse: çit (düz ``` ) ve önsöz/sonsöz', fillsOf(parseModelJson('İşte sonuç:\n```\n{"fills":[' + ROW + ']}\n```\nYardımcı olursa sevinirim.'))?.value?.fills.length === 1);
+ok('parse: önsöz + JSON (köşeli parantez önsözde)', fillsOf(parseModelJson('Görüntüde [2] satır var: {"fills":[' + ROW + ']}'))?.value?.fills.length === 1);
+ok('parse: prefill "{" devam metni', fillsOf(parseModelJson('"fills":[' + ROW + '],"note":null}', '{'))?.value?.fills.length === 1);
+ok('parse: prefill + model tekrar "{" yazdı', fillsOf(parseModelJson('{"fills":[' + ROW + ']}', '{'))?.value?.fills.length === 1);
+ok('parse: dize içinde { } ve \\" kaçışı dengeyi bozmaz', (() => { const r = parseModelJson('{"note":"a } b { \\"c\\" [","fills":[' + ROW + ']}'); return r.ok && (r.value as { note: string }).note === 'a } b { "c" ['; })());
+ok('parse: çıplak dolum dizisi (2 satır: giriş + çıkış)', (() => { const f = fillsOf(parseModelJson('[' + ROW + ',' + ROWX + ']')); return !!f && f.value?.fills.length === 2; })());
+ok('parse: dizi → validateFills dizi girdisi kabul eder', fillsOf({ ok: true, value: JSON.parse('[' + ROW + ']') })?.value?.fills.length === 1);
+ok('parse: boş metin → hata', parseModelJson('').ok === false && parseModelJson('   \n ').ok === false);
+ok('parse: JSON yok → hata', parseModelJson('Görüntüde işlem yok.').ok === false && (parseModelJson('Görüntüde işlem yok.') as { error?: string }).error === 'Model çıktısında JSON yok');
+ok('parse: kesik çıktı → "tam JSON yok"', parseModelJson('{"fills":[' + ROW + ',{"tk":"QQ').ok === false && (parseModelJson('{"fills":[' + ROW + ',{"tk":"QQ') as { error: string }).error.includes('kesilmiş'));
+ok('parse: bozuk JSON (sonda virgül) → ayrıştırılamadı', (parseModelJson('{"fills":[],}') as { error?: string }).error === 'JSON ayrıştırılamadı');
+ok('parse: sayı dizisi tek başına kabul edilmez', parseModelJson('[1,2,3]').ok === false);
+ok('parseJsonLoose: dizi nesne değildir', parseJsonLoose('[{"a":1}]').ok === false);
+ok('balancedEnd: dengesiz → -1', balancedEnd('{"a":[1}', 0) === -1);
+ok('sampleText: ≤300, kontrol yok, base64 kırpılır', (() => { const s = sampleText('a\n\tb' + 'Q'.repeat(200) + 'x'.repeat(400)); return s.length <= 300 && !/[\n\t]/.test(s) && s.includes('[…]'); })());
+ok('sampleText: boş/undefined güvenli', sampleText('') === '' && sampleText(undefined as unknown as string) === '');
+const toolBody = buildMessagesBody({ model: 'claude-haiku-5-5', system: 'S', content: [{ type: 'text', text: 'x' }], maxTokens: 1024, tool: EXTRACT_TOOL });
+ok('anthropic: araç → tools + zorunlu tool_choice', toolBody.tools?.[0].name === 'record_fills' && toolBody.tool_choice?.type === 'tool' && toolBody.tool_choice.name === 'record_fills');
+ok('anthropic: araçsız gövdede tool_choice yok', !('tool_choice' in body) && !('tools' in body));
+ok('anthropic: araç yanıtı toolInput', parseMessagesReply({ content: [{ type: 'tool_use', name: 'record_fills', input: { fills: [] } }], stop_reason: 'tool_use' }).toolInput !== null && parseMessagesReply({ content: [{ type: 'text', text: 'x' }] }).toolInput === null);
+ok('araç şeması: zorunlu alanlar ve en çok 6 satır', (EXTRACT_TOOL.input_schema as { required: string[] }).required.join() === 'fills,note' && (EXTRACT_TOOL.input_schema as { properties: { fills: { maxItems: number } } }).properties.fills.maxItems === 6);

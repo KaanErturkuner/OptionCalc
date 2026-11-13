@@ -3,6 +3,7 @@
  * Çıktı YALNIZ JSON; model metni validate.ts ile doğrulanır. Dil: Türkçe. Eğitim amaçlı; tavsiye değildir.
  */
 import { KAAN_RULES_TR } from './context.ts';
+import type { ToolDef } from './anthropic.ts';
 
 const BASE = [
   'Sen Türkçe konuşan bir işlem KOÇUSUN (eğitim amaçlı). Yatırım tavsiyesi verme; "al/sat" çağrısı yapma.',
@@ -18,7 +19,40 @@ GÖREV: Midas ekran görüntüsündeki opsiyon emir/dolum satırlarını çıkar
 - side: alış/Açılış = "buy"; satış/Kapanış = "sell".
 - px: opsiyon primi (dolar), hisse fiyatı değil. k: strike. q: adet (pozitif tam sayı). cp: C=call, P=put.
 - t: İSTANBUL saati. Ekranda ET görünüyorsa İstanbul'a çevir (EDT +7 sa, EST +8 sa). Tarih yoksa işlem günü ipucunu kullan.
-- Zorunlu bir alanı okuyamıyorsan o satırı ekleme; note'ta yaz. Satır yoksa fills [] ve note'ta açıkla. En fazla 6 satır.`;
+- Zorunlu bir alanı okuyamıyorsan o satırı ekleme; note'ta yaz. Satır yoksa fills [] ve note'ta açıkla. En fazla 6 satır.
+- Görüntüde hem giriş (alış/Açılış) hem çıkış (satış/Kapanış) satırı olabilir: HEPSİNİ ayrı dolum olarak ekle.
+- Sonucu YALNIZ record_fills aracıyla ver; aracın dışında metin yazma.`;
+
+/** Çıkarma için zorunlu araç (tool_use): model şemaya uygun girdi üretir; metin ayrıştırmasına gerek kalmaz. */
+export const EXTRACT_TOOL: ToolDef = {
+  name: 'record_fills',
+  description: 'Midas ekran görüntüsündeki opsiyon dolum satırlarını kaydet. Satır yoksa fills boş dizi, note açıklama.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      fills: {
+        type: 'array', maxItems: 6,
+        items: {
+          type: 'object',
+          properties: {
+            tk: { type: 'string', description: 'Sembol, örn. QQQ' },
+            exp: { type: 'string', description: 'Vade YYYY-MM-DD' },
+            k: { type: 'number', description: 'Strike' },
+            cp: { type: 'string', enum: ['C', 'P'] },
+            q: { type: 'integer', minimum: 1, description: 'Adet' },
+            side: { type: 'string', enum: ['buy', 'sell'] },
+            px: { type: 'number', description: 'Opsiyon primi (USD)' },
+            t: { type: 'string', description: 'İstanbul saati YYYY-MM-DDTHH:MM' },
+            conf: { type: 'string', enum: ['yuksek', 'orta', 'dusuk'] },
+          },
+          required: ['tk', 'exp', 'k', 'cp', 'q', 'side', 'px', 't'],
+        },
+      },
+      note: { type: ['string', 'null'], description: 'Kısa not; okunamayan veya belirsiz bir şey varsa yaz' },
+    },
+    required: ['fills', 'note'],
+  },
+};
 
 export function extractUserText(day: string): string {
   return `İşlem günü ipucu (ET): ${day}. Dolumları şemaya göre JSON olarak çıkar.`;
