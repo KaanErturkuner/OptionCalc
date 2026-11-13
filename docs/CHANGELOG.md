@@ -2,6 +2,13 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-14 — Claude — [grok] Koç: çoklu görsel seçici (expo-image-picker) (TASKS #37)
+
+- **Ne:** `expo-image-picker` kuruldu (`~58.0.10`, SDK 58 `bundledNativeModules` ile aynı). `src/ui/coachPicker.ts`: izin → çoklu seçim (en çok 5, JPEG base64, quality 0.7) → `checkImage` ile 4 MB + sihirli bayt denetimi; native modül yoksa Türkçe mesaj (çökme yok, dinamik import). Koç ekranı: görüntüleri sırayla `POST /coach` ile yükler, ilerleme (`n/N`), görüntü başına hata, atlananlar ve özet.
+- **Dosyalar:** `src/ui/coachPicker.ts`, `src/screens/Koc.tsx`, `app.json` (expo-image-picker plugin, `photosPermission` Türkçe; runtimeVersion/version/buildNumber değişmedi), `package.json` + `package-lock.json`, `docs/TASKS.md` (#37 engel satırı).
+- **Doğrulama:** `npm run check` yeşil (exit 0). Canlı yükleme henüz Expo Go'da denenmedi.
+- **Açık / dikkat:** (1) Koç'un canlı testi için `ANTHROPIC_API_KEY` droplet'te olmalı (önceki engel). (2) `base64` alanı JPEG olarak alınır (expo-image-picker belgesi); PNG ekran görüntüsü de JPEG'e dönüşür. (3) `expo-image-manipulator` eklenmedi; boyut yalnız quality ile kontrol edilir, büyükse görüntü atlanır ve belirtilir. (4) Expo Go'nun bu modülü gerçekten içerdiği cihazda doğrulanmalı.
+
 ## 2026-11-14 — Claude — [grok] Koç raporu biçimi: sayılar kodda, yorum modelde (TASKS #37, devam)
 
 Kaan onaylı rapor biçimi: Başlık · Ne oldu · Çıkış ✅/⚠️/❌ · Giriş · Strike · Kaçan fırsat (tahmini) · Bir dahakine (3 madde) · Karne (3 × /10).

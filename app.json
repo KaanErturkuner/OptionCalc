@@ -42,7 +42,13 @@
           "imageWidth": 160
         }
       ],
-      "expo-background-task"
+      "expo-background-task",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Koç için Midas işlem ekran görüntülerini seçebilmek amacıyla fotoğraf kitaplığınıza erişilir."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

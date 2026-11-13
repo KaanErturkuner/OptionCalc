@@ -9,7 +9,7 @@ import { loadState } from '@/lib/state';
 import { flowKeyOf } from '@/lib/flow/client';
 import { fetchCoachDay, makeKarne, uploadScreenshot, type CoachDayView } from '@/lib/coach/client';
 import { addDaysStr, etDate } from '@/lib/usmarket';
-import { pickScreenshot, PICKER_MISSING } from '@/ui/coachPicker';
+import { pickScreenshots, MAX_PICK, PICKER_MISSING } from '@/ui/coachPicker';
 import CoachReport from '@/ui/CoachReport';
 
 const REFRESH_MS = 60000;
@@ -24,6 +24,7 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
   const [busy, setBusy] = useState<'load' | 'upload' | 'karne' | null>(null);
   const [noKey, setNoKey] = useState(false);
   const [pickerOk, setPickerOk] = useState(true);
+  const [progress, setProgress] = useState<string | null>(null);
 
   const load = useCallback(async (d: string) => {
     setBusy('load');
@@ -50,16 +51,42 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
 
   const upload = async () => {
     tap();
-    const p = await pickScreenshot();
-    if (!p.ok) { setPickerOk(false); setErr(p.reason); return; }
-    setBusy('upload'); setErr(null); setNotice(null);
+    const p = await pickScreenshots();
+    if (!p.ok) {
+      if (p.kind === 'cancel') return;
+      if (p.kind === 'missing') setPickerOk(false);
+      setErr(p.reason);
+      return;
+    }
+    const n = p.images.length;
+    setBusy('upload'); setErr(null); setNotice(null); setProgress(`0/${n}`);
+    const errors: string[] = [];
+    let trades = 0; let done = 0; let inTok = 0; let outTok = 0; let warn: string | null = null;
     try {
       const st = await loadState();
-      const r = await uploadScreenshot(flowKeyOf(st?.flowKey), { base64: p.base64, mime: p.mime, day });
-      setNotice(r.warning ? `Uyarı: ${r.warning}` : `${r.trades.length} işlem işlendi (${r.model}${r.fallback ? ', yedek model' : ''}). Girdi ${r.usage.inTok} / çıktı ${r.usage.outTok} token.`);
-      await load(day);
+      const key = flowKeyOf(st?.flowKey);
+      // Sıralı yükleme: sunucu iki yükleme arası ≥10 sn ister; her çağrı yanıtı beklediği için bu kendiliğinden sağlanır.
+      for (let i = 0; i < n; i++) {
+        setProgress(`${i + 1}/${n}`);
+        try {
+          const r = await uploadScreenshot(key, { base64: p.images[i].base64, mime: p.images[i].mime, day });
+          trades += r.trades.length; inTok += r.usage.inTok; outTok += r.usage.outTok; done++;
+          if (r.warning && !warn) warn = r.warning;
+        } catch (e) {
+          errors.push(`${i + 1}. görüntü: ${(e as Error).message}`);
+        }
+      }
     } catch (e) {
-      setErr((e as Error).message);
+      errors.push((e as Error).message);
+    }
+    const parts = [`${done}/${n} görüntü işlendi, ${trades} işlem (girdi ${inTok} / çıktı ${outTok} token).`];
+    if (p.skipped.length) parts.push(`Atlanan: ${p.skipped.join(' · ')}`);
+    if (warn) parts.push(`Uyarı: ${warn}`);
+    setNotice(parts.join(' '));
+    if (errors.length) setErr(errors.join(' · '));
+    setProgress(null);
+    try {
+      await load(day);
     } finally {
       setBusy(null);
     }
@@ -104,11 +131,11 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
 
       <Card title="Ekran görüntüsü">
         <Text style={{ color: C.muted, fontSize: 13, marginBottom: 8 }}>
-          Midas işlem ekranını yükle (PNG/JPEG, en çok 4 MB). Koç işlemi okur, kurallara ve çıkıştan sonraki fiyat hareketine bakar.
-          Günde en çok 20 yükleme; iki yükleme arası en az 10 sn.
+          Midas işlem ekranlarını seç (en çok {MAX_PICK} görüntü; her biri en çok 4 MB, JPEG olarak gönderilir). Koç işlemleri okur, kurallara ve çıkıştan sonraki fiyat hareketine bakar.
+          Günde en çok 20 yükleme; görüntüler sırayla yüklenir.
         </Text>
         {pickerOk ? null : <Text style={{ color: C.neg, fontSize: 12, marginBottom: 6 }}>{PICKER_MISSING}</Text>}
-        <Btn label={busy === 'upload' ? 'Yükleniyor…' : 'Görüntü yükle'} onPress={() => { void upload(); }} style={{ alignSelf: 'flex-start' }} />
+        <Btn label={busy === 'upload' ? `Yükleniyor… ${progress ?? ''}` : 'Görüntü seç ve yükle'} onPress={() => { void upload(); }} style={{ alignSelf: 'flex-start' }} />
       </Card>
 
       {noKey ? <Card title="Anahtar"><Text style={{ color: C.muted }}>Akış anahtarı girilmedi (Hesapla › Ayarlar). Koç aynı anahtarla çalışır.</Text></Card> : null}
