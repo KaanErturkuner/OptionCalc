@@ -45,3 +45,13 @@ example
 dist-web/
 dist-ios/
 dist/
+
+# secrets — tokens only via environment variables
+.env
+.env*
+*.token
+# backtest data/outputs (kept outside the repo in /workspace/backtest; guard in case BT_* paths point inside)
+backtest/cache/
+backtest/days/
+backtest/snaps/
+backtest/reports/

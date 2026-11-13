@@ -41,7 +41,8 @@
           "image": "./assets/images/app-splash.png",
           "imageWidth": 160
         }
-      ]
+      ],
+      "expo-background-task"
     ],
     "experiments": {
       "typedRoutes": true,

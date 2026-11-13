@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { C, mono } from './theme';
@@ -100,22 +100,34 @@ export function StepField({ label, value, onValue, step, min = 0, digits = 2, su
   label?: string; value: number | null; onValue: (v: number | null) => void; step: number; min?: number; digits?: number;
   suffix?: string; big?: boolean; style?: StyleProp<ViewStyle>; allowEmpty?: boolean; placeholder?: string; color?: string;
 }) {
-  const bump = (dir: number) => {
-    const base = value ?? 0;
-    const nv = +(Math.round((base + dir * step) / step) * step).toFixed(6);
-    if (nv >= min) onValue(nv);
+  // Basılı tutunca tekrar: önce yavaş, sonra hızlanır (10 adımdan sonra 5× adım)
+  const cur = useRef(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cb = useRef(onValue);
+  useEffect(() => { cur.current = value; cb.current = onValue; });
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const bump = (dir: number, mul = 1) => {
+    const base = cur.current ?? 0, st = step * mul;
+    const nv = +(Math.round((base + dir * st) / step) * step).toFixed(6);
+    if (nv >= min) { cur.current = nv; cb.current(nv); }
   };
+  const startRepeat = (dir: number) => {
+    let n = 0;
+    const go = () => { n++; bump(dir, n > 10 ? 5 : 1); if (n % 5 === 0) tap(); timer.current = setTimeout(go, n > 4 ? 70 : 140); };
+    tap(); go();
+  };
+  const stopRepeat = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
   return (
     <View style={[{ flex: 1, minWidth: 0 }, style]}>
       {label ? <Text style={s.label} numberOfLines={1}>{label}</Text> : null}
       <View style={s.row}>
-        <Pressable onPress={() => { tap(); bump(-1); }} hitSlop={6} style={({ pressed }) => [s.stepBtn, big && s.stepBtnBig, pressed && { opacity: .5 }]}
+        <Pressable onPress={() => { tap(); bump(-1); }} onLongPress={() => startRepeat(-1)} onPressOut={stopRepeat} delayLongPress={350} hitSlop={6} style={({ pressed }) => [s.stepBtn, big && s.stepBtnBig, pressed && { opacity: .5 }]}
           accessibilityLabel={(label || '') + ' azalt'}>
           <Text style={s.stepBtnT}>−</Text>
         </Pressable>
         <NumField value={value} onValue={onValue} digits={digits} big={big} suffix={suffix} allowEmpty={allowEmpty} placeholder={placeholder}
           textColor={color} center />
-        <Pressable onPress={() => { tap(); bump(1); }} hitSlop={6} style={({ pressed }) => [s.stepBtn, big && s.stepBtnBig, pressed && { opacity: .5 }]}
+        <Pressable onPress={() => { tap(); bump(1); }} onLongPress={() => startRepeat(1)} onPressOut={stopRepeat} delayLongPress={350} hitSlop={6} style={({ pressed }) => [s.stepBtn, big && s.stepBtnBig, pressed && { opacity: .5 }]}
           accessibilityLabel={(label || '') + ' artır'}>
           <Text style={s.stepBtnT}>+</Text>
         </Pressable>

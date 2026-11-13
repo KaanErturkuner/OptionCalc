@@ -18,7 +18,36 @@ export interface AppState {
   legs: Leg[]; scn: Scenario;
   now: number; today: string;                  // ET
   // piyasa verisi
-  provider: 'auto' | ProviderId; apiKey: string; quote: Quote | null; src: ProviderId | null; marketExps: string[];
+  provider: 'auto' | ProviderId; apiKey: string; mdKey: string; quote: Quote | null; src: ProviderId | null; marketExps: string[];
+  /** Fiyat × Tarih tablosu: adım ($, null = otomatik), aralık (±% veya elle min/max; null = otomatik) */
+  tbl: TableCfg;
+}
+export interface TableCfg { step: number | null; pct: number | null; lo: number | null; hi: number | null }
+export const DEFAULT_TBL: TableCfg = { step: null, pct: null, lo: null, hi: null };
+/** Tablo satır sınırı (performans) */
+export const MAX_ROWS = 60;
+/**
+ * Tablo fiyat satırları: aralık [lo,hi] (±% → S etrafında, elle min/max, yoksa grafik aralığı) ve adım (yoksa ~16 satır).
+ * Adım çok küçükse satır sayısı MAX_ROWS'u aşmasın diye büyütülür. Şimdiki fiyat ve hedef her zaman eklenir.
+ */
+export function tableRows(S: number, target: number, auto: [number, number], c: TableCfg): { prices: number[]; step: number; lo: number; hi: number; capped: boolean } {
+  let lo = auto[0], hi = auto[1];
+  if (c.pct != null && c.pct > 0) { lo = S * (1 - c.pct / 100); hi = S * (1 + c.pct / 100); }
+  else if (c.lo != null && c.hi != null && c.hi > c.lo && c.lo > 0) { lo = c.lo; hi = c.hi; }
+  lo = Math.max(lo, 0.01);
+  let step: number;
+  if (c.step != null && c.step > 0) step = c.step;
+  else {
+    const step0 = (hi - lo) / 16, mag = Math.pow(10, Math.floor(Math.log10(step0))), f = step0 / mag;
+    step = (f < 1.5 ? 1 : f < 2.25 ? 2 : f < 3.5 ? 2.5 : f < 7 ? 5 : 10) * mag;
+  }
+  let capped = false;
+  if ((hi - lo) / step > MAX_ROWS) { capped = true; const k = Math.ceil((hi - lo) / step / MAX_ROWS); step = +(step * k).toFixed(6); }
+  const prices: number[] = [];
+  for (let p = Math.floor(hi / step + 1e-9) * step; p >= lo - 1e-9; p -= step) prices.push(+p.toFixed(6));
+  [S, target].forEach(x => { if (x >= lo - step && x <= hi + step && !prices.some(p => Math.abs(p - x) < 1e-6)) prices.push(x); });
+  prices.sort((a, b) => b - a);
+  return { prices, step, lo, hi, capped };
 }
 
 export const DEFAULT_RATE = 4.2; // 3 aylık T-bill (Kasım 2026 ≈ %4,1–4,2)
@@ -28,8 +57,8 @@ let uid = 1;
 /** ABD strike aralığı (yaklaşık) */
 export const strikeStep = (S: number) => S < 25 ? 0.5 : S < 200 ? 1 : S < 500 ? 2.5 : S < 1000 ? 5 : 10;
 export const roundK = (x: number, S: number) => { const st = strikeStep(S); return +(Math.round(x / st) * st).toFixed(4); };
-/** Hedef fiyat adımı */
-export const priceStep = (S: number) => S < 20 ? 0.1 : S < 100 ? 0.5 : S < 500 ? 1 : 5;
+/** Hisse/hedef fiyatı −/+ adımı: 1 $ (10 $ altı hisselerde 0,10 $) */
+export const priceStep = (S: number) => S < 10 ? 0.1 : 1;
 
 export function mkLeg(kind: Leg['kind'], side: number, strike: number, expiry: string, iv: number, qty = 1, premium: number | null = null): Leg {
   return { id: uid++, kind, side, strike, expiry, iv, qty, premium };
@@ -73,13 +102,14 @@ export function defaultState(now = Date.now()): AppState {
     legs: buildLegs('longCall', 100, expiry, 30, 1),
     scn: { target: 110, dateMode: 'exp', date: null, ivShift: 0 },
     now, today: etDate(now),
-    provider: 'auto', apiKey: '', quote: null, src: null, marketExps: [],
+    provider: 'auto', apiKey: '', mdKey: '', quote: null, src: null, marketExps: [],
+    tbl: { ...DEFAULT_TBL },
   };
 }
 function fix(o: any): AppState | null {
   if (!o || !Array.isArray(o.legs)) return null;
   const now = Date.now(), d = defaultState(now);
-  const s: AppState = { ...d, ...o, scn: { ...d.scn, ...(o.scn || {}) }, now, today: etDate(now) };
+  const s: AppState = { ...d, ...o, scn: { ...d.scn, ...(o.scn || {}) }, tbl: { ...DEFAULT_TBL, ...(o.tbl || {}) }, now, today: etDate(now) };
   s.legs = o.legs.map((l: Leg) => ({ ...l, id: uid++ }));
   // vadesi geçmiş bacakları en yakın vadeye taşı
   const first = expirations(now)[0]?.date || d.expiry;

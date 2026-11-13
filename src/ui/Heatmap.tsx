@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import * as St from '@/lib/strategy';
 import type { Analysis } from '@/lib/strategy';
-import { G, scnWhen, type AppState } from '@/lib/state';
+import { G, scnWhen, tableRows, type AppState } from '@/lib/state';
 import { num, pct, shortDate, usd } from '@/lib/format';
 import { C } from './theme';
 
@@ -16,12 +16,7 @@ function Heatmap({ state, an, range, scnD, onPick, unit }: {
   const nCols = Math.min(total + 1, 8), dates: string[] = [];
   for (let i = 0; i < nCols; i++) dates.push(St.addDays(state.today, nCols === 1 ? 0 : Math.round(total * i / (nCols - 1))));
   if (!dates.includes(scnD)) { dates.push(scnD); dates.sort(); }
-  const step0 = (hi - lo) / 16, mag = Math.pow(10, Math.floor(Math.log10(step0))), f = step0 / mag;
-  const step = (f < 1.5 ? 1 : f < 2.25 ? 2 : f < 3.5 ? 2.5 : f < 7 ? 5 : 10) * mag;
-  const prices: number[] = [];
-  for (let p = Math.ceil(hi / step) * step; p >= lo - 1e-9; p -= step) prices.push(+p.toFixed(6));
-  [state.S, state.scn.target].forEach(x => { if (!prices.some(p => Math.abs(p - x) < 1e-6)) prices.push(x); });
-  prices.sort((a, b) => b - a);
+  const { prices } = tableRows(state.S, state.scn.target, [lo, hi], state.tbl);
   const cells = prices.map(S => dates.map(d => { const v = St.value(state.legs, g, S, scnWhen(state, d, an.expiry), iv, 'fast'); return { v, pl: v - an.cost }; }));
   const maxAbs = Math.max(...cells.flat().map(c => Math.abs(c.pl)), 1);
   const u = unit;

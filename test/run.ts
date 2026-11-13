@@ -10,6 +10,14 @@ import * as CB from '../src/lib/market/cboe.ts';
 import * as YH from '../src/lib/market/yahoo.ts';
 import * as TR from '../src/lib/market/tradier.ts';
 import { fmt, parseNum, parseTrDate } from '../src/lib/format.ts';
+import * as MDA from '../src/lib/market/marketdata.ts';
+import { parseYahooChart } from '../src/lib/market/bars.ts';
+import * as AN from '../src/lib/odte/analytics.ts';
+import * as SG from '../src/lib/odte/signal.ts';
+import * as J from '../src/lib/journal.ts';
+import * as AL from '../src/lib/alerts.ts';
+import { tableRows, priceStep, MAX_ROWS } from '../src/lib/state.ts';
+import * as STR from '../src/lib/odte/strategies/index.ts';
 let fail = 0;
 function eq(name: string, got: number, exp: number, tol = 1e-3) { const ok = Math.abs(got - exp) <= tol; if (!ok) fail++; console.log((ok ? 'OK  ' : 'FAIL') + ' ' + name + ' = ' + (+got).toFixed(6) + ' (beklenen ' + exp + ')'); }
 // Hull / standart referans değerleri
@@ -186,6 +194,142 @@ console.log('\n— Piyasa verisi ayrıştırıcıları —');
   const ivA = St.legIV(legA, gA, legA.premium!);
   ok(`Kendi Amerikan IV'miz (mid 11,15'ten) %${ivA.toFixed(2)} ≈ CBOE IV %22,68 (±0,5 puan)`, Math.abs(ivA - 22.68) < 0.5);
 }
+// ===================== MARKETDATA.APP AYRIŞTIRICI =====================
+console.log('\n— MarketData.app —');
+const fx2 = (f: string) => JSON.parse(readFileSync(new URL('./fixtures/' + f, import.meta.url), 'utf8'));
+{
+  const q = MDA.parseMdQuote({ s: 'ok', symbol: ['SPY'], last: [759.81], change: [9.9], changepct: [0.0132], bid: [759.8], ask: [759.85], volume: [1000], updated: [1794430863] }, 'SPY');
+  eq('MD quote fiyat', q.price, 759.81, 1e-9); eq('MD changepct kesir → %', q.changePct, 1.32, 1e-9); ok('MD zaman (ms)', q.time === 1794430863000);
+  chk0('MD expirations', MDA.parseMdExpirations({ s: 'ok', expirations: ['2026-11-12', '2026-11-13'] }).join(','), '2026-11-12,2026-11-13');
+  const c = MDA.parseMdChain({ s: 'ok', optionSymbol: ['SPY261112C00760000', 'SPY261112P00760000'], side: ['call', 'put'], strike: [760, 760], bid: [1.2, 1.5], ask: [1.25, 1.55],
+    last: [1.22, 1.5], volume: [100, 200], openInterest: [1000, 2000], iv: [0.12, 0.13], delta: [0.48, -0.52], gamma: [0.09, 0.09], underlyingPrice: [759.9], updated: [1794430863] }, '2026-11-12');
+  ok('MD zincir call/put', c.calls.length === 1 && c.puts.length === 1 && c.puts[0].oi === 2000 && c.calls[0].gamma === 0.09);
+  eq('MD zincir dayanak', c.underlying!, 759.9, 1e-9);
+  const cd = MDA.parseMdCandles({ s: 'ok', t: [1794407400, 1794407460], o: [1, 2], h: [2, 3], l: [0.5, 1.5], c: [1.5, 2.5], v: [10, 20] });
+  ok('MD mumlar', cd.length === 2 && cd[1].t === 1794407460000 && cd[1].c === 2.5);
+  const nowOpen = Date.parse('2026-11-12T16:00:00Z'); // 11:00 ET
+  ok('isStale: önceki seans verisi (açık piyasa) bayat', MDA.isStale(1794430863000, nowOpen));
+  ok('isStale: 2 dk önceki veri taze', !MDA.isStale(nowOpen - 120000, nowOpen));
+  ok('isStale: kapalıyken son seans kapanışı taze', !MDA.isStale(Date.parse('2026-11-11T21:01:00Z'), Date.parse('2026-11-12T03:00:00Z')));
+}
+// ===================== 0DTE ANALİTİK + SİNYAL MOTORU (fikstür: SPY 11 Kas 2026) =====================
+console.log('\n— 0DTE motoru —');
+{
+  const bars = parseYahooChart(fx2('yahoo-SPY-1m.json'));
+  ok('Yahoo 1 dk bar sayısı 391', bars.length === 391);
+  const chs = CB.parseCboeChains(fx2('cboe-SPY-0dte.json'), 'SPY', Date.parse('2026-11-11T15:00:00Z'));
+  const ch = chs.get('2026-11-12')!;
+  ok('0DTE zinciri yüklendi', !!ch && ch.calls.length > 50 && ch.calls.every(o => o.gamma != null));
+  const now = Date.parse('2026-11-11T17:00:00Z'), bb = bars.filter(b => b.t <= now), S = bb[bb.length - 1].c;
+  const sess = AN.sessionBars(bars, now);
+  ok('Seans barları (09:30–12:00 ET)', sess.length === 151, String(sess.length));
+  let pv = 0, vv = 0; for (const b of sess) { pv += (b.h + b.l + b.c) / 3 * b.v; vv += b.v; }
+  eq('VWAP', AN.vwap(sess)!, pv / vv, 1e-9);
+  const or15 = AN.openingRange(sess, 15)!;
+  ok('ORB 15 dk', or15.complete && or15.high >= or15.low && or15.high === Math.max(...sess.slice(0, 15).map(b => b.h)));
+  ok('ORB oluşmadan tamamlanmamış', !AN.openingRange(sess.slice(0, 5), 15)!.complete);
+  eq('EMA sabit seri', AN.ema([5, 5, 5, 5], 3)[3], 5, 1e-12);
+  const ks = [...new Set(ch.calls.map(o => o.strike))];
+  const pain = (x: number) => ch.calls.reduce((a, o) => a + Math.max(x - o.strike, 0) * o.oi, 0) + ch.puts.reduce((a, o) => a + Math.max(o.strike - x, 0) * o.oi, 0);
+  const mpRef = ks.reduce((a, b) => pain(b) < pain(a) ? b : a);
+  ok('Max pain elle', AN.maxPain(ch) === mpRef, String(mpRef));
+  const w = AN.oiWalls(ch);
+  ok('OI duvarları en yüksek OI', w.callWall === [...ch.calls].sort((a, b) => b.oi - a.oi)[0].strike && w.putWall === [...ch.puts].sort((a, b) => b.oi - a.oi)[0].strike);
+  const g = AN.gex(ch, S, now);
+  ok('GEX: flip bulundu', g.flip != null && Math.abs(g.flip - S) / S < 0.15, String(g.flip));
+  ok('GEX: strike toplamı ≈ net', Math.abs(g.strikes.reduce((a, x) => a + x.g, 0) - g.net) < 1e-6 * Math.abs(g.net) + 1);
+  const em = AN.expectedMove(ch, S)!;
+  const k0 = em.strike;
+  eq('Beklenen hareket = ATM straddle', em.move, MDT.mid(ch.calls.find(o => o.strike === k0)!) + MDT.mid(ch.puts.find(o => o.strike === k0)!), 1e-9);
+  const ra = AN.ratios(ch);
+  ok('P/C oranları pozitif', ra.pcVol! > 0 && ra.pcOI! > 0);
+  ok('Sıra dışı hacim kuralı (hacim ≥ 2×OI, ≥500)', AN.unusual(ch).every(u => u.vol >= 500 && u.vol >= 2 * u.oi));
+  const V1 = SG.V1_OPTS; // fikstür testleri v1 kurallarıyla (v2 daha seçici)
+  const r = SG.analyze('SPY', S, ch, bb, now, V1);
+  ok('12:00 ET sinyal üretildi (CALL)', !!r.signal && r.signal.dir === 'call', r.noSignal ?? '');
+  const sg = r.signal!;
+  ok('Sinyal R/R ≥ 1,5 ve hedef > giriş > stop', sg.rr >= 1.5 && sg.target > sg.entry && sg.entry > sg.stop);
+  ok('Giriş ≤ ask, likidite filtresi', sg.entry <= sg.ask && (sg.ask - sg.bid) / sg.mid <= V1.maxSpread);
+  ok('Gerekçeler listesi', r.reasons.length >= 5 && r.reasons.some(x => /VWAP/.test(x.text)));
+  chk0('Sinyal metni', SG.signalText({ ...sg, dte: 0, exitBy: '15:30 ET', strike: 590, entry: 1.2, target: 2, stop: 0.8 }), 'SPY 0DTE 590C AL — giriş ≤ $1.20, kâr al $2.00, stop $0.80, en geç 15:30 ET çık');
+  chk0('1DTE etiketi', String(sg.dte), '1');
+  const out = SG.outcome(sg, bars, Date.parse('2026-11-12T00:00:00Z'));
+  ok('Sonuç takibi: hedef/stop/süre', ['target', 'stop', 'expired'].includes(out.status), out.status);
+  const early = Date.parse('2026-11-11T14:40:00Z');
+  chk0('İlk 15 dk sinyal yok', String(SG.analyze('SPY', S, ch, bars.filter(b => b.t <= early), early, V1).noSignal), 'Açılış aralığı oluşuyor (ilk 15 dk)');
+  const late = Date.parse('2026-11-11T20:10:00Z');
+  chk0('15:00 ET sonrası giriş yok', String(SG.analyze('SPY', S, ch, bars.filter(b => b.t <= late), late, V1).noSignal), '15:00 ET sonrası yeni giriş yok');
+  chk0('Piyasa kapalı', String(SG.analyze('SPY', S, ch, bars, Date.parse('2026-11-12T03:00:00Z')).noSignal), 'Piyasa kapalı');
+  const thin = { ...ch, calls: ch.calls.map(o => ({ ...o, bid: 1, ask: 2 })) };
+  chk0('Likidite filtresi', String(SG.analyze('SPY', S, thin, bb, now, V1).noSignal), 'Likidite yetersiz (spread/hacim)');
+  const flat = SG.analyze('SPY', S, ch, bb, now, { ...V1, minScore: 99 });
+  ok('Zayıf puan → Sinyal yok + gerekçe', !flat.signal && /Puan zayıf/.test(flat.noSignal!));
+  // v2 varsayılanları (backtest ile ayarlı)
+  const v2 = SG.analyze('SPY', S, ch, bb, now);
+  ok('v2: sinyal ya da gerekçeli ret', !!v2.signal || !!v2.noSignal);
+  ok('v2: puan v1 ile aynı göstergelerden (decide = analyze)', SG.decide('SPY', S, ch, SG.features(S, ch, bb, now, 15), now, V1).score === r.score);
+  const late2 = Date.parse('2026-11-11T17:35:00Z');
+  chk0('v2: 12:30 ET sonrası yeni giriş yok', String(SG.analyze('SPY', S, ch, bars.filter(b => b.t <= late2), late2).noSignal), '12:30 ET sonrası yeni giriş yok');
+  ok('v2: varsayılanlar daha seçici', SG.DEFAULT_OPTS.minScore > V1.minScore && SG.DEFAULT_OPTS.maxSpread < V1.maxSpread);
+  const s0 = { ...sg, time: now, undTarget: S + 1, undStop: S - 1, dir: 'call' as const, dte: 0 };
+  chk0('outcome hedef önce', SG.outcome(s0, [{ t: now + 60000, o: S, h: S + 1.2, l: S - 0.2, c: S + 1, v: 1 }], now + 120000).status, 'target');
+  chk0('outcome aynı barda ikisi → stop', SG.outcome(s0, [{ t: now + 60000, o: S, h: S + 1.2, l: S - 1.2, c: S, v: 1 }], now + 120000).status, 'stop');
+  chk0('outcome 15:30 sonrası süre doldu', SG.outcome(s0, [{ t: Date.parse('2026-11-11T20:45:00Z'), o: S, h: S, l: S, c: S, v: 1 }], Date.parse('2026-11-11T21:00:00Z')).status, 'expired');
+}
+// ===================== GÜNLÜK =====================
+console.log('\n— Geçmiş / günlük —');
+{
+  const T = (ticker: string, entry: number, exit: number | undefined, qty = 1): J.Trade => ({ id: J.newId(), ticker, type: 'call', strike: 100, expiry: '2026-11-12', qty, entry, entryTime: 1, exit, exitTime: exit != null ? 2 : undefined });
+  const ts = [T('SPY', 1, 1.5, 2), T('SPY', 2, 1), T('QQQ', 1, 3), T('QQQ', 1, undefined)];
+  eq('Gerçekleşen P/L', J.realized(ts[0]), 100, 1e-9);
+  eq('Açık P/L (canlı)', J.pnl(ts[3], 1.4), 40, 1e-9);
+  const st = J.stats(ts);
+  ok('İstatistik: 3 kapalı, 2 kazanç', st.n === 3 && st.wins === 2); eq('Kazanma oranı', st.winRate!, 2 / 3, 1e-9); eq('Toplam P/L', st.total, 200, 1e-9);
+  chk0('Sembol bazında sıralı', J.byTicker(ts).map(x => x.ticker).join(','), 'QQQ,SPY');
+  const csv = J.toCSV([{ ...ts[0], note: 'a,"b"' }]);
+  ok('CSV başlık + kaçış', csv.startsWith('id,ticker,type') && csv.includes('"a,""b"""') && csv.includes(',100.00,'));
+  const ss = J.signalStats([{ status: 'target' }, { status: 'stop' }, { status: 'target' }, { status: 'open' }] as J.SignalLog[]);
+  ok('Sinyal isabet oranı', ss.resolved === 3 && Math.abs(ss.hitRate! - 2 / 3) < 1e-9);
+}
+// ===================== BİLDİRİM / UYARI / TABLO =====================
+console.log('\n— Uyarılar, çıkış saati, günlük sınır, tablo —');
+{
+  const chkA = (name: string, got: unknown, exp: unknown) => { const g = JSON.stringify(got), e = JSON.stringify(exp); const ok = g === e; if (!ok) fail++; console.log((ok ? 'OK  ' : 'FAIL') + ' ' + name + ' = ' + g + (ok ? '' : ' (beklenen ' + e + ')')); };
+  // 12 Kas 2026 (EST, UTC−5): 0DTE çıkış 15:30 ET = 20:30Z; diğer 15:45 ET = 20:45Z
+  const t0 = Date.parse('2026-11-12T16:00:00Z');
+  chkA('0DTE çıkış 15:30 ET', new Date(AL.exitAtMs(t0, 0)).toISOString(), '2026-11-12T20:30:00.000Z');
+  chkA('1DTE çıkış 15:45 ET', new Date(AL.exitAtMs(t0, 1)).toISOString(), '2026-11-12T20:45:00.000Z');
+  chkA('Yaz saati (EDT) 0DTE çıkış', new Date(AL.exitAtMs(Date.parse('2026-07-15T15:00:00Z'), 0)).toISOString(), '2026-07-15T19:30:00.000Z');
+  chkA('ET saat metni', AL.etHM(AL.exitAtMs(t0, 0)), '15:30 ET');
+  chkA('İstanbul saati (UTC+3)', AL.localHM(AL.exitAtMs(t0, 0), 180), '23:30');
+  const tr: J.Trade = { id: 'x', ticker: 'SPY', type: 'call', strike: 600, expiry: '2026-11-12', qty: 1, entry: 2, entryTime: t0, target: 3, stop: 1.5, undTarget: 602, undStop: 599, undRef: 600 };
+  chkA('Opsiyon fiyatı: yaklaştı (%75)', AL.checkLevels(tr, { opt: 2.8 }), ['nearTarget']);
+  chkA('Opsiyon fiyatı: hedef', AL.checkLevels(tr, { opt: 3.1 }), ['target']);
+  chkA('Opsiyon fiyatı: stop', AL.checkLevels(tr, { opt: 1.5 }), ['stop']);
+  chkA('Opsiyon: stopa yaklaştı', AL.checkLevels(tr, { opt: 1.6 }), ['nearStop']);
+  chkA('Tarafsız bölge → uyarı yok', AL.checkLevels(tr, { opt: 2.2 }), []);
+  chkA('Gönderilmiş uyarı tekrar yok', AL.checkLevels({ ...tr, alerts: ['nearTarget'] }, { opt: 2.9 }), []);
+  chkA('Hedef sonrası yaklaştı yok', AL.checkLevels({ ...tr, alerts: ['target'] }, { opt: 2.9 }), []);
+  chkA('Dayanak (call) hedef', AL.checkLevels(tr, { und: 602.5 }), ['target']);
+  chkA('Dayanak (put) stop', AL.checkLevels({ ...tr, type: 'put', undTarget: 598, undStop: 601 }, { und: 601.2 }), ['stop']);
+  // günlük sınır: sembol başına 2 farklı kontrat
+  const sg = (strike: number, dir = 'call', ticker = 'SPY', time = t0) => ({ ticker, dir, strike, expiry: '2026-11-12', time });
+  const ex = [sg(600), sg(601, 'put')];
+  chkA('3. farklı sinyal engellenir', AL.signalAllowed(ex, sg(602)), false);
+  chkA('Aynı sinyal tekrar gelirse izin', AL.signalAllowed(ex, sg(600)), true);
+  chkA('Başka sembol serbest', AL.signalAllowed(ex, sg(500, 'call', 'QQQ')), true);
+  chkA('Ertesi gün sıfırlanır', AL.signalAllowed(ex, sg(602, 'call', 'SPY', t0 + 86400000)), true);
+  // fiyat adımı ve tablo
+  chkA('Hisse −/+ adımı 680 $ → 1', priceStep(680), 1); chkA('Hisse −/+ adımı 5 $ → 0,1', priceStep(5), 0.1);
+  const r1 = tableRows(100, 105, [80, 120], { step: 1, pct: 5, lo: null, hi: null });
+  chkA('Tablo ±%5 adım 1 → 95..105', [r1.prices[0], r1.prices[r1.prices.length - 1], r1.prices.length], [105, 95, 11]);
+  const r2 = tableRows(100, 100, [80, 120], { step: 0.5, pct: null, lo: 98, hi: 102 });
+  chkA('Tablo elle 98–102 adım 0,5', r2.prices.length, 9);
+  const r3 = tableRows(100, 100, [0, 1000], { step: 0.5, pct: null, lo: null, hi: null });
+  ok('Satır sınırı uygulanır', r3.capped && r3.prices.length <= MAX_ROWS + 3);
+  const r4 = tableRows(100, 103.3, [90, 110], { step: 5, pct: null, lo: null, hi: null });
+  ok('Hedef ve şimdi satırı eklenir', r4.prices.includes(103.3) && r4.prices.includes(100));
+}
 // Biçimlendirme / ayrıştırma
 const chk = (name: string, got: unknown, exp: unknown) => { const ok = got === exp; if (!ok) fail++; console.log((ok ? 'OK  ' : 'FAIL') + ' ' + name + ' = ' + String(got) + ' (beklenen ' + String(exp) + ')'); };
 chk('fmt 1234567,891', fmt(1234567.891, 2), '1.234.567,89');
@@ -194,4 +338,26 @@ chk('parseNum "1.234,5"', parseNum('1.234,5'), 1234.5);
 chk('parseNum "12,5 $"', parseNum('12,5 $'), 12.5);
 chk('parseTrDate 13.11.2026', parseTrDate('13.11.2026'), '2026-11-13');
 chk('parseTrDate 31.02.2026 geçersiz', parseTrDate('31.02.2026'), null);
+
+// ——— strateji modülleri (saf fonksiyonlar) ———
+{
+  const q = (strike: number, delta: number, bid: number, ask: number, oi = 1000) => ({ type: 'call' as const, strike, bid, ask, last: (bid + ask) / 2, iv: 0.2, volume: 100, oi, delta });
+  const ch = { expiry: '2026-11-13', calls: [q(99, 0.7, 2.0, 2.1), q(100, 0.52, 1.2, 1.25), q(101, 0.35, 0.6, 0.9), { ...q(102, 0.2, 0.3, 0.31, 0), volume: 0 }], puts: [] };
+  const pk = STR.pickContract(ch, 'call', 100, { targetDelta: 0.5, maxSpread: 0.1, minVol: 50, minOI: 200 });
+  chk('pickContract: delta 0,5 → 100C', pk?.strike, 100);
+  chk('pickContract: geniş spread elenir (0,35 hedef → 101C değil)', STR.pickContract(ch, 'call', 100, { targetDelta: 0.35, maxSpread: 0.1, minVol: 50, minOI: 200 })?.strike, 100);
+  chk('pickContract: likit kontrat yok → null', STR.pickContract(ch, 'put', 100, { targetDelta: 0.5, maxSpread: 0.1, minVol: 50, minOI: 200 }), null);
+  const P = { ...STR.COMMON_DEFAULTS, startMin: 30, endMin: 300, skip: [[150, 240]] as [number, number][] };
+  chk('inWindow 29 dk → hayır', STR.inWindow(29, P), false); chk('inWindow 60 dk → evet', STR.inWindow(60, P), true); chk('inWindow öğle (180) → hayır', STR.inWindow(180, P), false);
+  const s = STR.strategyById('orb-vwap')!, w = STR.withTimeFilter(s, 15, 90, 'x');
+  chk('withTimeFilter id', w.id, 'orb-vwap@x'); chk('withTimeFilter endMin', w.defaults.endMin, 90);
+  ok('strateji kimlikleri tekil', new Set(STR.STRATEGIES.map(x => x.id)).size === STR.STRATEGIES.length);
+  // em-breach: önceki kapanış 100, em0 1 → 100,9'da (k=0,8) call
+  const em = STR.strategyById('em-breach')!;
+  const bars = Array.from({ length: 60 }, (_, i) => ({ t: i * 60000, o: 100 + i * 0.015, h: 100 + i * 0.015 + 0.02, l: 100 + i * 0.015 - 0.02, c: 100 + i * 0.015, v: 1000 }));
+  const F: any = { vw: 100.4, mo: null, w: { callWall: null, putWall: null }, gx: { net: 0, flip: null }, em: { move: 1 }, orMinutes: 15 };
+  const ctx = (S: number) => ({ ticker: 'X', S, t: 0, m: 60, bars, F, day: { ticker: 'X', date: '2026-11-12', dte: 0, prevClose: 100, openPx: 100, em0: 1 }, chain: () => ch, mem: {} });
+  chk('em-breach 100,9 → call', em.evaluate(ctx(100.9), em.defaults)?.dir, 'call');
+  chk('em-breach 100,5 → sinyal yok', em.evaluate(ctx(100.5), em.defaults), null);
+}
 console.log(fail ? `\n${fail} TEST BAŞARISIZ` : '\nTüm testler geçti'); process.exit(fail ? 1 : 0);

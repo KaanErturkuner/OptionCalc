@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Platform, View, Text, type GestureResponderEvent } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { Platform, Pressable, View, Text, type GestureResponderEvent } from 'react-native';
 import Svg, { Circle, ClipPath, Defs, G as SG, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import * as St from '@/lib/strategy';
 import type { Analysis } from '@/lib/strategy';
@@ -17,8 +17,26 @@ const H = 300, L = 50, R = 10, Tp = 14, B = 28;
 
 export default function Chart({ state, an, width, range, scnD, onPickTarget, onScrubbing }: Props) {
   const [hx, setHx] = useState<number | null>(null);
+  // Yakınlaştırma: görünür fiyat aralığı (null = tam aralık)
+  const [zoom, setZoom] = useState<[number, number] | null>(null);
   const W = Math.max(width, 200), pw = W - L - R, ph = H - Tp - B;
-  const [lo, hi] = range;
+  const full = range[1] - range[0];
+  const [lo, hi] = zoom ?? range;
+  const zoomed = zoom != null;
+  const clampZ = (a: number, span: number): [number, number] | null => {
+    span = Math.min(Math.max(span, full / 40, state.S * 0.002), full * 3);
+    if (span >= full * 0.999 && Math.abs(a - range[0]) < full * 1e-3) return null;
+    a = Math.max(a, state.S * 0.01);
+    return [a, a + span];
+  };
+  const zoomBy = (f: number, center?: number) => {
+    const c = center ?? (state.scn.target >= lo && state.scn.target <= hi ? state.scn.target : (lo + hi) / 2), span = (hi - lo) / f;
+    setZoom(clampZ(c - (c - lo) / (hi - lo) * span, span));
+  };
+  const panBy = (fr: number) => { const span = hi - lo; setZoom(clampZ(lo + fr * span, span)); };
+  // iki parmak: sıkıştır-yakınlaştır + kaydır; tek parmak: gez/hedef seç
+  const pinch = useRef<{ d0: number; p0: number; span0: number } | null>(null);
+  const pinched = useRef(false);
   const g = G(state), exp = an.expiry, iv = state.scn.ivShift;
   const showS = !(scnD === exp && !iv);
 
@@ -45,7 +63,18 @@ export default function Chart({ state, an, width, range, scnD, onPickTarget, onS
   const ny = niceTicks(ymin, ymax, 6), nx = niceTicks(lo, hi, Math.max(3, Math.round(pw / 80)));
   const priceAt = (x: number) => lo + (Math.min(Math.max(x, L), L + pw) - L) / pw * (hi - lo);
 
-  const onMove = (e: GestureResponderEvent) => setHx(e.nativeEvent.locationX);
+  const twoFinger = (e: GestureResponderEvent) => {
+    const t = e.nativeEvent.touches;
+    if (!t || t.length < 2) return false;
+    const d = Math.max(Math.abs(t[1].pageX - t[0].pageX), 20);
+    const mx = e.nativeEvent.locationX + ((t[0].pageX + t[1].pageX) / 2 - e.nativeEvent.pageX);
+    const fx = (Math.min(Math.max(mx, L), L + pw) - L) / pw;
+    if (!pinch.current) { pinch.current = { d0: d, p0: lo + fx * (hi - lo), span0: hi - lo }; pinched.current = true; setHx(null); return true; }
+    const P = pinch.current, span = P.span0 * P.d0 / d;
+    setZoom(clampZ(P.p0 - fx * span, span));
+    return true;
+  };
+  const onMove = (e: GestureResponderEvent) => { if (twoFinger(e)) return; if (!pinched.current) setHx(e.nativeEvent.locationX); };
   const vline = (S: number, color: string, label: string, dash: string, dy = 0) => {
     if (S < lo || S > hi) return null;
     const x = X(S), lx = Math.min(Math.max(x, L + 36), W - R - 36);
@@ -83,20 +112,21 @@ export default function Chart({ state, an, width, range, scnD, onPickTarget, onS
             {showS ? <Text style={{ color: C.blue }}>{'  '}{shortDate(scnD)} {usd(hoverInfo.ps, 0, true)}</Text> : null}
           </Text>
         ) : (
-          <Text style={{ color: C.muted, fontSize: 13 }}>Parmağını grafikte gezdir · bırakınca o fiyat hedef olur</Text>
+          <Text style={{ color: C.muted, fontSize: 13 }}>Parmağını gezdir · bırakınca hedef olur · iki parmakla yakınlaştır</Text>
         )}
       </View>
       <View
         onStartShouldSetResponder={() => true}
         onMoveShouldSetResponder={() => true}
         onResponderTerminationRequest={() => false}
-        onResponderGrant={e => { onScrubbing?.(true); onMove(e); }}
+        onResponderGrant={e => { pinch.current = null; pinched.current = false; onScrubbing?.(true); onMove(e); }}
         onResponderMove={onMove}
         onResponderRelease={e => {
+          const wasPinch = pinched.current; pinch.current = null; pinched.current = false;
           const S = priceAt(e.nativeEvent.locationX); setHx(null); onScrubbing?.(false);
-          if (S > 0) onPickTarget(+S.toFixed(2));
+          if (!wasPinch && S > 0) onPickTarget(+S.toFixed(2));
         }}
-        onResponderTerminate={() => { setHx(null); onScrubbing?.(false); }}
+        onResponderTerminate={() => { pinch.current = null; pinched.current = false; setHx(null); onScrubbing?.(false); }}
       >
         <Svg width={W} height={H} pointerEvents="none">
           <Defs>
@@ -130,6 +160,23 @@ export default function Chart({ state, an, width, range, scnD, onPickTarget, onS
           {tip}
         </Svg>
       </View>
+      <View style={{ flexDirection: 'row', gap: 6, marginTop: 8, alignItems: 'center' }}>
+        <ZBtn label="−" onPress={() => zoomBy(1 / 1.6)} a11y="Uzaklaştır" />
+        <ZBtn label="+" onPress={() => zoomBy(1.6)} a11y="Yakınlaştır" />
+        <ZBtn label="◀" onPress={() => panBy(-0.25)} a11y="Sola kaydır" disabled={!zoomed} />
+        <ZBtn label="▶" onPress={() => panBy(0.25)} a11y="Sağa kaydır" disabled={!zoomed} />
+        <ZBtn label="Sıfırla" onPress={() => setZoom(null)} a11y="Yakınlaştırmayı sıfırla" disabled={!zoomed} wide />
+        <Text style={{ color: C.muted, fontSize: 12, marginLeft: 'auto', fontVariant: ['tabular-nums'] }}>{zoomed ? `${(full / (hi - lo)).toFixed(1)}×` : ''}</Text>
+      </View>
     </View>
+  );
+}
+function ZBtn({ label, onPress, a11y, disabled, wide }: { label: string; onPress: () => void; a11y: string; disabled?: boolean; wide?: boolean }) {
+  return (
+    <Pressable onPress={onPress} disabled={disabled} accessibilityLabel={a11y} hitSlop={4}
+      style={({ pressed }) => ({ minWidth: wide ? 70 : 44, height: 40, paddingHorizontal: 10, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: C.card2, borderWidth: 1, borderColor: C.border, opacity: disabled ? 0.35 : pressed ? 0.6 : 1 })}>
+      <Text style={{ color: C.text, fontSize: wide ? 14 : 20, fontWeight: '700' }}>{label}</Text>
+    </Pressable>
   );
 }

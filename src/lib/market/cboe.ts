@@ -34,7 +34,7 @@ export function parseCboeChains(j: any, symbol: string, now = Date.now()): Map<s
     if (closeMs(p.expiry) <= now) continue;
     const iv = num(o.iv);
     const q: OptQuote = { type: p.type, strike: p.strike, bid: num(o.bid), ask: num(o.ask), last: num(o.last_trade_price),
-      iv: iv > 0.005 && iv < 10 ? iv : null, volume: num(o.volume), oi: num(o.open_interest), delta: num(o.delta) };
+      iv: iv > 0.005 && iv < 10 ? iv : null, volume: num(o.volume), oi: num(o.open_interest), delta: num(o.delta), gamma: num(o.gamma) };
     const key = `${p.expiry}|${p.type}|${p.strike}`, weekly = p.root !== symbol; // SPX / SPXW aynı gün: PM (W) tercih
     const prev = seen.get(key);
     if (prev && !(prev._w === false && weekly)) continue;

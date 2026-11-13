@@ -9,22 +9,28 @@ export interface Quote {
   divYield?: number;         // yıllık temettü verimi, yüzde (0,3 = %0,3)
   divRate?: number;          // yıllık temettü $/hisse
   iv30?: number;             // yüzde
+  credits?: number;          // bu istekte harcanan API kredisi (MarketData)
   source: string;
 }
 export interface OptQuote {
   type: 'call' | 'put'; strike: number;
   bid: number; ask: number; last: number;
   iv: number | null;         // ondalık (0,25), sağlayıcının hesapladığı
-  volume: number; oi: number; delta?: number;
+  volume: number; oi: number; delta?: number; gamma?: number;
 }
-export interface Chain { expiry: string; calls: OptQuote[]; puts: OptQuote[] }
+export interface Chain { expiry: string; calls: OptQuote[]; puts: OptQuote[]; updated?: number; underlying?: number; credits?: number }
 export interface Provider {
   id: ProviderId; name: string; delayedMin: number; needsKey: boolean;
   /** Fiyat + mevcut vadeler (YYYY-MM-DD, artan) */
-  load(symbol: string, opts?: { key?: string; signal?: AbortSignal }): Promise<{ quote: Quote; expirations: string[] }>;
-  chain(symbol: string, expiry: string, opts?: { key?: string; signal?: AbortSignal }): Promise<Chain>;
+  load(symbol: string, opts?: ProvOpts): Promise<{ quote: Quote; expirations: string[] }>;
+  chain(symbol: string, expiry: string, opts?: ProvOpts): Promise<Chain>;
 }
-export type ProviderId = 'cboe' | 'yahoo' | 'tradier';
+export interface ProvOpts {
+  key?: string; signal?: AbortSignal; strikeLimit?: number; center?: number;
+  /** Yalnızca MarketData: 'cached' → zincir isteği sembol sayısından bağımsız 1 kredi (veri birkaç sn–dk eski olabilir); maxAge ör. '2min' */
+  mdMode?: 'live' | 'cached'; mdMaxAge?: string;
+}
+export type ProviderId = 'cboe' | 'yahoo' | 'tradier' | 'marketdata';
 
 export const mid = (o: OptQuote) => o.bid > 0 && o.ask > 0 && o.ask >= o.bid ? (o.bid + o.ask) / 2 : o.last > 0 ? o.last : (o.ask > 0 ? o.ask / 2 : 0);
 export const spreadPct = (o: OptQuote) => o.bid > 0 && o.ask > 0 ? (o.ask - o.bid) / ((o.ask + o.bid) / 2) : Infinity;
