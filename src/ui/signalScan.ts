@@ -4,7 +4,9 @@ import { loadSymbol, loadChain } from '@/lib/market';
 import { loadBars, yahooDailyBars } from '@/lib/market/bars';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { trimChain } from '@/lib/odte/scan';
-import { sessionBars, vwap, type Bar } from '@/lib/odte/analytics';
+import { sessionBars, unusual, vwap, type Bar } from '@/lib/odte/analytics';
+import { spotPrice } from '@/lib/signals/spot';
+import { buildVerdict, pickExpiry, type QuoteLite, type VerdictCard } from '@/lib/signals/verdict';
 import { openRange } from '@/lib/odte/strategies/util';
 import { buildSnapshot } from '@/lib/radar/snapshot';
 import { profileFor, auxSymbols } from '@/lib/signals/profiles';
@@ -107,13 +109,19 @@ async function scanOne(t: string, now: number, acct: Acct): Promise<Scan> {
     return { L, dtes, pick, chain: trimChain(chRaw, L.quote.price), bars: B.bars, at: Date.now() };
   });
   const sb = sessionBars(data.bars, now);
-  const price = data.L.quote.price;
+  // Dayanak: taze 1 dk barı (Yahoo) varsa o; yoksa kotasyon. CBOE kotasyonu 15 dk gecikmeli → eski "auto" sırası fiyatı geride tutuyordu.
+  const lastBar = data.bars.length ? data.bars[data.bars.length - 1] : null;
+  const spot = spotPrice(data.L.quote, lastBar, now);
+  const price = spot.price;
+  const srcLabel = spot.source === 'bar' ? `1 dk bar (${spot.ageSec} sn önce)` : data.L.quote.source;
+  const dMin = spot.delayedMin;
+  const changePct = spot.source === 'bar' && data.L.quote.prevClose ? (price / data.L.quote.prevClose - 1) * 100 : data.L.quote.changePct;
   // Qullamaggie (Kaan onayı yok): günlük bağlam yalnız açık Q setupları varsa çekilir
   const qEnabled = enabledQ(firsat.get().settings.q);
   const [dBars, spyBars] = qEnabled.length ? await Promise.all([dailyFor(t, today), dailyFor('SPY', today)]) : [null, null];
   const qd = dBars && dBars.length ? qullDaily(dBars, spyBars && spyBars.length ? spyBars : null, sb[0]?.o) : null;
-  const snap = buildSnapshot({ ticker: t, price, changePct: data.L.quote.changePct, chain: data.chain, expiry: data.pick, bars: data.bars, now,
-    source: data.L.quote.source, delayedMin: data.L.quote.delayedMin, dataTime: data.L.quote.time, prevOi: null, atmIvSession0: null, sector: null });
+  const snap = buildSnapshot({ ticker: t, price, changePct, chain: data.chain, expiry: data.pick, bars: data.bars, now,
+    source: srcLabel, delayedMin: dMin, dataTime: data.L.quote.time, prevOi: null, atmIvSession0: null, sector: null });
   const vw = vwap(sb), or = openRange(sb, 15), ratio = volRatio(sb);
   const bullN = FRAMES.filter(m => frameAligned(sb, 'bull', m)).length, bearN = FRAMES.filter(m => frameAligned(sb, 'bear', m)).length;
   const ak = autoK({ rule: p.otm, ratios: [], ivRank: null });
@@ -181,15 +189,33 @@ async function scanOne(t: string, now: number, acct: Acct): Promise<Scan> {
         : `${c.setup} ${type}: uygun strike/RR yok`);
     }
   }
+  // Sonuç kartı: vade (0–3 DTE kuralı), uzaklık k × EM, prim, 1:5 / 1:4 seviyeleri (kağıt üstü)
+  const vOpts = data.L.expirations.map((e, i) => ({ date: e, dte: data.dtes[i] })).filter(o => o.dte >= 0 && o.dte <= 3);
+  const vPick = pickExpiry(vOpts, now);
+  let vQuotes: QuoteLite[] | null = null;
+  if (vPick) {
+    try {
+      const vch = vPick.date === data.pick ? data.chain : trimChain(await loadChain(data.L.provider, t, vPick.date, {}, 40), price);
+      vQuotes = [...vch.calls, ...vch.puts].map(q => ({ type: q.type, strike: q.strike, bid: q.bid, ask: q.ask, volume: q.volume, oi: q.oi }));
+    } catch { vQuotes = null; }
+  }
+  const uns = unusual(data.chain);
+  const verdict: VerdictCard = buildVerdict({
+    inputs: { S: price, vwap: vw, orHigh: or ? or.high : null, orLow: or ? or.low : null, flip: snap.flip ?? null,
+      callWall: snap.callWall ?? null, putWall: snap.putWall ?? null, emMove: Number.isFinite(em) ? em : null, pcVol: snap.pcVol ?? null,
+      unusualCall: uns.filter(u => u.type === 'call').reduce((a, u) => a + u.vol, 0), unusualPut: uns.filter(u => u.type === 'put').reduce((a, u) => a + u.vol, 0),
+      momentum: bullN >= 2 ? 1 : bearN >= 2 ? -1 : 0 },
+    expiries: vOpts, nowMs: now, quotesFor: e => (vPick && e === vPick.date ? vQuotes : null),
+    dOf: () => (Number.isFinite(em) ? otmDistance(ak.k, em) : null), kademe: acct.kademe, capital: acct.capital });
   const status: TickerStatus = {
-    at: now, spot: price, changePct: data.L.quote.changePct, expiry: data.pick, dte, emPct: snap.emPct ?? NaN, expectedMove: snap.expectedMove ?? NaN,
+    at: now, spot: price, changePct, expiry: data.pick, dte, emPct: snap.emPct ?? NaN, expectedMove: snap.expectedMove ?? NaN,
     k: ak.k, kSource: ak.source, kNote: ak.note, vwapSide: vw == null ? '—' : price >= vw ? 'üstünde' : 'altında',
     frames: `yükseliş ${bullN}/3 · düşüş ${bearN}/3`, volRatio: Number.isFinite(ratio) ? +ratio.toFixed(2) : null,
-    source: data.L.quote.source, delayedMin: data.L.quote.delayedMin, warn: dteWarning(t, data.dtes), setups,
+    source: srcLabel, delayedMin: dMin, warn: dteWarning(t, data.dtes), setups, verdict,
   };
   const quotes: Quote[] = [...data.chain.calls, ...data.chain.puts].map(q => ({ type: q.type, strike: q.strike, bid: q.bid, ask: q.ask, iv: q.iv, volume: q.volume, oi: q.oi }));
   return { ticker: t, status, cands, quotes, S: price, ivAtm: snap.atmIv ?? null, sb, leftMin, etMin, emRemain: Number.isFinite(emRemain) ? emRemain : 0,
-    ratio, regimeSideNow, chainAgeSec, barAgeSec, delayedMin: data.L.quote.delayedMin, source: data.L.quote.source };
+    ratio, regimeSideNow, chainAgeSec, barAgeSec, delayedMin: dMin, source: srcLabel };
 }
 
 const acctOf = (a: PaperAccount, ttlMin: number | null): Acct => ({

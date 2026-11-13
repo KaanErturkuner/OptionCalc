@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEFAULT_TICKERS } from '@/lib/signals/tickers';
+import type { VerdictCard } from '@/lib/signals/verdict';
 import { DEFAULT_Q, mergeQ, type QSettings } from '@/lib/signals/qull/policy';
 import type { Sent } from '@/lib/signals/gate';
 import type { SignalLog } from '@/lib/signals/log';
@@ -24,6 +25,7 @@ export interface TickerStatus {
   at: number; spot: number; changePct: number; expiry: string; dte: number; emPct: number; expectedMove: number;
   k: number; kSource: string; kNote: string; vwapSide: 'üstünde' | 'altında' | '—'; frames: string; volRatio: number | null;
   source: string; delayedMin: number; warn: string | null; setups: string[]; error?: string;
+  verdict?: VerdictCard;
 }
 
 /** Onay kartı: aday + onay durumu. */

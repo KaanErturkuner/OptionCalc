@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Btn, Card, NumField, Seg, Stat, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import SignalTickers from '@/ui/SignalTickers';
+import VerdictBlock from '@/ui/VerdictCard';
 import { firsat, useFirsat, type Card as OppCard } from '@/ui/firsatStore';
 import { approveCard, passCard, resetAccount, updatePaperSettings, runSignalScan } from '@/ui/signalScan';
 import { trNum } from '@/lib/signals/opp';
@@ -138,6 +139,20 @@ export default function Firsat() {
 
       {/* 2) Sinyal tickerları */}
       <SignalTickers />
+
+      {/* 2a) Sonuç: ticker başına yön / güç / strike-prim / stop-hedef (kağıt üstü) */}
+      {Object.entries(D.status).some(([, s]) => s.verdict) ? (
+        <Card title="Sonuç">
+          <View style={{ gap: 10 }}>
+            {Object.entries(D.status).filter(([, s]) => s.verdict).map(([t, s]) => (
+              <VerdictBlock key={t} ticker={t} v={s.verdict!} />
+            ))}
+          </View>
+          <Text style={{ color: C.muted, fontSize: 11, marginTop: 6 }}>
+            {`Veri: ${Object.values(D.status).map(s => s.source).filter(Boolean)[0] ?? '—'} · dayanak 1 dk barı (Yahoo) varsa ondan; yoksa kotasyon (gecikmeli olabilir).`}
+          </Text>
+        </Card>
+      ) : null}
 
       {/* 3) Açık pozisyon */}
       {pos ? (

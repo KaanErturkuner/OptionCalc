@@ -2,6 +2,36 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-14 — Claude — [grok] Sonuç kartı (0DTE + Fırsat) ve Fırsat dayanak gecikmesi düzeltmesi (TASKS #34, #35)
+
+Commit öneki kullanıcı isteğiyle `[grok]`; işi yapan Claude.
+
+**Ne:**
+- **Sonuç kartı** (`src/ui/VerdictCard.tsx`): 0DTE'de her ticker kartının üstünde, Fırsat'ta "Sonuç" bölümünde (Açık pozisyonun üstünde). Mevcut ayrıntı kontrolleri yerinde duruyor.
+  - Yön: CALL al / PUT al / Bekle. Puanlama 7 kriter (her biri −1/0/+1): VWAP, açılış aralığı kırılımı, gamma flip, yakın duvar (EM×0,35), put/call oranı, sıra dışı hacim, momentum. |toplam| ≥ 3 → yön; güç = min(5, |toplam|).
+  - Vade: 16:30–20:00 İst. penceresinde 0DTE varsa o; yoksa 0–3 DTE içinde en yakın.
+  - Strike: OTM, hedef = S ± k×EM (`autoK`, oynaklığa göre; 0DTE için k başlangıç değeri 0,5 — geçmiş yetersiz), spread ≤ %15, hacim ≥ 50 veya OI ≥ 100, hedefe en yakın.
+  - Prim: giriş = mid; stop = giriş × 0,33 (%67 prim stopu); hedef 1:5 = giriş + 5 × (giriş − stop); yedek 1:4 da gösterilir. Komisyon (1,50 $/kontrat) hariç.
+  - Kademe: Fırsat'ta %50/%40/%30 kademe ve hesap bütçesinden adet (`sizePosition`); 0DTE'de yalnız oran.
+  - Gerekçe: "CALL, güçlü (4/5): VWAP üstünde, gamma flip üstünde, düşük put/call (0,50); giriş 1,20 stop 0,40 hedef 5,20" biçimi.
+  - Not: "Kâğıt üstü · tavsiye değildir."
+- **Saf mantık** `src/lib/signals/verdict.ts` (kriterler, puanlama, vade, strike, seviyeler, gerekçe) ve `src/lib/signals/spot.ts` (dayanak fiyatı seçimi).
+- **Fırsat gecikmesi — kök neden:** `signalScan.ts` fiyatı `loadSymbol(t, 'auto', {})` ile alıyordu. Anahtar olmadığı için sıra CBOE → Yahoo. CBOE uç noktası `delayed_quotes` (kaynak `delayedMin: 15`), yani fiyat 15 dk geride. Tarama aralığı (1/2/5 dk) ve 60 sn `SCAN_TTL` önbelleği de üstüne biniyordu.
+- **Düzeltme:** dayanak = taze 1 dk barının kapanışı (en fazla 5 dk yaşlı); yoksa kotasyon ve kendi gecikme etiketi. Değişim yüzdesi bar fiyatına göre `prevClose`'dan hesaplanır. Kaynak etiketi "1 dk bar (N sn önce)" olarak gösterilir.
+- **Dosyalar:** `src/lib/signals/verdict.ts`, `src/lib/signals/spot.ts`, `src/ui/VerdictCard.tsx`, `src/lib/odte/scan.ts` (verdict + `verdictInputsOf`, `ODTE_OTM_RULE`), `src/ui/signalScan.ts` (spot + verdict), `src/ui/firsatStore.ts` (`verdict` alanı), `src/screens/Odte.tsx`, `src/screens/Firsat.tsx`, `test/verdict.test.ts` (yeni; `package.json` test zinciri), `docs/{TASKS,CHANGELOG}.md`.
+
+**Nasıl doğrulandı:**
+- `npm run check` yeşil (test incl. `test/verdict.test.ts`: 42 kontrol; typecheck; lint; bt:selftest; flow:selftest).
+- Örnek gerekçe ve 1:5 / 1:4 seviyeleri birim testte doğrulandı (giriş 1,20 → stop 0,40, 1:5 5,20, 1:4 4,40; kontrat riski 80 $).
+- Ağ çağrısı YOK. Ekranlar Expo Go'da görsel olarak test edilmedi.
+
+**Açık sorular / sınırlar:**
+- Vade kuralı: pencere dışında da en yakın vade (0DTE dâhil) seçiliyor; pencere yalnız 0DTE varlığında fark yaratıyor. Pencere dışında 1–3 DTE tercih edilsin mi? Kaan kararı.
+- 0DTE tarafında vade listesi tek vade (tarayıcının seçtiği). Fırsat tarafında gerekirse aynı zincir önbelleğinden ek vade çekilir (CBOE zinciri tek istekte gelir).
+- **Kalan gecikme kaynakları:** 0DTE zinciri hâlâ CBOE (15 dk gecikmeli) — yalnızca fiyat değil opsiyon prim/OI/hacim de gecikmeli olabilir. Bu, 0DTE ekranındaki "~15 dk gecikmeli" uyarısıyla tutarlı. Gerçek zamanlı zincir için MarketData (sunucu proxy'si, kredi bütçesi) gerekir (TASKS #15/#16).
+- Fırsat dayanak barı Yahoo 1 dk barı: ~1 dk gecikme. Bar yoksa (ör. tatil/ağ) kotasyona düşülür ve etiket gecikmeyi gösterir.
+- Taramayı ekran açılınca tetikleme (refresh on focus) yapılmadı; `index.tsx` zamanlayıcısı ayarlanan aralıkta (varsayılan 2 dk) çalışıyor.
+
 ## 2026-11-14 — Grok — [grok] Radar: hisse detay grafiği (OI / hacim × strike, duvarlar, gamma flip, max pain) (TASKS #33)
 
 Kaan'ın talebi: Radar'da hisseye dokununca görsel grafik. Yeni bağımlılık yok (react-native-svg 15.16.0 zaten var).
