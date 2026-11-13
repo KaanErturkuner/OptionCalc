@@ -29,11 +29,11 @@ Kurallar: `AGENTS.md` §9. Bir görevi alırken `Sahip` = Grok/Claude, `Durum` =
 | 21 | SINYAL-FIRSAT Aşama 1: "Sinyal tickerları" ayarı (vars. QQQ, GLD, SLV, NVDA), ticker profilleri, tarama döngüsü + paylaşılan önbellek, `notifyFirsat`, Seans modu | Claude | done | P1 | §4 |
 | 22 | SINYAL-FIRSAT Aşama 2: Güven Skoru 0–100 (A1–H, vetolar, gecikme tavanı), sinyal kaydı + sonuç değerlendirme, kalibrasyon ekranı, doğrulama kapısı | Claude | doing | P1 | Aşama 2 çekirdek (skor, veto, kayıt, sonuç) bitti; kalibrasyon ekranı, canlı bağlama (Aşama 3 setup'ları) ve CSV açık §5 |
 | 23 | SINYAL-FIRSAT Aşama 3: Fırsat setupları S1–S6 + prim bazlı RR (`optionRR`, Amerikan fiyatlayıcı) + strike tarayıcı | Claude/Grok | done | P1 | §6 — Claude yazdı; Grok doğruladı ve zaman/uyum hatalarını düzeltti (2026-11-13). Bitince dur, Başkan bakar |
-| 24 | SINYAL-FIRSAT Aşama 4: kâğıt hesap durum makinesi (Agresif 1:5 / Yedek 1:4 / Güvenli / Durdu), %50→40→30 kademe (%50 azami, Kaan kararı, değişmez), risk izleyici T1–T7, maliyet modeli | Claude | todo | P1 | §7 |
+| 24 | SINYAL-FIRSAT Aşama 4: kâğıt hesap durum makinesi (Agresif 1:5 / Yedek 1:4 / Güvenli / Durdu), %50→40→30 kademe (%50 azami, Kaan kararı, değişmez), risk izleyici T1–T7, maliyet modeli | Claude | done | P1 | §7 — `src/lib/paper/*`, `riskwatch.ts`, `test/paper.test.ts` (143 kontrol); Başkan incelemesi bekliyor (handoff asama-4) |
 | 25 | SINYAL-FIRSAT Aşama 5: Fırsat sekmesi (hesap şeridi, kartlar, skor dökümü, özsermaye eğrisi, isabet, kayıt, ayarlar) | Claude | todo | P1 | §8 |
 | 26 | SINYAL-FIRSAT Aşama 6: setup backtest (walk-forward, QQQ/GLD/SLV/NVDA) + para yönetimi Monte Carlo + iflas raporu (bilgi amaçlı) + `FIRSAT_CRITERIA` | Claude | todo | P1 · API | §9 — GLD/SLV/NVDA geçmişi ve kayıt için Kaan onayı (token); bitince dur |
 | 27 | SINYAL-FIRSAT Aşama 7: sunucu tarayıcı + anlık bildirim (Telegram/ntfy/Expo push), tek MarketData tüketicisi | Claude | blocked | P3 | §10 — Kaan onayı olmadan başlanmaz (otomasyon); #12, #14, #16 ile birleşir |
-| 28 | SINYAL-FIRSAT §11.2 açık sorular: DURDU kuralı, kış saatinde giriş penceresi kayması, 1 kontrat / kesirli kâğıt simülasyonu, NBIS/GLW sektörü (SMH mi QQQ mu) | Kaan | todo | P2 | Claude varsayılanla uygular (§11.2); Kaan'ın 2026-11-13 cevapları D8'de |
+| 28 | SINYAL-FIRSAT §11.2 açık sorular: DURDU kuralı, kış saatinde giriş penceresi kayması, 1 kontrat / kesirli kâğıt simülasyonu, NBIS/GLW sektörü (SMH mi QQQ mu) | Kaan | todo | P2 | Claude varsayılanla uygular (§11.2); Kaan'ın 2026-11-13 cevapları D8'de. Aşama 4 ek çelişki: ör.3 (iki kayıp) ↔ gün içi %50 DURDU (%51) — handoff asama-4 madde 1 |
 
 ## Bitti
 | # | Görev | Sahip | Tarih |

@@ -2,6 +2,25 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-13 — Claude — SINYAL-FIRSAT Aşama 4 (kâğıt hesap ve para yönetimi)
+
+**Ne:** §7 durum makinesi, kademe/boyut, maliyet, "Onayla" akışı, gece taşıma ve risk izleyici (T1–T7, iz süren stop) saf fonksiyon olarak yazıldı. Kaan'ın sayısal örnekleri birim testi yapıldı. Gerçek emir, aracı ve UI yok.
+- `src/lib/paper/types.ts`, `costs.ts`, `sizing.ts`, `account.ts`, `approval.ts`, `overnight.ts` (yeni)
+- `src/lib/signals/riskwatch.ts` (yeni: T1–T7, `evaluatePosition`, `trailPrem`, `effectiveStopPrem`, `modeTargetR`)
+- `test/paper.test.ts` (yeni, 143 kontrol) — `package.json` `test` betiğine eklendi
+- `docs/tasks/handoff/SINYAL-FIRSAT-asama-4.md`, `docs/TASKS.md` (#24 done, #28 notu)
+
+**Kaan kuralları:** %50 azami ve kademe 30/40/50 değişmedi (`MAX_KADEME`, `KADEMELER`). Kayıp → bir adım düş; kazanç → bir adım yüksel; başabaş değişmez; kademe gün geçişinde taşınır. Komisyon Midas 1,50 $ açılış+kapanış. Prim stopu %67. Onay süreleri 0DTE 3 dk / 1–3 DTE 5 dk. 1–3 DTE gece taşınabilir, 0DTE 15:45'te kapanır.
+
+**Doğrulama:** `npm run check` çıkış 0 (test dahil paper 143 OK, tsc, lint 0 uyarı, bt:selftest). Ör.1–8 ve §6.1 örnekleri birebir (R 100, 600, 300, 80, 146,67, 650, 157); 10.000 işlemlik özellik testi (kesirli ve tam kontrat) pozisyonun sermayenin %50'sini hiç aşmadığını gösterdi.
+
+**Açık / Başkan kararı:**
+1. **Çelişki:** Kaan ör.3 (iki kayıp sonrası GUVENLI_ZARAR ile devam) ile §7.4 "gün içi %50 düşüş → DURDU" (varsayılan açık) aynı günde çakışıyor (%51). Varsayılan değiştirilmedi; §11.2 #1 Kaan'a sorulmalı.
+2. Prim stopu 0,67 formülü R = 100,5 veriyor; Kaan'ın yuvarlak 100/600 örneği 2/3 ile tutuyor. Test iki varyantı da kapsıyor.
+3. Mod sayaçları yapışkan (gün sonuna kadar). Hedef primi sinyalin RR'ından gelir.
+
+**Sonraki:** Aşama 5 (Fırsat ekranı, `firsatStore`, tarama döngüsüne bağlama). Veri kaynağı yok, MarketData token kullanılmadı, Expo yayını yok.
+
 ## 2026-11-13 — Grok — [grok] fix of stage 3 verification
 
 **Ne:** Claude'un SINYAL-FIRSAT Aşama 3 kodu (S1–S6, `optionRR`, strike tarayıcı, `signalScan` bağlantısı) doğrulandı. İlk `npm test` / `tsc --noEmit` / lint / `bt:selftest` yeşildi; Claude'un şüpheleri (eksik import, çalışmayan align testleri, `firsatStore` başlangıç `setups`) typecheck/testte doğrulanmadı. İncelemede net hatalar bulundu ve düzeltildi:
