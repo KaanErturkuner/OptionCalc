@@ -118,6 +118,7 @@ function intra(input: ReportInput, ts: number, fails: string[]): Report {
   const wallRows = input.walls.length ? input.walls.map(w => '  ' + wallLine(w.ticker, w.open, w.now)) : [`  ${NA}`];
   const notes = input.walls.map(w => spotNote(w.now) && `  ${w.ticker}: ${spotNote(w.now)}`).filter((x): x is string => !!x);
   const fl = flowLines(input.flow);
+  const flNone = input.flowKnown === false ? NA : 'Eşik üstü birikim yok';
   const minsLeft = Math.max(0, Math.round((closeMs(input.day) - ts) / 60000));
   const lines = [
     header(input.kind, input), '',
@@ -125,7 +126,7 @@ function intra(input: ReportInput, ts: number, fails: string[]): Report {
     `  Yön: ${dir.label}${dir.avg != null ? ` (ortalama ${sign(dir.avg)}${fmt(dir.avg, 2)}%)` : ''}`,
     '', 'Duvarlar (açılış → şimdi)', ...wallRows,
     ...(notes.length ? ['', 'Gözlem', ...notes] : []),
-    '', 'Opsiyon birikimi (bugün, en büyük)', ...(fl.length ? fl.map(x => '  ' + x) : ['  Eşik üstü birikim yok']),
+    '', 'Opsiyon birikimi (bugün, en büyük)', ...(fl.length ? fl.map(x => '  ' + x) : [`  ${flNone}`]),
     '', 'Haberler', ...(input.newsOk ? (input.news.length ? newsLines(input.news, 3).map(x => '  ' + x) : ['  Önemli yeni haber yok']) : [`  ${NA}`]),
     '', 'Beklenti (kural tabanlı)',
     `  Kalan seans (~${minsLeft} dk): ${dir.label === NA ? 'yön verisi yok' : dir.label === 'yatay' ? 'yatay seyir, duvarlar arasında kalma eğilimi' : `${dir.label} yönlü devam ihtimali; ters yön için gamma flip ve duvar seviyeleri izlenir`}`,
@@ -153,7 +154,7 @@ function eod(input: ReportInput, ts: number, fails: string[]): Report {
     'Gün değişimi', ...moveRows(input.moves),
     '', 'Duvar kayması (açılış → kapanış)', ...(input.walls.length ? input.walls.map(w => '  ' + wallLine(w.ticker, w.open, w.now)) : [`  ${NA}`]),
     '', 'Hareketli ortalamalar (günlük)', ...smaLines,
-    '', 'Opsiyon birikimi (bugün, en büyük)', ...(flowLines(input.flow).length ? flowLines(input.flow).map(x => '  ' + x) : ['  Eşik üstü birikim yok']),
+    '', 'Opsiyon birikimi (bugün, en büyük)', ...(flowLines(input.flow).length ? flowLines(input.flow).map(x => '  ' + x) : [`  ${input.flowKnown === false ? NA : 'Eşik üstü birikim yok'}`]),
     '', 'Haberler (bugün)', ...(input.newsOk ? (input.news.length ? newsLines(input.news).map(x => '  ' + x) : ['  Önemli haber yok']) : [`  ${NA}`]),
     '', 'Yarın beklentisi (kural tabanlı)',
     `  Trend: ${trendTxt}`,

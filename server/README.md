@@ -246,6 +246,31 @@ hız sınırı (gap/daily) → karne → anahtar sızıntısı yok. Saf eşleşt
   ```
 - Sınır: duvar anlık görüntüsü, akış tarayıcısı çalışırken alınır (seans dışında ve tarayıcı kapalıyken rapor “anlık görüntü yok” der). Gün içi birikim yalnız eşik üstü olaylardan toplanır (dV).
 
+### Örnek raporlar (geçmiş gün, nokta-zamanlı)
+
+`server/app/backfill.ts` bir geçmiş işlem günü için 5 raporu yeniden kurar (17:00 / 18:00 / 19:00 / 20:00 İst, gün sonu).
+**Nokta-zamanlı:** her rapor yalnız kendi anından önce **tamamlanmış** veriyi görür (`src/lib/reports/pit.ts`):
+
+- Yahoo barları yalnız `t + süre ≤ rapor anı` ise; `period2` = rapor anı (sonrası istenmez). Günlük kapanış yalnız 16:00 ET rapor anından önceyse.
+- Önceki gün kapanışı: yerel (borsa saat dilimi) tarihi rapor gününden önce olan son günlük bar; fiyat: rapor günü ve rapor anından önceki son bar.
+- Haber: yayın zamanı `[pencere başı, rapor anı)`. Bilanço takvimi: geçmiş anlık görüntü yok → “veri alınamadı”.
+- Duvar anlık görüntüsü: yalnız rapor anından önce yazılmışsa (`snap`); akış olayı: `events.ts < rapor anı`. Kayıt yoksa “veri alınamadı” (sahte “birikim yok” yazılmaz).
+- **MarketData çağrısı YOK** (`md.ts` içe aktarılmaz). Push YOK. Başlık öneki “Örnek · …”, `example = 1` (API'de `example: true`), gövde başında “ÖRNEK RAPOR” notu.
+- Anahtar `ornek:<gün>:<tür>` ile saklanır (gerçek rapor anahtarıyla çakışmaz). Yeniden yazma: `--force` yalnız örnekleri siler.
+
+Çalıştırma (droplet; servis kullanıcısı `ocflow` olarak, Finnhub anahtarı `LoadCredential` ile — anahtar ekrana basılmaz; DB sahibi değişmez):
+
+```bash
+ssh -i ~/.ssh/do_flow root@162.243.88.42 'systemd-run --pipe --wait --collect -q \
+  -p User=ocflow -p Group=ocflow -p WorkingDirectory=/opt/optioncalc-flow \
+  -p EnvironmentFile=-/etc/optioncalc-flow/env -p StateDirectory=optioncalc-flow \
+  -p LoadCredential=finnhub_key:/etc/optioncalc-flow/finnhub_key \
+  -p Environment=FLOW_DB=/var/lib/optioncalc-flow/flow.db \
+  /usr/bin/node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON /opt/optioncalc-flow/server/app/backfill.ts --day 2026-11-13'
+```
+
+Kuru çalıştırma: aynı komuta `--dry-run` ekleyin (DB yazmaz, metni yazdırır). Örnekler 30 gün sonra diğer raporlarla birlikte silinir.
+
 ## Doğrulama
 
 ```bash
@@ -274,6 +299,7 @@ Anahtarlı istek için, anahtarı yerelde bir değişkene oku (`K=$(ssh … 'cat
 | `app/http.ts` | HTTP uç noktaları, anahtar kontrolü, hız sınırı, proxy izin listesi, önbellek |
 | `app/store.ts` | SQLite (kredi, taban, olaylar, soğuma, tokenlar) |
 | `app/push.ts` | Expo push gönderimi; `DeviceNotRegistered` tokenları siler |
+| `app/backfill.ts` | Örnek raporlar: geçmiş gün için nokta-zamanlı yeniden kurulum (yalnız sunucu, MarketData yok, push yok) |
 | `app/coach.ts` | Koç: Anthropic istemcisi (yedek model), yükleme (önbellek, dolum çıkarma, eşleştirme), koçluk kuyruğu, karne, oto-karne |
 | `app/fixture.ts`, `fixtures/synthetic-chain.json` | Sentetik veriyle dry-run/test (gerçek MarketData verisi DEĞİL) |
 | `app/selftest.ts` | Öz-test (`npm run flow:selftest`) |

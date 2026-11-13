@@ -1,5 +1,26 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — [grok] Raporlar: örnek geri doldurma (nokta-zamanlı) + gün klasörleri (TASKS #36 devamı)
+
+**Ne:** (1) 2026-11-13 (Cuma) için 5 örnek rapor (17:00, 18:00, 19:00, 20:00 İst, gün sonu) sunucuda yeniden kuruldu. Her rapor yalnız
+kendi anından önce tamamlanmış veriyi görür (Yahoo barları `t+süre ≤ rapor anı`, günlük kapanış 16:00 ET kapısı, önceki gün kapanışı yerel tarihle,
+Finnhub haberleri yayın zamanı < rapor anı). Akış/duvar kaydı o gün yoktu → “veri alınamadı” (MarketData kredisi harcanmadı, geçmiş zincir çağrılmadı).
+Bilanço geçmişi yok → “veri alınamadı”. Başlıkta “Örnek ·”, `example = 1`, push yok. (2) Raporlar ekranı: gün klasörleri
+(“13/11/26 Cuma Raporları”, en yeni önce); klasör → daraltılabilir kutular (“17:00 Raporu” … “Gün Sonu Raporu”, örnekler “örnek” etiketli).
+
+**Dosyalar:** `server/app/backfill.ts` (yeni), `server/app/store.ts` (`example` sütunu + migrasyon, `flowAgg(day, beforeMs)`, `pollSeenBefore`, `deleteExampleReport`),
+`server/app/sources.ts` (`series()`: Yahoo period1/period2), `server/app/selftest.ts`, `server/README.md` (Örnek raporlar),
+`src/lib/reports/pit.ts` (yeni, nokta-zamanlı yardımcılar + `exampleReport`), `src/lib/reports/group.ts` (yeni, gün klasörü/kutu etiketleri),
+`src/lib/reports/sources.ts` (`parseYahooSeries`, `Bar`), `src/lib/reports/text.ts` + `types.ts` (`flowKnown`), `src/lib/reports/client.ts` (`example`, limit 50),
+`src/screens/Raporlar.tsx`, `test/reports-pit.test.ts` (yeni), `test/reports-group.test.ts` (yeni), `package.json` (test zinciri).
+
+**Doğrulama:** `npm run check` geçti (test, typecheck, lint, bt:selftest, flow:selftest — örnek satır ve akış sorgusu kontrolleri dâhil).
+Sunucu yerelde kuru çalıştırıldı (`--dry-run`, yalnız Yahoo; Finnhub anahtarı yok, haberler “veri alınamadı”).
+
+**Açık / dikkat:** (a) Genel haber akışı (`/news?category=general`) geriye dönük sorgulanamıyor; kapsam dışıysa rapor bunu “Veri sorunları”nda yazar.
+(b) Örnek raporlar 30 gün sonra diğer raporlarla birlikte silinir. (c) Canlı raporlarda duvar/birikim hâlâ anlık görüntüden; geçmiş günlerde yalnız akış kaydı
+olan günlerde dolu olur (11-13 için kayıt yok). (d) Premarket fiyatları Yahoo 5 dk barlarından; CME/Asya günlük sınırları Yahoo tarih damgasına bağlı, küçük sapmalar olabilir.
+
 En yeni üstte. Biçim: `## 2026-11-14 — Grok — [grok] Radar detay: dikey merdiven (ladder) grafiği (TASKS #33 devamı)
 
 **Ne:** Yatay OI/hacim çubukları yerine dikey merdiven: strike'lar yukarıdan aşağıya (en yüksek üstte), ortada strike etiketi, call çubukları sağa (yeşil), put sola (kırmızı), en büyük çubuğa göre ölçek.

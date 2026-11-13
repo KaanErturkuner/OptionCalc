@@ -33,3 +33,23 @@ export function sma(xs: number[], n: number): number | null {
 
 /** Yahoo sembolü → URL parçası (^ ve = kaçışlı) */
 export const yahooPath = (sym: string) => encodeURIComponent(sym);
+
+/** Zaman damgalı bar (t: başlangıç, ms). Kapanış c null ise bar atlanır (parseYahooSeries). */
+export interface Bar { t: number; o: number | null; c: number }
+export interface SeriesQuote { bars: Bar[]; tz: string }
+
+/** Yahoo v8 chart → zaman damgalı barlar (artan) + borsa saat dilimi (meta.exchangeTimezoneName; yoksa New York). */
+export function parseYahooSeries(j: any): SeriesQuote | null {
+  const r = j?.chart?.result?.[0];
+  if (!r || !Array.isArray(r.timestamp)) return null;
+  const q = r.indicators?.quote?.[0] ?? {};
+  const opens: unknown[] = q.open ?? [], closes: unknown[] = q.close ?? [];
+  const bars: Bar[] = [];
+  r.timestamp.forEach((x: unknown, i: number) => {
+    const t = finite(x), c = finite(closes[i]);
+    if (t == null || c == null) return;
+    bars.push({ t: t * 1000, o: finite(opens[i]), c });
+  });
+  const tz = typeof r.meta?.exchangeTimezoneName === 'string' ? r.meta.exchangeTimezoneName : 'America/New_York';
+  return { bars, tz };
+}

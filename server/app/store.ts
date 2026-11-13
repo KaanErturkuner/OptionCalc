@@ -48,6 +48,9 @@ export class Store {
       CREATE INDEX IF NOT EXISTS coach_reports_day ON coach_reports (day);
       CREATE TABLE IF NOT EXISTS coach_karne (day TEXT PRIMARY KEY, ts INTEGER NOT NULL, model TEXT NOT NULL, body TEXT NOT NULL);
     `);
+    // Geçmiş sürüm migrasyonu: örnek rapor bayrağı (eski satırlar 0 = gerçek rapor)
+    const rcols = (this.db.prepare('PRAGMA table_info(reports)').all() as { name: string }[]).map(c => c.name);
+    if (!rcols.includes('example')) this.db.exec('ALTER TABLE reports ADD COLUMN example INTEGER NOT NULL DEFAULT 0');
   }
 
   // ── kredi sayacı (gün = MarketData kredi günü, 09:30 ET'de döner; bkz. server/README) ──
@@ -152,9 +155,10 @@ export class Store {
     return r ? JSON.parse(r.data) as T : null;
   }
   /** Bugünkü teyitli+teyitsiz olayların kontrat bazlı toplamı (dV ve prim) */
-  flowAgg(day: string): { ticker: string; expiry: string; side: 'call' | 'put'; strike: number; contracts: number; premium: number }[] {
-    return (this.db.prepare(`SELECT ticker, expiry, side, strike, SUM(dv) AS contracts, SUM(prem) AS premium FROM events WHERE day = ?
-      GROUP BY ticker, expiry, side, strike ORDER BY premium DESC LIMIT 40`).all(day) as
+  /** beforeMs verilirse yalnız o andan önceki olaylar (nokta-zamanlı yeniden kurulum) */
+  flowAgg(day: string, beforeMs = Infinity): { ticker: string; expiry: string; side: 'call' | 'put'; strike: number; contracts: number; premium: number }[] {
+    return (this.db.prepare(`SELECT ticker, expiry, side, strike, SUM(dv) AS contracts, SUM(prem) AS premium FROM events WHERE day = ? AND ts < ?
+      GROUP BY ticker, expiry, side, strike ORDER BY premium DESC LIMIT 40`).all(day, beforeMs) as
       { ticker: string; expiry: string; side: string; strike: number; contracts: number; premium: number }[])
       .map(r => ({ ...r, side: r.side === 'put' ? 'put' as const : 'call' as const }));
   }
@@ -163,16 +167,21 @@ export class Store {
   hasReport(key: string): boolean {
     return !!this.db.prepare('SELECT 1 FROM reports WHERE key = ?').get(key);
   }
-  insertReport(r: { key: string; kind: string; day: string; ts: number; title: string; body: string; pushTitle: string; pushBody: string }): number {
-    const x = this.db.prepare(`INSERT OR IGNORE INTO reports (key, kind, day, ts, title, body, push_title, push_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(r.key, r.kind, r.day, r.ts, r.title, r.body, r.pushTitle, r.pushBody);
+  insertReport(r: { key: string; kind: string; day: string; ts: number; title: string; body: string; pushTitle: string; pushBody: string; example?: boolean }): number {
+    const x = this.db.prepare(`INSERT OR IGNORE INTO reports (key, kind, day, ts, title, body, push_title, push_body, example) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(r.key, r.kind, r.day, r.ts, r.title, r.body, r.pushTitle, r.pushBody, r.example ? 1 : 0);
     return Number(x.lastInsertRowid);
   }
+  /** Yalnız örnek (backfill) raporu siler; gerçek raporlara dokunmaz (`example = 1` koşulu) */
+  deleteExampleReport(key: string): number {
+    return Number(this.db.prepare('DELETE FROM reports WHERE key = ? AND example = 1').run(key).changes);
+  }
   listReports(limit: number): ReportRow[] {
-    return (this.db.prepare('SELECT id, kind, day, ts, title, body FROM reports ORDER BY ts DESC, id DESC LIMIT ?').all(Math.min(50, Math.max(1, limit))) as unknown as ReportRow[]);
+    return (this.db.prepare('SELECT id, kind, day, ts, title, body, example FROM reports ORDER BY ts DESC, id DESC LIMIT ?').all(Math.min(50, Math.max(1, limit))) as unknown as RawReportRow[]).map(toReportRow);
   }
   getReport(id: number): ReportRow | null {
-    return (this.db.prepare('SELECT id, kind, day, ts, title, body FROM reports WHERE id = ?').get(id) as unknown as ReportRow | undefined) ?? null;
+    const r = this.db.prepare('SELECT id, kind, day, ts, title, body, example FROM reports WHERE id = ?').get(id) as unknown as RawReportRow | undefined;
+    return r ? toReportRow(r) : null;
   }
   /** Saklama: ts'si cutoffMs'den eski raporlar silinir */
   pruneReports(cutoffMs: number): number {
@@ -253,6 +262,12 @@ export class Store {
     this.db.prepare('DELETE FROM coach_karne WHERE day < ?').run(cutoffDay);
   }
 
+  /** O andan önce bu gün için akış tarayıcısı kaydı var mı (olay veya duvar anlık görüntüsü). Yoksa rapor "veri alınamadı" der. */
+  pollSeenBefore(day: string, beforeMs: number): boolean {
+    const r = this.db.prepare(`SELECT (SELECT COUNT(*) FROM events WHERE day = ? AND ts < ?) + (SELECT COUNT(*) FROM snap WHERE day = ? AND ts < ?) AS n`)
+      .get(day, beforeMs, day, beforeMs) as { n: number };
+    return Number(r.n) > 0;
+  }
   snapPrune(day: string): void { this.db.prepare('DELETE FROM snap WHERE day < ?').run(day); }
 
   close(): void { this.db.close(); }
@@ -275,4 +290,6 @@ function parseReport(r: RawReport): CoachReportRow {
   return { sig: r.sig, day: r.day, ts: Number(r.ts), model: r.model, trade: JSON.parse(r.trade), rules: JSON.parse(r.rules), feedback: JSON.parse(r.feedback), context: r.context == null ? null : JSON.parse(r.context) };
 }
 
-export interface ReportRow { id: number; kind: string; day: string; ts: number; title: string; body: string }
+export interface ReportRow { id: number; kind: string; day: string; ts: number; title: string; body: string; example: boolean }
+type RawReportRow = Omit<ReportRow, 'example'> & { example: number };
+const toReportRow = (r: RawReportRow): ReportRow => ({ ...r, example: Number(r.example) === 1 });

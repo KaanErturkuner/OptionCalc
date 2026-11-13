@@ -2,7 +2,7 @@
  * Rapor kaynakları (sunucu): Yahoo chart (anahtarsız) ve Finnhub (anahtar YALNIZ başlıkta: X-Finnhub-Token; URL'de yok).
  * Yahoo'ya seri çağrı + aralık (nazik hız). Hata metinleri sırsızdır; URL ve anahtar asla hataya/loga girmez.
  */
-import { parseYahooChart, yahooPath, type ChartQuote } from '../../src/lib/reports/sources.ts';
+import { parseYahooChart, parseYahooSeries, yahooPath, type ChartQuote, type SeriesQuote } from '../../src/lib/reports/sources.ts';
 import { parseFinnhubEarnings, parseFinnhubNews } from '../../src/lib/news/finnhub.ts';
 import type { NewsItem } from '../../src/lib/news/types.ts';
 
@@ -40,6 +40,15 @@ export class YahooClient {
       const r = await this.f(url, { headers: UA, signal: AbortSignal.timeout(10000) });
       if (!r.ok) throw new Error(`Yahoo HTTP ${r.status}`);
       return parseYahooChart(await r.json(), sym);
+    });
+  }
+  /** Tarihsel seri (nokta-zamanlı yeniden kurulum): period1/period2 saniye; interval 1m|5m|1d. Yalnız backfill kullanır. */
+  series(sym: string, period1: number, period2: number, interval: string, pre = false): Promise<SeriesQuote | null> {
+    return this.th.run(async () => {
+      const url = `${YAHOO}/${yahooPath(sym)}?period1=${period1}&period2=${period2}&interval=${interval}${pre ? '&includePrePost=true' : ''}`;
+      const r = await this.f(url, { headers: UA, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) throw new Error(`Yahoo HTTP ${r.status}`);
+      return parseYahooSeries(await r.json());
     });
   }
 }

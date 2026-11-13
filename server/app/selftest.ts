@@ -245,6 +245,22 @@ async function coachSelftest() {
   store.close();
 }
 
+// ───── Örnek rapor: example bayrağı, yalnız örnek silme, nokta-zamanlı akış sorgusu ─────
+{
+  const st = new Store(':memory:');
+  const DAYX = '2026-11-13';
+  st.insertReport({ key: 'ornek:' + DAYX + ':premarket', kind: 'premarket', day: DAYX, ts: 1, title: 'Örnek · x', body: 'b', pushTitle: 'p', pushBody: 'b', example: true });
+  st.insertReport({ key: DAYX + ':intra1', kind: 'intra1', day: DAYX, ts: 2, title: 'gerçek', body: 'b', pushTitle: 'p', pushBody: 'b' });
+  const rows = st.listReports(10);
+  ok('örnek: example=true ve gerçek example=false döner', rows.some(r => r.title === 'Örnek · x' && r.example === true) && rows.some(r => r.title === 'gerçek' && r.example === false));
+  ok('örnek: silme yalnız örnek satırı (gerçek rapor kalır)', st.deleteExampleReport('ornek:' + DAYX + ':premarket') === 1 && st.deleteExampleReport(DAYX + ':intra1') === 0 && st.listReports(10).length === 1);
+  st.insertEvent({ ts: 100, day: DAYX, ticker: 'QQQ', occ: 'O1', expiry: DAYX, side: 'call', strike: 500, dv: 10, volume: 10, oi: 1, bid: 1, ask: 1.1, mid: 1.05, prem: 1000, volOi: 10, confirmed: true, wide: false, pushed: false, underlying: 500 } as never);
+  st.insertEvent({ ts: 900, day: DAYX, ticker: 'QQQ', occ: 'O1', expiry: DAYX, side: 'call', strike: 500, dv: 5, volume: 15, oi: 1, bid: 1, ask: 1.1, mid: 1.05, prem: 500, volOi: 10, confirmed: true, wide: false, pushed: false, underlying: 500 } as never);
+  ok('nokta-zamanlı akış: ts < 500 yalnız ilk olay (dV 10)', st.flowAgg(DAYX, 500).reduce((a, x) => a + x.contracts, 0) === 10);
+  ok('akış yok (poll kaydı yok) → pollSeenBefore false', !st.pollSeenBefore('2026-11-16', 1e15) && st.pollSeenBefore(DAYX, 500));
+  st.close();
+}
+
 main().then(() => {
   console.log(fail ? `\n${fail} SUNUCU TESTİ BAŞARISIZ` : '\nSunucu öz-testi geçti');
   process.exit(fail ? 1 : 0);

@@ -21,6 +21,7 @@ export interface ReportInput {
   earnings: { ticker: string; date: string | null }[] | null;   // null = bilanço bilgisi alınamadı
   sma: SmaRow[];
   failures: string[];                               // "Yahoo: ^N225 alınamadı" gibi
+  flowKnown?: boolean;                              // false: o an için akış/duvar kaydı yok → "veri alınamadı" (undefined = var)
 }
 
 export interface Report { kind: ReportKind; day: string; ts: number; title: string; body: string; pushTitle: string; pushBody: string }
