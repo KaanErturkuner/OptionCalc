@@ -2,6 +2,29 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-14 — Claude — [grok] Koç raporu biçimi: sayılar kodda, yorum modelde (TASKS #37, devam)
+
+Kaan onaylı rapor biçimi: Başlık · Ne oldu · Çıkış ✅/⚠️/❌ · Giriş · Strike · Kaçan fırsat (tahmini) · Bir dahakine (3 madde) · Karne (3 × /10).
+
+**Ne:**
+- Model yalnız yorum/karar üretir (`ModelFeedback`); sayılar (brüt/net P/L, DTE, pencere, VWAP uzaklığı, OTM / beklenen hareket oranı, tutma ve çıkış sonrası hareket, opsiyon tahmini) kodda hesaplanır.
+- **Net P/L:** komisyon $1,50 / kontrat / yön → giriş + çıkış = $3,00 / kontrat; `pnlOf` (`src/lib/coach/report.ts`).
+- **Opsiyon tahmini:** Black-Scholes (IV %45, r %4) kalibre: gerçek giriş primi + (BS(S_ext) − BS(S_giriş)). Etiket "tahmini".
+- Emoji ve pencere/DTE kodda; model emoji yazmaz.
+- Uygulama: `src/ui/CoachReport.tsx` (rapor kartı), `src/screens/Koc.tsx` güncel.
+- Sunucu: rapor kaydı ve yanıt `trades[].report`; karne girdisi rapor özeti.
+- Testler: `test/coach.test.ts` (P/L, BS yönü, rapor emoji/pencere/3 madde, şema doğrulama); sunucu selftest yeni şema ile.
+
+**Canlı denemeler (Haiku, sentetik fiş, 2026-11-13 QQQ 600C, 18:05 → 18:32 İst):**
+1. Eski sürüm: fiş vade/saat dilimi içermiyordu → çıkarma 422 (ilk deneme; çıkarma çağrısı yapıldı).
+2. Yeni prompt, `max_tokens` 2000: çıkarma OK (in 1182 / out 278); koçluk **2000'de kesildi** → JSON yok.
+3. `max_tokens` 3500: koçluk yine 3500'de kesildi (in 4586 / out 3500), JSON ayrıştırılamadı → **rapor üretilemedi**.
+- Tahmin: model feedback dizisini tekrar edip/ uzatıyor olabilir. Önlem: kullanıcı mesajına tam öğe sayısı ve "tekrar ekleme" kuralı + durma nedeni ve çıktı örneği logu. Bu önlemle canlı tekrar **yapılmadı** (kullanıcı tek test istemişti).
+- Toplam token (üç denemenin çağrıları): çıkarma 1182+1182 in / 278+725 out; koçluk 4586+4586 in / 2000+3500 out (kesilmiş).
+
+**Açık:** canlı tek bir başarılı raporu görmek için bir kez daha çağrı gerekiyor (≈ 6 k girdi + ≈ 3 k çıktı token). Onay bekleniyor.
+
+
 ## 2026-11-14 — Claude — [grok] Koç (işlem koçu): Haiku ile Midas görüntüsü → geri bildirim + günlük karne (TASKS #37)
 
 Commit öneki kullanıcı isteğiyle `[grok]`; işi yapan Claude. **Durum: kod tamam, canlı Haiku testi YAPILMADI (anahtar yok).**

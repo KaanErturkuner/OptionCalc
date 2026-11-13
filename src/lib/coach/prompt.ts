@@ -58,7 +58,7 @@ Bölümlerin anlamı (karar alanları SABİT değerlerden biri olmalı):
 Her metin en çok 2 cümle. Açık pozisyonda cikis "belirsiz" ve kacanFirsatYorum "pozisyon açık" de.`;
 
 export function coachUserText(items: { index: number; trade: unknown; rules: unknown; facts: unknown; noData: string[] }[]): string {
-  return `Aşağıdaki işlemleri koçla. Bağlam JSON'u (sayılar hesaplanmış; uydurma değil):\n${JSON.stringify(items)}`;
+  return `Aşağıdaki ${items.length} işlemi koçla. feedback dizisinde TAM ${items.length} öğe olsun (index 0..${items.length - 1}); başka öğe, tekrar veya ek metin ekleme. Bağlam JSON'u (sayılar hesaplanmış; uydurma değil):\n${JSON.stringify(items)}`;
 }
 
 export const KARNE_SYSTEM = `${BASE}

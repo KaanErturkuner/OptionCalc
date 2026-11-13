@@ -46,7 +46,7 @@ export class CoachClient {
     this.f = d.f ?? fetch; this.now = d.now ?? (() => Date.now()); this.log = d.log ?? (m => console.log(m));
   }
 
-  async call(kind: CoachKind, day: string, system: string, content: ContentBlock[]): Promise<{ text: string; model: string; inTok: number; outTok: number; fallback: boolean }> {
+  async call(kind: CoachKind, day: string, system: string, content: ContentBlock[]): Promise<{ text: string; model: string; inTok: number; outTok: number; fallback: boolean; stopReason: string | null }> {
     const key = this.d.cfg.anthropicKey;
     if (!key) throw new CoachError(503, 'Koç yapılandırılmadı: sunucuda Anthropic anahtarı yok');
     const primary = this.d.cfg.coachModel, fb = this.d.cfg.coachFallbackModel;
@@ -71,7 +71,7 @@ export class CoachClient {
     }
   }
 
-  private async send(key: string, model: string, system: string, content: ContentBlock[], maxTokens: number) {
+  private async send(key: string, model: string, system: string, content: ContentBlock[], maxTokens: number): Promise<{ text: string; inTok: number; outTok: number; stopReason: string | null }> {
     const body = buildMessagesBody({ model, system, content, maxTokens });
     const r = await this.f(ANTHROPIC_URL, {
       method: 'POST',
@@ -92,7 +92,7 @@ export class CoachClient {
     let j: unknown;
     try { j = JSON.parse(raw); } catch { throw new CoachError(502, 'Anthropic yanıtı okunamadı'); }
     const p = parseMessagesReply(j);
-    return { text: p.text, inTok: p.inTokens, outTok: p.outTokens };
+    return { text: p.text, inTok: p.inTokens, outTok: p.outTokens, stopReason: p.stopReason };
   }
 
   private logCall(kind: CoachKind, day: string, model: string, r: { inTok: number; outTok: number } | null, fallback: boolean, t0: number, err: string | null) {
@@ -162,8 +162,8 @@ export class Coach {
     const coJson = parseJsonLoose(co.text);
     const coV = coJson.ok ? validateCoach(coJson.value, trades.length) : { ok: false as const, error: coJson.error };
     const feedbacks: (ModelFeedback | null)[] = coV.ok ? coV.value : trades.map(() => null);
-    const warning = coV.ok ? null : `Koçluk yanıtı doğrulanamadı: ${coV.error}`;
-    if (!coV.ok) this.log('KOÇ UYARI: koçluk çıktısı doğrulanamadı: ' + coV.error);
+    const warning = coV.ok ? null : `Koçluk yanıtı doğrulanamadı: ${coV.error}${co.stopReason === 'max_tokens' ? ' (çıktı üst sınıra takıldı)' : ''}`;
+    if (!coV.ok) this.log(`KOÇ UYARI: koçluk çıktısı doğrulanamadı: ${coV.error} (durma: ${co.stopReason ?? '?'}, ${co.outTok} çıktı tokeni); örnek: ${co.text.slice(0, 160).replace(/\s+/g, ' ')}`);
 
     // (4) Rapor (sayılar kodda, yorum modelde) ve kayıt
     const out: CoachedOut['trades'] = [];
