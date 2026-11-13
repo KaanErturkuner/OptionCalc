@@ -2,6 +2,23 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-13 — Claude — SINYAL-FIRSAT Aşama 5 (Fırsat ekranı + tarama bağlama) ve K8/K9 kararları
+
+**Ne:**
+- **Kararlar (Kaan onayı):** K8 — 1:N = çıkış/giriş prim çarpanı (RR = (P_hedef − komisyon/100) / (P_giriş + komisyon/100)); 1:5 = 150 → 750. K9 — DURDU varsayılan kapalı (ayar olarak açılabilir). `src/lib/signals/rr.ts`, `src/lib/paper/account.ts`, `SINYAL-FIRSAT.md` §6.1/§7.4/§11.1 güncellendi.
+- **Aşama 5:** Fırsat sekmesi (`src/screens/Firsat.tsx`): hesap şeridi, sinyal tickerları (Radar'dan taşındı), açık pozisyon, onay kartları (skor dökümü, geri sayım, Onayla/Geç), özet/kayıt, İsabet, ayarlar.
+- **Tarama bağlama** (`src/ui/signalScan.ts`): skor (A1–H), RR (1:N), mod uygunluğu, boyut önizlemesi, kart yaşam döngüsü (süre, fiyat kayması, geçersizleşme, 30 dk soğuma, günde 10), pozisyon tick'i (T1/T2/T3/T6, 15:45, gece kararı, ertesi sabah gap), "Onayla" zinciri 60 sn'den eskiyse yeniden çeker.
+- **Saf çekirdek:** `src/lib/signals/opp.ts` (kart), `src/lib/paper/engine.ts` (pozisyon tick), `riskwatch.ts` (`TRIGGER_AD`), `overnight.ts` (IV yoksa taşıma yok), `approval.ts`.
+- Radar sekmesinden "Sinyal tickerları" kaldırıldı; artık Fırsat sekmesinde.
+
+**Dosyalar:** yeni `src/lib/signals/opp.ts`, `src/lib/paper/engine.ts`, `src/screens/Firsat.tsx`, `test/firsat.test.ts`, `docs/tasks/handoff/SINYAL-FIRSAT-asama-5.md`. Değişen `src/ui/signalScan.ts`, `src/ui/firsatStore.ts`, `src/app/index.tsx` (sekme, açık pozisyonda 1 dk tarama), `src/screens/Radar.tsx`, `src/lib/signals/rr.ts`, `src/lib/signals/riskwatch.ts`, `src/lib/paper/{account,types,overnight}.ts`, `test/paper.test.ts`, `test/setups.test.ts`, `package.json` (test betiği), `docs/TASKS.md` (#25 done, D10), `docs/tasks/SINYAL-FIRSAT.md`.
+
+**Doğrulama:** `npm run check` çıkış 0 (tsc, lint 0 uyarı, test, bt:selftest). `test/firsat.test.ts` kart (1:5 uygun, 1:4 AGRESIF_4, 1:3 veto, piyasa kapalı, DURDU, sermaye yetersiz) ve pozisyon adımı (hedef +300, stop −100, uyarı→çıkış, 15:45, 2DTE gece taşıma, ertesi sabah gap) için yeşil. **Ekran görsel olarak test edilmedi; tarama ağ üzerinde çalıştırılmadı.**
+
+**Açık / eksik:** T4, T5, T7 tetikleri bağlı değil; haber/makro/bilanço bayrakları `false`; sektör göreli güç yok; H (tarihsel) n=0 nötr; D'de dokunma olasılığı EM tabanlı yaklaşım; "Güvenilir" rozeti yok (Aşama 6); CSV yok; özsermaye eğrisi liste.
+
+**Sonraki:** Aşama 6 (backtest, Monte Carlo, iflas raporu). MarketData token'ı için Kaan onayı gerekir.
+
 ## 2026-11-13 — Claude — SINYAL-FIRSAT Aşama 4 (kâğıt hesap ve para yönetimi)
 
 **Ne:** §7 durum makinesi, kademe/boyut, maliyet, "Onayla" akışı, gece taşıma ve risk izleyici (T1–T7, iz süren stop) saf fonksiyon olarak yazıldı. Kaan'ın sayısal örnekleri birim testi yapıldı. Gerçek emir, aracı ve UI yok.
