@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_THRESHOLDS, DEFAULT_TICKERS, type FlowThresholds } from '../../src/lib/flow/model.ts';
+import { DEFAULT_MODEL as DEFAULT_COACH_MODEL } from '../../src/lib/coach/anthropic.ts';
 
 export interface Config {
   host: string; port: number; dbPath: string;
@@ -15,6 +16,7 @@ export interface Config {
   rateLimitPerMin: number; cacheSec: number;
   mdToken: string; appKey: string; expoAccessToken: string;
   finnhubKey: string; reportsEnabled: boolean;
+  anthropicKey: string; coachModel: string; coachFallbackModel: string; coachAuto: boolean; coachDailyCap: number; coachMinGapSec: number;
 }
 
 type Env = Record<string, string | undefined>;
@@ -61,6 +63,13 @@ export function loadConfig(env: Env = process.env): Config {
     expoAccessToken: secret(env, 'expo_access_token', env.FLOW_EXPO_TOKEN_FILE),
     finnhubKey: secret(env, 'finnhub_key', env.FLOW_FINNHUB_FILE),
     reportsEnabled: (env.REPORTS ?? 'on') !== 'off',
+    anthropicKey: secret(env, 'anthropic_key', env.FLOW_ANTHROPIC_FILE),
+    coachModel: (env.COACH_MODEL || DEFAULT_COACH_MODEL).trim(),
+    // Yedek model YALNIZ açıkça tanımlanırsa devreye girer (birincil 404/model reddi); her kullanımda loglanır ve kayda yazılır.
+    coachFallbackModel: (env.COACH_FALLBACK_MODEL || '').trim(),
+    coachAuto: (env.COACH_KARNE_AUTO ?? 'on') !== 'off',
+    coachDailyCap: num(env.COACH_DAILY_CAP, 20),
+    coachMinGapSec: num(env.COACH_MIN_GAP_SEC, 10),
   };
 }
 
@@ -72,5 +81,7 @@ export function publicConfig(c: Config) {
     flowDailyCap: c.flowDailyCap, proxyDailyCap: c.proxyDailyCap, creditReserve: c.creditReserve,
     hasMdToken: c.mdToken.length > 0, hasAppKey: c.appKey.length > 0, hasExpoAccessToken: c.expoAccessToken.length > 0,
     reportsEnabled: c.reportsEnabled, hasFinnhubKey: c.finnhubKey.length > 0,
+    hasAnthropicKey: c.anthropicKey.length > 0, coachModel: c.coachModel, coachFallbackModel: c.coachFallbackModel || null,
+    coachAuto: c.coachAuto, coachDailyCap: c.coachDailyCap,
   };
 }

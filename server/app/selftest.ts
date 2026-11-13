@@ -13,6 +13,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import type { FlowEvent } from '../../src/lib/flow/model.ts';
+import { Coach, CoachError } from './coach.ts';
+import { ANTHROPIC_URL } from '../../src/lib/coach/anthropic.ts';
 
 let fail = 0;
 const ok = (name: string, cond: boolean, info = '') => { if (!cond) fail++; console.log((cond ? 'OK  ' : 'FAIL') + ' ' + name + (info && !cond ? ' — ' + info : '')); };
@@ -95,6 +97,84 @@ async function main() {
   let blocked = false;
   try { await md.get('/stocks/quotes/SPY/', 'proxy'); } catch (e) { blocked = e instanceof BudgetError; }
   ok('bütçe: tokensız çağrı engellenir, ağa çıkılmaz', blocked && fetched === 0);
+
+  await coachSelftest();
+}
+
+/** 6) Koç uçtan uca (SAHTE Anthropic + Yahoo; ağ YOK, ücret YOK): çıkarma → bağlam → koçluk → karne, token kaydı, yedek model, sızıntı yok */
+async function coachSelftest() {
+  const KEY = 'sk-ant-SELFTEST-0000';
+  const DAY = '2026-11-13';
+  const NOW = Date.UTC(2026, 10, 14, 15, 0);   // Cumartesi 18:00 İst
+  const extractJson = { trades: [{ ticker: 'QQQ', side: 'CALL', strike: 600, expiry: DAY, qty: 2, entryTime: DAY + 'T18:00', entryPrice: 1.0, exitTime: DAY + 'T18:40', exitPrice: 4.4, status: 'kapali', confidence: 'yuksek' }], okunamadi: null };
+  const coachJson = { feedback: [{ index: 0, neYaptin: 'QQQ call aldın, 4,40\'ta çıktın.', dogruMu: 'evet', dogruAciklama: 'Hedef bölgesinde çıktın.', neden: 'Varsayım: kâr almak istedin.', birDahakine: 'Hedefi önceden not al.', cikis: 'dogru', etiketler: ['duygusal', 'uydurma'] }] };
+  const karneJson = { ozet: 'Tek işlem, hedefte çıkış.', guclu: ['Pencere içi giriş'], tekrarlayanHata: [], yarinOdak: 'Hedefi işlem öncesi yaz.' };
+  const bars: unknown[] = [], ts: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], v: number[] = [];
+  for (let t = Date.UTC(2026, 10, 13, 14, 30); t <= Date.UTC(2026, 10, 13, 21, 0); t += 60000) {
+    const i = ts.length; ts.push(t / 1000); const px = 600 + (i % 7) * 0.05;
+    o.push(px); h.push(px + 0.2); l.push(px - 0.2); c.push(px + 0.05); v.push(1000 + (i === 250 ? 9000 : 0));
+  }
+  const yahoo = { chart: { result: [{ timestamp: ts, indicators: { quote: [{ open: o, high: h, low: l, close: c, volume: v }] } }] } };
+  const calls: { model: string; key: string; system: string; maxTokens: number }[] = [];
+  let modelReject = false;
+  const fake = (async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url);
+    if (u === ANTHROPIC_URL) {
+      const body = JSON.parse(String(init?.body));
+      const key = String((init?.headers as Record<string, string>)['x-api-key']);
+      calls.push({ model: body.model, key, system: body.system, maxTokens: body.max_tokens });
+      if (modelReject && body.model === 'bad-model') return new Response(JSON.stringify({ type: 'error', error: { type: 'not_found_error', message: 'model: bad-model not found' } }), { status: 404 });
+      const payload = body.system.includes('GÖREV: Her işlem') ? coachJson : body.system.includes('Midas') ? extractJson : karneJson;
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(payload) }], usage: { input_tokens: 100, output_tokens: 50 }, stop_reason: 'end_turn' }), { status: 200 });
+    }
+    if (u.startsWith('https://query1.finance.yahoo.com/')) return new Response(JSON.stringify(yahoo), { status: 200 });
+    return new Response('{}', { status: 404 });
+  }) as typeof fetch;
+
+  const logs: string[] = [];
+  const mkCfg = (over: Record<string, unknown> = {}) => ({ ...loadConfig({ FLOW_DB: ':memory:', CREDENTIALS_DIRECTORY: '/nonexistent' }), anthropicKey: KEY, coachModel: 'claude-haiku-5-5', coachFallbackModel: '', coachDailyCap: 20, coachMinGapSec: 10, ...over });
+  const png = 'iVBORw0KGgoAAAANSUhEUg==';
+  const store = new Store(':memory:');
+  const coach = new Coach({ cfg: mkCfg(), store, f: fake, now: () => NOW, log: m => logs.push(m) });
+  const r = await coach.coachImage({ image: png, mime: 'image/png', day: DAY });
+  ok('koç: işlem çıkarıldı (1)', r.trades.length === 1 && r.trades[0].trade.ticker === 'QQQ');
+  ok('koç: geri bildirim doğrulandı', r.trades[0].feedback?.cikis === 'dogru' && r.warning === null);
+  ok('koç: kurallar ve bağlam (duvar/akış yok → veri eksik listesi)', r.trades[0].rules.length >= 3 && r.trades[0].noData.some(x => x.includes('duvar')));
+  ok('koç: iki Haiku çağrısı, aynı model, anahtar başlıkta', calls.length === 2 && calls.every(x => x.model === 'claude-haiku-5-5' && x.key === KEY));
+  ok('koç: token kullanımı toplanır (2 × 150)', r.usage.inTok === 200 && r.usage.outTok === 100, JSON.stringify(r.usage));
+  ok('koç: token kaydı SQLite\'ta', store.coachUsageOn(DAY).calls === 2 && store.coachUsageOn(DAY).inTok === 200);
+  const dump = JSON.stringify(r) + logs.join('\n');
+  ok('koç: anahtar ne yanıtta ne logda', !dump.includes(KEY) && !dump.includes('SELFTEST'));
+  ok('koç: max_tokens sınırları (900 / 2000)', calls[0].maxTokens === 900 && calls[1].maxTokens === 2000);
+
+  // Hız sınırı: aynı anda ikinci istek 429
+  try { await coach.coachImage({ image: png, mime: 'image/png', day: DAY }); ok('koç: 10 sn içinde ikinci istek reddedilmeli', false); }
+  catch (e) { ok('koç: 10 sn içinde ikinci istek 429', e instanceof CoachError && e.status === 429); }
+  // Görüntü denetimi
+  try { await coach.coachImage({ image: png, mime: 'image/gif', day: DAY }); ok('koç: GIF reddedilmeli', false); }
+  catch (e) { ok('koç: GIF 400', e instanceof CoachError && e.status === 400); }
+
+  // Karne ve görünüm
+  const kr = await coach.karne(DAY);
+  ok('koç: karne üretildi ve kaydedildi', (kr.karne as { yarinOdak: string }).yarinOdak.length > 0 && store.coachKarneOn(DAY) != null);
+  ok('koç: GET görünümü işlem + karne', coach.view(DAY).trades.length === 1 && coach.view(DAY).karne != null);
+  try { await coach.karne('2026-11-01'); ok('koç: kayıtsız gün 404', false); }
+  catch (e) { ok('koç: kayıtsız gün 404', e instanceof CoachError && e.status === 404); }
+
+  // Yedek model: yalnız açıkça tanımlıysa, loglanır ve işaretlenir
+  modelReject = true;
+  const coach2 = new Coach({ cfg: mkCfg({ coachModel: 'bad-model', coachFallbackModel: 'claude-haiku-5-5' }), store: new Store(':memory:'), f: fake, now: () => NOW, log: m => logs.push(m) });
+  const fb = await coach2.coachImage({ image: png, mime: 'image/png', day: DAY });
+  ok('koç: yedek model devreye girer ve işaretlenir', fb.fallback === true && logs.some(l => l.includes('yedek')));
+  // Yedek tanımsızsa: açık hata, sessiz geçiş yok
+  const coach3 = new Coach({ cfg: mkCfg({ coachModel: 'bad-model' }), store: new Store(':memory:'), f: fake, now: () => NOW, log: m => logs.push(m) });
+  try { await coach3.coachImage({ image: png, mime: 'image/png', day: DAY }); ok('koç: yedeksiz model reddi hata vermeli', false); }
+  catch (e) { ok('koç: yedeksiz model reddi açık hata (sessiz geçiş yok)', e instanceof CoachError && /model reddedildi/.test(e.message) && !(e.message.includes(KEY))); }
+  // Anahtar yoksa: 503
+  const coach4 = new Coach({ cfg: mkCfg({ anthropicKey: '' }), store: new Store(':memory:'), f: fake, now: () => NOW, log: m => logs.push(m) });
+  try { await coach4.coachImage({ image: png, mime: 'image/png', day: DAY }); ok('koç: anahtarsız 503', false); }
+  catch (e) { ok('koç: anahtarsız 503', e instanceof CoachError && e.status === 503); }
+  store.close();
 }
 
 main().then(() => {

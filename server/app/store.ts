@@ -33,6 +33,13 @@ export class Store {
       CREATE INDEX IF NOT EXISTS reports_ts ON reports (ts);
       CREATE TABLE IF NOT EXISTS snap (day TEXT NOT NULL, ticker TEXT NOT NULL, kind TEXT NOT NULL, ts INTEGER NOT NULL, data TEXT NOT NULL,
         PRIMARY KEY (day, ticker, kind));
+      CREATE TABLE IF NOT EXISTS coach_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL,
+        model TEXT NOT NULL, in_tok INTEGER NOT NULL, out_tok INTEGER NOT NULL, ok INTEGER NOT NULL, fallback INTEGER NOT NULL, ms INTEGER NOT NULL, err TEXT);
+      CREATE INDEX IF NOT EXISTS coach_calls_ts ON coach_calls (ts);
+      CREATE TABLE IF NOT EXISTS coach_trades (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, day TEXT NOT NULL, trade TEXT NOT NULL,
+        rules TEXT NOT NULL, feedback TEXT, context TEXT, model TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS coach_trades_day ON coach_trades (day);
+      CREATE TABLE IF NOT EXISTS coach_karne (day TEXT PRIMARY KEY, ts INTEGER NOT NULL, model TEXT NOT NULL, body TEXT NOT NULL);
     `);
   }
 
@@ -165,6 +172,47 @@ export class Store {
     return Number(this.db.prepare('DELETE FROM reports WHERE ts < ?').run(cutoffMs).changes);
   }
   /** Duvar anlık görüntüleri: 14 gün */
+  // ── koç (coach): çağrı kaydı (token), işlemler, karne ──
+  coachLog(r: { ts: number; day: string; kind: string; model: string; inTok: number; outTok: number; ok: boolean; fallback: boolean; ms: number; err: string | null }): void {
+    this.db.prepare('INSERT INTO coach_calls (ts, day, kind, model, in_tok, out_tok, ok, fallback, ms, err) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(r.ts, r.day, r.kind, r.model, r.inTok, r.outTok, r.ok ? 1 : 0, r.fallback ? 1 : 0, r.ms, r.err);
+  }
+  /** Hız sınırı için: son N ms'de 'extract' çağrı sayısı ve son çağrı zamanı */
+  coachRecent(sinceMs: number): { n: number; lastTs: number | null } {
+    const r = this.db.prepare("SELECT COUNT(*) AS n, MAX(ts) AS last FROM coach_calls WHERE kind = 'extract' AND ts >= ?").get(sinceMs) as { n: number; last: number | null };
+    return { n: Number(r.n), lastTs: r.last == null ? null : Number(r.last) };
+  }
+  /** Bir gün için toplam token kullanımı (kayıtlı çağrılar) */
+  coachUsageOn(day: string): { calls: number; inTok: number; outTok: number } {
+    const r = this.db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(in_tok), 0) AS i, COALESCE(SUM(out_tok), 0) AS o FROM coach_calls WHERE day = ?').get(day) as { n: number; i: number; o: number };
+    return { calls: Number(r.n), inTok: Number(r.i), outTok: Number(r.o) };
+  }
+  coachAddTrade(r: { ts: number; day: string; trade: unknown; rules: unknown; feedback: unknown; context: unknown; model: string }): number {
+    const x = this.db.prepare('INSERT INTO coach_trades (ts, day, trade, rules, feedback, context, model) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(r.ts, r.day, JSON.stringify(r.trade), JSON.stringify(r.rules), r.feedback == null ? null : JSON.stringify(r.feedback), r.context == null ? null : JSON.stringify(r.context), r.model);
+    return Number(x.lastInsertRowid);
+  }
+  coachTradesOn(day: string): { id: number; ts: number; day: string; trade: unknown; rules: unknown; feedback: unknown; context: unknown; model: string }[] {
+    return (this.db.prepare('SELECT id, ts, day, trade, rules, feedback, context, model FROM coach_trades WHERE day = ? ORDER BY ts, id').all(day) as
+      { id: number; ts: number; day: string; trade: string; rules: string; feedback: string | null; context: string | null; model: string }[])
+      .map(r => ({ id: Number(r.id), ts: Number(r.ts), day: r.day, trade: JSON.parse(r.trade), rules: JSON.parse(r.rules),
+        feedback: r.feedback == null ? null : JSON.parse(r.feedback), context: r.context == null ? null : JSON.parse(r.context), model: r.model }));
+  }
+  coachSaveKarne(day: string, ts: number, model: string, body: unknown): void {
+    this.db.prepare('INSERT INTO coach_karne (day, ts, model, body) VALUES (?, ?, ?, ?) ON CONFLICT (day) DO UPDATE SET ts = excluded.ts, model = excluded.model, body = excluded.body')
+      .run(day, ts, model, JSON.stringify(body));
+  }
+  coachKarneOn(day: string): { day: string; ts: number; model: string; body: unknown } | null {
+    const r = this.db.prepare('SELECT day, ts, model, body FROM coach_karne WHERE day = ?').get(day) as { day: string; ts: number; model: string; body: string } | undefined;
+    return r ? { day: r.day, ts: Number(r.ts), model: r.model, body: JSON.parse(r.body) } : null;
+  }
+  /** 30 günden eski koç kayıtları (çağrı, işlem, karne) silinir */
+  coachPrune(cutoffMs: number, cutoffDay: string): void {
+    this.db.prepare('DELETE FROM coach_calls WHERE ts < ?').run(cutoffMs);
+    this.db.prepare('DELETE FROM coach_trades WHERE day < ?').run(cutoffDay);
+    this.db.prepare('DELETE FROM coach_karne WHERE day < ?').run(cutoffDay);
+  }
+
   snapPrune(day: string): void { this.db.prepare('DELETE FROM snap WHERE day < ?').run(day); }
 
   close(): void { this.db.close(); }

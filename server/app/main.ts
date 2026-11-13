@@ -21,6 +21,7 @@ import { buildReport } from '../../src/lib/reports/text.ts';
 import { REPORT_KINDS, type ReportKind } from '../../src/lib/reports/schedule.ts';
 import { Reporter } from './reporter.ts';
 import { YahooClient, FinnhubClient } from './sources.ts';
+import { Coach } from './coach.ts';
 
 const log = (m: string) => console.log(`${new Date().toISOString()} ${m}`);
 const args = process.argv.slice(2);
@@ -85,12 +86,15 @@ async function serve(cfg: Config) {
   }, push, log, { onRows: (t, rows, nowMs, day) => reporter.recordRows(t, rows, nowMs, day) });
   const reportTimer = reporter.start();
   log(`raporlar: ${cfg.reportsEnabled ? 'açık' : 'kapalı'}, Finnhub anahtarı ${cfg.finnhubKey ? 'var' : 'yok'}`);
-  const handler = createHandler({ cfg, store, md, poller });
+  const coach = new Coach({ cfg, store });
+  const coachTimer = setInterval(() => { void coach.autoKarneTick(); }, 60000);
+  log(`koç: anahtar ${cfg.anthropicKey ? 'var' : 'yok'}, model ${cfg.coachModel}${cfg.coachFallbackModel ? ' (yedek ' + cfg.coachFallbackModel + ')' : ''}, oto-karne ${cfg.coachAuto ? 'açık' : 'kapalı'}`);
+  const handler = createHandler({ cfg, store, md, poller, coach });
   const server = createServer((req, res) => { void handler(req, res); });
   server.listen(cfg.port, cfg.host, () => log(`dinleniyor ${cfg.host}:${cfg.port}`));
   const timer = poller.start();
   log(`tarayıcı: ${cfg.pollEnabled ? 'açık' : 'kapalı'}, ${cfg.intervalMin} dk, ${cfg.tickers.join(' ')}`);
-  const stop = () => { clearInterval(timer); clearInterval(reportTimer); server.close(); store.close(); log('kapanıyor'); process.exit(0); };
+  const stop = () => { clearInterval(timer); clearInterval(reportTimer); clearInterval(coachTimer); server.close(); store.close(); log('kapanıyor'); process.exit(0); };
   process.on('SIGTERM', stop); process.on('SIGINT', stop);
 }
 

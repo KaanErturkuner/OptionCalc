@@ -9,6 +9,9 @@
  *  GET  /reports?limit=         — (anahtar) son raporlar, yeni → eski, tam metin (en çok 50, varsayılan 10)
  *  GET  /reports/<id>           — (anahtar) tek rapor
  *  GET  /api/md/<yol>?<sorgu>   — (anahtar) MarketData proxy'si; yalnız src/lib/flow/proxy.ts izinli listesi
+ *  POST /coach {image,mime,day?} — (anahtar) ekran görüntüsü → işlem çıkarma + koçluk (Haiku; 4 MB; 20/gün, 10 sn)
+ *  GET  /coach?day=              — (anahtar) günün işlemleri, geri bildirimleri ve karnesi
+ *  POST /coach/karne?day=        — (anahtar) günün karnesini üret (Haiku)
  * Anahtar: başlık x-app-key (sabit zamanlı karşılaştırma). Anahtar/token asla loglanmaz.
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -23,10 +26,12 @@ import type { Store } from './store.ts';
 import { BudgetError, creditDay, type MdClient } from './md.ts';
 import type { Poller } from './poller.ts';
 import { errText } from './poller.ts';
+import { Coach, CoachError } from './coach.ts';
 
-export interface Deps { cfg: Config; store: Store; md: MdClient; poller: Poller; now?: () => number }
+export interface Deps { cfg: Config; store: Store; md: MdClient; poller: Poller; now?: () => number; coach?: Coach }
 
 const MAX_BODY = 4096;
+const MAX_COACH_BODY = 6 * 1024 * 1024;   // base64 (4 MB görüntü ≈ 5,6 MB) + JSON
 const MAX_PUSH_TOKENS = 50;
 
 /** Sabit zamanlı anahtar karşılaştırması (özet üzerinden: uzunluk sızıntısı yok) */
@@ -61,9 +66,9 @@ export function createHandler(d: Deps) {
     res.writeHead(status, { 'Content-Type': typeof body === 'string' ? 'application/json' : 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra });
     res.end(text);
   };
-  const readBody = (req: IncomingMessage): Promise<string | null> => new Promise(resolve => {
+  const readBody = (req: IncomingMessage, max = MAX_BODY): Promise<string | null> => new Promise(resolve => {
     let size = 0; const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => { size += c.length; if (size > MAX_BODY) { resolve(null); req.destroy(); } else chunks.push(c); });
+    req.on('data', (c: Buffer) => { size += c.length; if (size > max) { resolve(null); req.destroy(); } else chunks.push(c); });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', () => resolve(null));
   });
@@ -115,12 +120,41 @@ export function createHandler(d: Deps) {
         return r ? send(res, 200, { report: r }) : send(res, 404, { error: 'rapor bulunamadı' });
       }
       if (method === 'GET' && path.startsWith(MD_PROXY_PREFIX + '/')) return mdProxy(req, res, url, t);
+      if (path === '/coach' || path === '/coach/karne') return coachRoute(req, res, url, method, path);
       return send(res, 404, { error: 'bulunamadı' });
     } catch (e) {
       console.error('istek hatası: ' + errText(e));
       if (!res.headersSent) send(res, 500, { error: 'sunucu hatası' });
     }
   };
+
+  async function coachRoute(req: IncomingMessage, res: ServerResponse, url: URL, method: string, path: string) {
+    if (!d.coach) return send(res, 503, { error: 'koç kapalı' });
+    try {
+      if (method === 'GET' && path === '/coach') {
+        const day = url.searchParams.get('day') ?? '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return send(res, 400, { error: 'day=YYYY-MM-DD gerekli' });
+        return send(res, 200, d.coach.view(day));
+      }
+      if (method === 'POST' && path === '/coach') {
+        const raw = await readBody(req, MAX_COACH_BODY);
+        if (raw == null) return send(res, 413, { error: 'görüntü 4 MB sınırını aşıyor' });
+        let body: { image?: unknown; mime?: unknown; day?: unknown };
+        try { body = JSON.parse(raw); } catch { return send(res, 400, { error: 'geçersiz JSON' }); }
+        return send(res, 200, await d.coach.coachImage(body ?? {}));
+      }
+      if (method === 'POST' && path === '/coach/karne') {
+        const day = url.searchParams.get('day') ?? '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return send(res, 400, { error: 'day=YYYY-MM-DD gerekli' });
+        return send(res, 200, await d.coach.karne(day));
+      }
+      return send(res, 405, { error: 'yöntem desteklenmiyor' });
+    } catch (e) {
+      if (e instanceof CoachError) return send(res, e.status, { error: e.message });
+      console.error('koç hatası: ' + errText(e));
+      return send(res, 502, { error: 'koç geçici olarak kullanılamıyor' });
+    }
+  }
 
   function health(res: ServerResponse, t: number) {
     const day = creditDay(t);
