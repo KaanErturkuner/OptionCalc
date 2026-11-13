@@ -4,6 +4,7 @@ import { getJSON } from './types.ts';
 import { mdCandles } from './marketdata.ts';
 import { etDate } from '../usmarket.ts';
 import type { DailyBar } from '../signals/qull/daily.ts';
+import { reportFail, reportOk } from '../freshness.ts';
 
 export function parseYahooChart(j: any): Bar[] {
   const r = j?.chart?.result?.[0]; if (!r) return [];
@@ -34,11 +35,18 @@ export async function yahooDailyBars(symbol: string, signal?: AbortSignal): Prom
  */
 export async function loadBars(symbol: string, mdKey?: string, signal?: AbortSignal, now = Date.now()): Promise<{ bars: Bar[]; source: string; credits: number }> {
   let yErr: unknown = null;
-  try { const b = await yahooBars(symbol, signal); if (b.length) return { bars: b, source: 'Yahoo', credits: 0 }; } catch (e) { yErr = e; }
-  if (mdKey) {
-    const { bars: b, credits } = await mdCandles(symbol, mdKey, etDate(now), signal);
-    if (b.length) return { bars: b, source: now - b[b.length - 1].t > 5 * 60000 ? 'MarketData (gecikmeli)' : 'MarketData', credits };
-  }
+  try {
+    const b = await yahooBars(symbol, signal);
+    if (b.length) { reportOk('quotes', { provider: 'yahoo' }); return { bars: b, source: 'Yahoo', credits: 0 }; }
+  } catch (e) { yErr = e; }
+  try {
+    if (mdKey) {
+      const { bars: b, credits } = await mdCandles(symbol, mdKey, etDate(now), signal);
+      if (b.length) { reportOk('quotes', { provider: 'marketdata' }); return { bars: b, source: now - b[b.length - 1].t > 5 * 60000 ? 'MarketData (gecikmeli)' : 'MarketData', credits }; }
+    }
+  } catch (e) { yErr = e; }
+  if (signal?.aborted) { if (yErr) throw yErr; return { bars: [], source: 'Yahoo', credits: 0 }; }
+  reportFail('quotes', yErr ?? 'Bar verisi boş', { provider: mdKey ? 'marketdata' : 'yahoo' });
   if (yErr) throw yErr;
   return { bars: [], source: 'Yahoo', credits: 0 };
 }

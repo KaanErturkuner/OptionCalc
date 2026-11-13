@@ -102,3 +102,24 @@ export function marketOpen(now = Date.now()): boolean {
   const d = etDate(now); if (!isTradingDay(d)) return false;
   return now >= closeMs(d) - 6.5 * 3600000 && now < closeMs(d);
 }
+
+/* Tazelik göstergesi için: erken kapanış (NYSE 13:00 ET) — closeMs / marketOpen / backtest bunu KULLANMAZ */
+/** NYSE erken kapanış günleri: Şükran Günü ertesi Cuma, 3 Temmuz, 24 Aralık (yalnız işlem günüyse) */
+export function isEarlyCloseDay(s: string): boolean {
+  if (!isTradingDay(s)) return false;
+  const y = +s.slice(0, 4), m = +s.slice(5, 7), d = +s.slice(8, 10);
+  if (m === 7 && d === 3) return true;
+  if (m === 12 && d === 24) return true;
+  return s === addDaysStr(nthWeekday(y, 11, 4, 4), 1);
+}
+/** Gün için seans kapanışı (UTC ms): 16:00 ET, erken kapanış günü 13:00 ET; işlem günü değilse null */
+export function sessionCloseMs(s: string): number | null {
+  if (!isTradingDay(s)) return null;
+  return etTime(s, isEarlyCloseDay(s) ? 13 : 16, 0);
+}
+/** Şu an normal seans içinde mi (09:30 ET – kapanış, erken kapanış dahil). marketOpen'dan bağımsız. */
+export function isSessionOpenNow(now: number): boolean {
+  const d = etDate(now), close = sessionCloseMs(d);
+  if (close == null) return false;
+  return now >= etTime(d, 9, 30) && now < close;
+}

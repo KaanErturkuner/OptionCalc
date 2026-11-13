@@ -5,6 +5,7 @@ import { Btn, Card, Chip, Seg, TextField, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import { radar, useRadar } from '@/ui/radarStore';
 import { runRadarScan } from '@/ui/radarScan';
+import { FreshnessPill } from '@/ui/FreshnessPill';
 import { DIR_LABEL, inEntryWindowIst } from '@/lib/radar/text';
 import { summarize, type Scored } from '@/lib/radar/track';
 import type { Alert } from '@/lib/radar/engine';
@@ -59,6 +60,7 @@ export default function Radar({ onOpenCalc }: { onOpenCalc: () => void }) {
           <Text style={{ color: C.muted, fontSize: 12 }}>
             {D.lastScan ? `Son tarama ${istHM(D.lastScan)} İstanbul` : 'Henüz tarama yok'} · veri gecikmeli olabilir
           </Text>
+          <View style={{ marginTop: 6 }}><FreshnessPill /></View>
         </View>
         <Btn label={busy ? 'Taranıyor…' : 'Şimdi tara'} onPress={scan} kind="primary" />
       </View>

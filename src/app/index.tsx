@@ -14,6 +14,7 @@ import { runRadarScan } from '@/ui/radarScan';
 import { firsat } from '@/ui/firsatStore';
 import { runSignalScan } from '@/ui/signalScan';
 import { marketOpen } from '@/lib/usmarket';
+import { nextRefresh, setExpected } from '@/lib/freshness';
 
 type Tab = 'calc' | 'radar' | 'firsat' | 'odte' | 'journal';
 const TABS: [Tab, string, string][] = [['calc', '∑', 'Hesapla'], ['radar', '◎', 'Radar'], ['firsat', '◆', 'Fırsat'], ['odte', '⚡', '0DTE'], ['journal', '☰', 'Geçmiş']];
@@ -36,10 +37,25 @@ export default function Home() {
     const sub = AppState.addEventListener('change', s => { if (s === 'active') { tick(); syncBackgroundTask().catch(() => {}); } });
     return () => { clearInterval(id); sub.remove(); };
   }, []);
+  // Tazelik göstergesi: beklenen tarama aralıkları (sahip başına; etkin = en kısa). Ayar değişimi ≤ 60 sn'de yansır.
+  useEffect(() => {
+    const sync = () => {
+      const r = radar.get().settings.auto, f = firsat.get();
+      setExpected('news', r ? RADAR_EVERY_MS : null, 'radar');
+      setExpected('quotes', r ? RADAR_EVERY_MS : null, 'radar');
+      setExpected('quotes', f.settings.tickers.length ? f.settings.intervalMin * 60000 : null, 'firsat');
+    };
+    sync();
+    const id = setInterval(sync, 60000);
+    return () => clearInterval(id);
+  }, []);
   // Radar: seans içinde 5 dk'da bir tara (ayarlardan kapatılabilir)
   useEffect(() => {
     const id = setInterval(() => {
-      if (AppState.currentState === 'active' && marketOpen() && radar.get().settings.auto) runRadarScan().catch(() => {});
+      if (AppState.currentState === 'active' && marketOpen() && radar.get().settings.auto) {
+        nextRefresh('news', Date.now() + RADAR_EVERY_MS);
+        runRadarScan().catch(() => {});
+      }
     }, RADAR_EVERY_MS);
     return () => clearInterval(id);
   }, []);
@@ -50,7 +66,10 @@ export default function Home() {
       // Açık kâğıt pozisyon varken risk izleyicisi için her dakika; değilse ayarlanan aralık
       const every = f.paper?.position ? 1 : f.settings.intervalMin;
       const due = !f.lastScan || Date.now() - f.lastScan >= every * 60000;
-      if (AppState.currentState === 'active' && marketOpen() && f.settings.tickers.length && due) runSignalScan().catch(() => {});
+      if (AppState.currentState === 'active' && marketOpen() && f.settings.tickers.length && due) {
+        nextRefresh('quotes', Date.now() + every * 60000);
+        runSignalScan().catch(() => {});
+      }
     }, 60000);
     return () => clearInterval(id);
   }, []);

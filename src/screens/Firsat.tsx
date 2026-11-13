@@ -1,3 +1,4 @@
+import { FreshnessPill } from '@/ui/FreshnessPill';
 import { useEffect, useState } from 'react';
 import { ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -118,6 +119,7 @@ export default function Firsat() {
       <View>
         <Text style={{ color: C.text, fontSize: 22, fontWeight: '800' }}>Fırsat</Text>
         <Text style={{ color: C.muted, fontSize: 12 }}>Kâğıt işlem simülasyonu. Yatırım tavsiyesi değildir.</Text>
+        <View style={{ marginTop: 6 }}><FreshnessPill /></View>
       </View>
 
       {/* 1) Hesap şeridi */}
