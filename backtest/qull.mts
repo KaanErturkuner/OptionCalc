@@ -228,6 +228,10 @@ const report = { generated: new Date().toISOString(), window: { start: START, en
   runs: runs.map(r => ({ group: r.group, id: r.id, folds: r.folds, is: r.is.length, oos: r.oos.length, oos15: r.oos15.length })) };
 fs.mkdirSync(outDir, { recursive: true });
 fs.writeFileSync(path.join(outDir, 'report.json'), JSON.stringify(report, null, 1));
+// İşlem dökümü (tekrarlanabilirlik ve denetim): IS ve OOS, her işlem ayrı satır
+const dump = (set: 'is' | 'oos') => runs.flatMap(r => r[set].map(t => { const p = toPath(t); return { group: r.group, setup: r.id.replace('qull-', '').toUpperCase(), set,
+  ticker: t.ticker, D: t.D, m: t.m, dir: t.dir, fill: +p.fill.toFixed(4), R: +t.R.toFixed(4), hit1_5: !!t.hit[1.5], hit2: !!t.hit[2], hit5: !!t.hit[5], stopped: t.stopped, why: t.why, note: (t as any).note }; }));
+fs.writeFileSync(path.join(outDir, 'trades.json'), JSON.stringify([...dump('is'), ...dump('oos')], null, 1));
 
 const md: string[] = [];
 md.push('# Qullamaggie tabloları (otomatik)', '', `Pencere: ${START} → ${END} · maliyet: $${costs.fee}/kontrat/yön, kayma $${costs.slip}, spread ×${costs.spreadMult} · walk-forward ${folds} kat, ${nS} parametre seti, ilk %40 seçim · MC ${paths} yol · RS63 ilk hazır gün (SPY): ${rsReadyDay ?? '—'}`, '');

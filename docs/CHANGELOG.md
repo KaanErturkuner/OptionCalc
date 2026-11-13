@@ -2,6 +2,28 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-13 — Claude — [claude] QULLAMAGGIE: Q1/Q1S/Q2/Q3 setupları, Fırsat ayarları, çevrimdışı backtest (Kaan onayı yok)
+
+**Ne:**
+- **Etiket:** tüm Q kuralları "Qullamaggie uyarlaması — Kaan onayı yok". WEIGHTS değişmedi. Q setupları kâğıda uygun değil (`Q_PAPER_ELIGIBLE` boş); Q kartları görünür, Onayla yok.
+- **Günlük bağlam** (`src/lib/signals/qull/daily.ts`): EMA, ATR%, RS21/63 (SPY), daralma, yakın tepe/dip, uzama, Q-kalite (bilgi amaçlı).
+- **Setuplar** (`setups/q1-orh.ts`, `q2-ep.ts`, `q3-parabolik.ts`, `q-common.ts`): kırılım tetiği ızgara-bağımsız — OR dışındaki ilk kapanış son 5 dk içinde, hacim kırılım barında. İlk sürümdeki bar-bazlı kural (önceki bar içeride) kırılımların ~1/5'ini yakalıyordu; backtest'te Q1 neredeyse sinyal üretmiyordu. Düzeltildi, testli.
+- **UI/ayar** (`src/screens/Firsat.tsx`, `src/ui/signalScan.ts`, `firsatStore.ts`): Q rozeti, Q-kalite satırı, Q1/Q1S/Q2 açık, Q3 kapalı; LOD/HOD ve 5 dk EMA10 çıkışları varsayılan kapalı (`src/lib/signals/qull/exits.ts`, paper `qExit`). Günlük Yahoo barları (1d, 6 ay, ticker başına günde bir kez, AsyncStorage). Firsat şema 3 (`migrateSettings` yalnız şema<2'de DURDU açar — `test/paper.test.ts` ile uyumlu).
+- **Backtest:** `src/lib/odte/strategies/qull.ts` (qull-q1/q1s/q2/q3), `backtest/qull.mts`, `backtest/tables-common.mts` (firsat.mts ortak yardımcılarına geçti; duman koşusu çalıştı).
+- **Rapor:** `docs/reports/qullamaggie-backtest.md`.
+
+**Dosyalar:** `src/lib/signals/{qull/*,setups/*,types.ts,opp.ts}`, `src/lib/odte/strategies/{qull,index,types}.ts`, `src/lib/paper/{engine,account}.ts`, `src/lib/market/bars.ts`, `src/ui/{firsatStore,signalScan}.ts`, `src/screens/Firsat.tsx`, `backtest/{qull,tables-common,firsat,bt,engine}.mts`, `test/qull.test.ts` (npm test'e eklendi), `docs/{TASKS,reports/qullamaggie-backtest}.md`.
+
+**Doğrulama:** `npm run check` geçti. Backtest çevrimdışı: `unset MARKETDATA_TOKEN; BT_OFFLINE=1 BT_START=2025-11-14 BT_END=2026-11-11 BT_FEE=1.5 node backtest/qull.mts --n 60 --folds 5 --paths 10000` (76 sn). MarketData'ya bağlanılmadı.
+
+**Sonuç:** hiçbir setup × ticker × grup kriteri geçmedi (hepsi YETERSİZ VERİ). OOS'taki 13 işlemin hepsi kayıp; Q1 OOS'ta hiç sinyal yok. Huni: yapısal günlük koşul (Q1) 1484 hisse-günün 28'inde. RS63 yüzünden 2026-02-04'e kadar Q1/Q1S yok (veri 2025-11-03'ten başlıyor).
+
+**Açık / Kaan'a sorular:**
+- Q-kalite skora katılsın mı; LOD/HOD ve EMA10 çıkışları backtest'e eklensin mi (şu an ölçülmüyor)?
+- MU/INTC sinyal listesine eklensin mi? (Uygulama listesi değişmedi.)
+- 2025-11 öncesi günlük D-mumu çekimi (RS63 erken hazır olsun) için MarketData onayı.
+- Backtest'te Q3 (IS n=2, OOS n=2) ve MC yorumu: küçük havuzda MC bilgi vermiyor (rapor §Monte Carlo).
+
 ## 2026-11-13 — Claude — [claude] SINYAL-FIRSAT Aşama 6 tamamlandı (çevrimdışı backtest, D13)
 **Ne:**
 - **D13 (Kaan kararı, TASKS):** (1) 1:5 brüt ölçülür, komisyon hariç; komisyon yalnız P&L'de. (2) 4 kazanç → 1:2 modunda 2 kayıp → güvenli; güvenli modda 2 kayıp daha → o gün dur; mevcut davranış, `test/paper-path.test.ts` D13(2) testiyle doğrulandı. (3) NVDA bilanço: Finnhub anahtarı yalnız ortam değişkeni/uygulama ayarı; kodda ve çıktıda yok.
