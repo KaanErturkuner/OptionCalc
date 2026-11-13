@@ -1,5 +1,32 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — [grok] koç: saat dilimi hatası (ET→İstanbul +7 sa kayması) düzeltmesi
+
+**Ne:** Canlı testte (QQQ 680P 0DTE, alış 2,44 / satış 3,53) Midas'ın "Gerçekleşme tarihi 13 Kasım 2026, 18:05:24" satırı model
+tarafından `2026-11-14T01:05` yazıldı (+7 sa). Alış (17:57) doğruydu. Midas saatleri zaten İstanbul yerelidir; model ET→İstanbul
+"çevirisi" yapmıştı. Düzeltmeler: (1) çıkarma isteminde ve `record_fills` şemasında açık kural: saat İstanbul'dur, aynen kopyala, saniyeyi at,
+ASLA saat dilimi çevirme; "Gerçekleşme tarihi" > "Emir tarihi". (2) Yeni saf denetim `src/lib/coach/sanity.ts` (`checkFillTime`): dolum
+İstanbul seans penceresinde (16:30 → ertesi gün 00:15; sabit İstanbul saati, DST gerekmez) ve 0DTE'de vade gününde olmalı; geçersiz ve
+zaman tam −7/−8/+7/+8 saat kaymışsa ve düzeltilmiş zaman geçerliyse düzeltilir + Türkçe uyarı ("saat dilimi düzeltildi: 2026-11-14 01:05 →
+2026-11-13 18:05 (-7 sa)"); düzeltilemiyorsa zaman değişmez, uyarı verilir. Denetim eşleştirmeden önce, kayıttan önce çalışır; uyarılar
+yükleme yanıtının `warnings` ve dolumun `warn` alanında, önbellekli yüklemelerde de döner. (3) Birden çok düzeltme geçerliyse ilki (−7,
+gözlenen model hatası) alınır, alternatif uyarıda yazılır. (4) Canlı testin verisi: Koç tabloları sıfırlandı (aşağıda).
+
+**Dosyalar:** `src/lib/coach/sanity.ts` (yeni), `src/lib/coach/prompt.ts` (`EXTRACT_SYSTEM`, `EXTRACT_TOOL`, `extractUserText`),
+`server/app/coach.ts` (`coachImage`: denetim + uyarılar), `server/app/selftest.ts` (+2 öz-test: +7 kayması), `test/coach-time.test.ts`
+(yeni, 17 test), `package.json` (test zinciri).
+
+**Veri temizliği (droplet, 2026-11-14):** yedek `/var/lib/optioncalc-flow/flow.db.bak-20261113-234046` (VACUUM INTO, ocflow,
+644). Silinen (gün 2026-11-13 + bu görüntülerin dolumları): coach_fills 2 (biri 2026-11-14 kayıtlı — yanlış 01:05 satırı, aynı görüntü
+önbelleğiyle silindi), coach_shots 2, coach_reports 1, coach_karne 1, coach_calls 15. Sonra: tüm Koç tabloları 0. Hiçbir sır yazılmadı.
+
+**Doğrulama:** `npm run check` geçti (birim dâhil yeni `coach-time`, tsc, lint, bt:selftest, flow:selftest). Paralı Anthropic çağrısı YOK
+(öz-testte sahte istemci). Canlı yeniden yükleme yapılmadı; Kaan aynı iki görüntüyü yeniden yüklerse kayıt 18:05 olmalı.
+
+**Açık sorular / takip:** (a) Belirsiz kayma (−7 ve −8 ikisi de seans içinde, ör. 01:05 → 18:05 veya 17:05) için −7 seçilir; Kaan uyarıdaki
+alternatifi ekran görüntüsünden doğrulamalı. (b) Model yine saat çevirirse uyarı `saat dilimi düzeltildi` olarak görünür; sayısı izlenmeli.
+(c) Seans penceresi yalnız saat aralığıdır: 0DTE dışında geçerli vade günü kuralı ve tatiller `isTradingDay` ile denetlenir.
+
 ## 2026-11-14 — Claude — [grok] koç: dolum çıkarma sağlamlaştırma (JSON yok hatası)
 
 **Ne:** Canlı `POST /coach` (sentetik görüntü, 2026-11-13) `Model çıktısında JSON yok` döndü; sunucu hiçbir şey loglamadı. Kök neden

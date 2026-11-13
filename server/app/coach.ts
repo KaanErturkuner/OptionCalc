@@ -21,6 +21,7 @@ import { parseJsonLoose, parseModelJson, sampleText, validateCoach, validateFill
 import type { CoachDayView, CoachOpenView, CoachTradeView, Fill, Karne, TradeReport } from '../../src/lib/coach/types.ts';
 import { buildReport } from '../../src/lib/coach/report.ts';
 import { pairFills, type PairedTrade } from '../../src/lib/coach/fills.ts';
+import { checkFillTime } from '../../src/lib/coach/sanity.ts';
 import type { Config } from './config.ts';
 import type { Store } from './store.ts';
 import { errText } from './poller.ts';
@@ -126,7 +127,7 @@ export async function fetchBars1m(sym: string, f: Fetch = fetch): Promise<Bar[]>
 
 export interface UploadOut {
   day: string; duplicate: boolean; added: number;
-  fills: { id: number; t: string; tk: string; exp: string; k: number; cp: 'C' | 'P'; q: number; side: 'buy' | 'sell'; px: number; conf: string }[];
+  fills: { id: number; t: string; tk: string; exp: string; k: number; cp: 'C' | 'P'; q: number; side: 'buy' | 'sell'; px: number; conf: string; warn?: string | null }[];
   note: string | null; model: string; fallback: boolean;
   coached: number; pending: number; warnings: string[];
   usage: { inTok: number; outTok: number };
@@ -158,8 +159,9 @@ export class Coach {
     const prev = this.d.store.coachShotGet(hash);
     if (prev) {
       const pending = this.pendingCount(t);
-      return { day: prev.day, duplicate: true, added: 0, fills: prev.fills as UploadOut['fills'], note: prev.note, model: prev.model, fallback: false,
-        coached: 0, pending, warnings: [], usage: { inTok: 0, outTok: 0 } };
+      const fills = prev.fills as UploadOut['fills'];
+      return { day: prev.day, duplicate: true, added: 0, fills, note: prev.note, model: prev.model, fallback: false,
+        coached: 0, pending, warnings: fills.flatMap(f => (f.warn ? [f.warn] : [])), usage: { inTok: 0, outTok: 0 } };
     }
 
     // (1) Hız sınırı: son 24 saatte çıkarma çağrısı (kayan pencere) + iki yükleme arası asgari süre
@@ -179,9 +181,11 @@ export class Coach {
     }
 
     // (3) Dolumları kaydet (aynı dolum tekrar gelirse kimliği döner, yeni sayılmaz)
-    const stored = exV.value.fills.map(f => ({ f, r: this.d.store.coachFillInsert({ day: f.t.slice(0, 10), t: f.t, tk: f.tk, exp: f.exp, k: f.k, cp: f.cp, q: f.q, side: f.side, px: f.px, conf: f.conf, shot: hash }) }));
+    // Zaman sağlaması (eşleştirmeden ÖNCE): Midas saati İstanbul'dur; ±7/±8 sa kayma düzeltilir, uyarı eklenir.
+    const timed = exV.value.fills.map(f => { const c = checkFillTime(f.t, f.exp); return { f: { ...f, t: c.t }, warn: c.warn }; });
+    const stored = timed.map(({ f, warn }) => ({ f, warn, r: this.d.store.coachFillInsert({ day: f.t.slice(0, 10), t: f.t, tk: f.tk, exp: f.exp, k: f.k, cp: f.cp, q: f.q, side: f.side, px: f.px, conf: f.conf, shot: hash }) }));
     const added = stored.filter(x => x.r.added).length;
-    const fills: UploadOut['fills'] = stored.map(({ f, r }) => ({ id: r.id, t: f.t, tk: f.tk, exp: f.exp, k: f.k, cp: f.cp, q: f.q, side: f.side, px: f.px, conf: f.conf }));
+    const fills: UploadOut['fills'] = stored.map(({ f, r, warn }) => ({ id: r.id, t: f.t, tk: f.tk, exp: f.exp, k: f.k, cp: f.cp, q: f.q, side: f.side, px: f.px, conf: f.conf, warn }));
     this.d.store.coachShotPut({ hash, ts: t, day, model: ex.model, inTok: ex.inTok, outTok: ex.outTok, note: exV.value.note, fills });
 
     // (4) Eşleşen yeni işlemler için koçluk (en çok INLINE_COACH; kalanı /coach/process)
@@ -189,7 +193,7 @@ export class Coach {
     this.d.store.coachPrune(t - RETAIN_MS, etDate(t - RETAIN_MS));
     return {
       day, duplicate: false, added, fills, note: exV.value.note, model: ex.model, fallback: ex.fallback || pr.fallback,
-      coached: pr.done, pending: pr.pending, warnings: pr.errors,
+      coached: pr.done, pending: pr.pending, warnings: [...fills.flatMap(f => (f.warn ? [f.warn] : [])), ...pr.errors],
       usage: { inTok: ex.inTok + pr.inTok, outTok: ex.outTok + pr.outTok },
     };
   }

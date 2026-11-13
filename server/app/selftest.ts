@@ -220,6 +220,14 @@ async function coachSelftest() {
   // önbellek sınıra takılmaz
   ok('koç: önbellekli görüntü sınıra takılmaz', (await cap.coachImage({ image: img(10), mime: 'image/png', day: DAY })).duplicate === true);
 
+  // 8b) Zaman sağlaması: model +7 sa kaydırdı (01:05 ertesi gün) → kayıtta 18:05 ve Türkçe uyarı; eşleşme bu saatle yapılır
+  clock += 5000;
+  nextFills = [fill({ px: 1.5, t: '2026-11-14T01:05' })];
+  const tz = await coach.coachImage({ image: img(30), mime: 'image/png', day: DAY });
+  ok('koç: +7 sa kayması düzeltilir (01:05 → 2026-11-13T18:05) ve uyarı eklenir', tz.fills[0]?.t === DAY + 'T18:05' && (tz.fills[0]?.warn ?? '').includes('düzeltildi') && tz.warnings.some(w => w.includes('düzeltildi')), JSON.stringify(tz.fills));
+  const tzDup = await coach.coachImage({ image: img(30), mime: 'image/png', day: DAY });
+  ok('koç: önbellekli görüntü uyarıyı yeniden verir', tzDup.duplicate && tzDup.warnings.length === 1);
+
   // 9) Denetim: GIF reddi, boş dolum → 422, yedek model, anahtarsız 503, anahtar sızıntısı yok
   try { await coach.coachImage({ image: img(15), mime: 'image/gif', day: DAY }); ok('koç: GIF reddedilmeli', false); }
   catch (e) { ok('koç: GIF 400', e instanceof CoachError && e.status === 400); }

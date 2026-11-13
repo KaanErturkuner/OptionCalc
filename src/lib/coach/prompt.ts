@@ -18,7 +18,10 @@ GÖREV: Midas ekran görüntüsündeki opsiyon emir/dolum satırlarını çıkar
 Şema (YALNIZ bu JSON): {"fills":[{"tk":"QQQ","exp":"YYYY-MM-DD","k":600,"cp":"C"|"P","q":2,"side":"buy"|"sell","px":1.85,"t":"YYYY-MM-DDTHH:MM","conf":"yuksek"|"orta"|"dusuk"}],"note":null|"kısa not"}
 - side: alış/Açılış = "buy"; satış/Kapanış = "sell".
 - px: opsiyon primi (dolar), hisse fiyatı değil. k: strike. q: adet (pozitif tam sayı). cp: C=call, P=put.
-- t: İSTANBUL saati. Ekranda ET görünüyorsa İstanbul'a çevir (EDT +7 sa, EST +8 sa). Tarih yoksa işlem günü ipucunu kullan.
+- t: Midas'ta gösterilen tarih ve saat ZATEN İSTANBUL YEREL SAATİDİR. Tarih ve saati OLDUĞU GİBİ kopyala; saniyeyi at.
+  ASLA saat dilimi çevirme: ET/EDT/EST ekleme, +7 veya +8 saat ekleme/çıkarma YOK. Örnek: "Gerçekleşme tarihi 13 Kasım 2026, 18:05:24" → t "2026-11-13T18:05".
+  Bir satırda hem "Gerçekleşme tarihi" hem "Emir tarihi" varsa t için YALNIZ "Gerçekleşme tarihi"ni kullan (dolumun gerçekleştiği an). Yalnız "Emir tarihi" varsa onu kullan.
+  Tarih ekranda yoksa işlem günü ipucunu kullan.
 - Zorunlu bir alanı okuyamıyorsan o satırı ekleme; note'ta yaz. Satır yoksa fills [] ve note'ta açıkla. En fazla 6 satır.
 - Görüntüde hem giriş (alış/Açılış) hem çıkış (satış/Kapanış) satırı olabilir: HEPSİNİ ayrı dolum olarak ekle.
 - Sonucu YALNIZ record_fills aracıyla ver; aracın dışında metin yazma.`;
@@ -26,7 +29,7 @@ GÖREV: Midas ekran görüntüsündeki opsiyon emir/dolum satırlarını çıkar
 /** Çıkarma için zorunlu araç (tool_use): model şemaya uygun girdi üretir; metin ayrıştırmasına gerek kalmaz. */
 export const EXTRACT_TOOL: ToolDef = {
   name: 'record_fills',
-  description: 'Midas ekran görüntüsündeki opsiyon dolum satırlarını kaydet. Satır yoksa fills boş dizi, note açıklama.',
+  description: 'Midas ekran görüntüsündeki opsiyon dolum satırlarını kaydet. Satır yoksa fills boş dizi, note açıklama. Saatler Midas\'ta İstanbul saatidir: çevirme yapma; "Gerçekleşme tarihi" varsa onu, yoksa "Emir tarihi"ni kullan.',
   input_schema: {
     type: 'object',
     properties: {
@@ -42,7 +45,7 @@ export const EXTRACT_TOOL: ToolDef = {
             q: { type: 'integer', minimum: 1, description: 'Adet' },
             side: { type: 'string', enum: ['buy', 'sell'] },
             px: { type: 'number', description: 'Opsiyon primi (USD)' },
-            t: { type: 'string', description: 'İstanbul saati YYYY-MM-DDTHH:MM' },
+            t: { type: 'string', description: 'Dolum zamanı, YYYY-MM-DDTHH:MM. Midas\'taki tarih/saat aynen (zaten İstanbul saati; saat dilimi ÇEVİRME, +7/+8 ekleme). Önce "Gerçekleşme tarihi", yoksa "Emir tarihi". Örn. "Gerçekleşme tarihi 13 Kasım 2026, 18:05:24" → 2026-11-13T18:05' },
             conf: { type: 'string', enum: ['yuksek', 'orta', 'dusuk'] },
           },
           required: ['tk', 'exp', 'k', 'cp', 'q', 'side', 'px', 't'],
@@ -55,7 +58,7 @@ export const EXTRACT_TOOL: ToolDef = {
 };
 
 export function extractUserText(day: string): string {
-  return `İşlem günü ipucu (ET): ${day}. Dolumları şemaya göre JSON olarak çıkar.`;
+  return `İşlem günü ipucu (ET): ${day}. Dolumları şemaya göre JSON olarak çıkar. Saatler İstanbul saatidir; çevirme yapma.`;
 }
 
 export const COACH_SYSTEM = `${BASE}
