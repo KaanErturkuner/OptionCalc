@@ -6,6 +6,7 @@ import { oiWall } from './oiWall.ts';
 import { emBreach } from './emBreach.ts';
 import { confluence, confluenceV1 } from './confluence.ts';
 import { kaanMomentum0, kaanMomentum13, kaanMomentumRelaxed0, kaanMomentumRelaxed13 } from './kaanMomentum.ts';
+import { firsatStrategies } from './firsat.ts';
 
 export * from './types.ts';
 export { pickContract, pickStrike } from './util.ts';
@@ -19,5 +20,6 @@ export const STRATEGIES: Strategy<any>[] = [
   withTimeFilter(orbVwap, 15, 90, 'sabah'),          // 09:45–11:00 ET
   withTimeFilter(gammaRegime, 240, 345, 'ogleden-sonra'), // 13:30–15:15 ET
   kaanMomentum0, kaanMomentum13, kaanMomentumRelaxed0, kaanMomentumRelaxed13,
+  ...firsatStrategies,
 ];
 export const strategyById = (id: string) => STRATEGIES.find(s => s.id === id);
