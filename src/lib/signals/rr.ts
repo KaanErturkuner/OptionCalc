@@ -5,7 +5,7 @@ export const MIN_PER_YEAR = 252 * 390;   // işlem dakikası
 export const RATE = 0.04;
 export const COMMISSION = 1.5;            // kontrat başına, açılış ve kapanışta ayrı (Kaan 2026-11-13)
 export const SLIPPAGE = 0.01;
-export const PRIM_STOP_MAX = 0.67;        // Kaan kararı: prim stopu tavanı (D10/D12)
+export const PRIM_STOP_MAX = 0.67;        // Kaan kararı (D8): prim stopu tavanı
 export const TAU_STOP_MIN = 15;
 export const TAU_TARGET_MIN_MIN = 20;
 
