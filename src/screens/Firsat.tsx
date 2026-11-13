@@ -34,9 +34,9 @@ function Countdown({ card, now }: { card: OppCard; now: number }) {
   return <Text style={{ color: left > 0 ? C.warn : C.muted, fontSize: 13, fontWeight: '800' }}>{left > 0 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} kaldı` : 'süre doldu'}</Text>;
 }
 
-function OpportunityCard({ c, now, open, toggle, n }: { c: OppCard; now: number; open: boolean; toggle: () => void; n: number }) {
+function OpportunityCard({ c, now, open, toggle, n, locked }: { c: OppCard; now: number; open: boolean; toggle: () => void; n: number; locked: boolean }) {
   const [busy, setBusy] = useState(false);
-  const pending = c.state === 'bekliyor';
+  const pending = c.state === 'bekliyor' && !locked;
   const scoreCol = c.score >= 80 ? C.pos : c.score >= 65 ? C.blue : c.score >= 50 ? C.warn : C.muted;
   const act = async () => {
     setBusy(true);
@@ -71,7 +71,9 @@ function OpportunityCard({ c, now, open, toggle, n }: { c: OppCard; now: number;
           <Text style={{ color: C.muted, fontSize: 11 }}>{`Olasılık (dokunma, EM yaklaşımı): %${Math.round(c.pTouch * 100)} · kontrat ${c.bid.toFixed(2)} / ${c.ask.toFixed(2)}`}</Text>
         </View>
       ) : null}
-      {pending ? (
+      {c.state === 'bekliyor' && locked ? (
+        <Text style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>Açık kâğıt pozisyon varken yeni giriş yok (bilgi kartı).</Text>
+      ) : pending ? (
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
           <View style={{ flex: 1 }}><Btn label={busy ? 'Kontrol ediliyor…' : 'Onayla'} kind="primary" onPress={() => { if (!busy) act(); }} /></View>
           <View style={{ flex: 1 }}><Btn label="Geç" onPress={() => passCard(c.id)} /></View>
@@ -143,7 +145,7 @@ export default function Firsat() {
         ) : (
           <View style={{ gap: 10 }}>
             {cards.slice(0, 12).map(c => (
-              <OpportunityCard key={c.id} c={c} now={now} n={validationN(D.log, c)} open={openId === c.id} toggle={() => setOpenId(openId === c.id ? null : c.id)} />
+              <OpportunityCard key={c.id} c={c} now={now} n={validationN(D.log, c)} open={openId === c.id} toggle={() => setOpenId(openId === c.id ? null : c.id)} locked={!!pos} />
             ))}
           </View>
         )}

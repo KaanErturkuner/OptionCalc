@@ -59,7 +59,19 @@ export function tickPosition(acc0: PaperAccount, t: TickIn): TickResult {
     if (g.action === 'wait') flags = {};   // 09:45 öncesi: yalnız stop/hedef (T1–T7 devre dışı)
   }
 
-  // 2) 15:45 ET: 1–3 DTE gece kararı (0DTE zaten risk izleyicisinin zorunlu çıkışıyla kapanır).
+  // 2) Risk izleyici önce (hedef/stop/iz süren/risk/0DTE 15:45). 15:45'te hedef veya stop vurmuşsa gece taşınmaz.
+  const dec = evaluatePosition(p, { bid: t.bid, etMin: t.etMin, mode: acc.mode, flags });
+  if (dec.action === 'close') {
+    const r = dec.reason ?? 'stop';
+    const trig = dec.triggers.length ? ` (${dec.triggers.join(', ')})` : '';
+    return close({ ...acc, position: dec.pos }, t.bid, r, `${REASON_TEXT[r]}${r === 'risk' ? trig : ''}`);
+  }
+  p = dec.pos;
+  if (dec.action === 'warn') {
+    events.push({ kind: 'warn', text: `Başkan, ${dec.message ?? 'risk artıyor'}.` });
+  }
+
+  // 3) 15:45 ET: hâlâ açıksa 1–3 DTE gece kararı (0DTE yukarıda zorunlu çıkışla kapanır).
   if (p.dte >= 1 && t.etMin >= 945 && p.nightDay !== t.day) {
     const d = overnightDecision({
       pos: p, day: t.day, S: t.S, ivAtm: t.ivAtm, eventBeforeOpen: t.eventBeforeOpen,
@@ -74,15 +86,5 @@ export function tickPosition(acc0: PaperAccount, t: TickIn): TickResult {
     return close({ ...acc, position: p }, t.bid, 'gece-kapanis', `gece taşınamadı (${d.reasons.join(', ')})`);
   }
 
-  // 3) Risk izleyici (T1–T7, iz süren stop, stop/hedef, 15:45 zorunlu çıkış).
-  const dec = evaluatePosition(p, { bid: t.bid, etMin: t.etMin, mode: acc.mode, flags });
-  if (dec.action === 'close') {
-    const r = dec.reason ?? 'stop';
-    const trig = dec.triggers.length ? ` (${dec.triggers.join(', ')})` : '';
-    return close({ ...acc, position: dec.pos }, t.bid, r, `${REASON_TEXT[r]}${r === 'risk' ? trig : ''}`);
-  }
-  if (dec.action === 'warn') {
-    events.push({ kind: 'warn', text: `Başkan, ${dec.message ?? 'risk artıyor'}.` });
-  }
-  return { acc: { ...acc, position: dec.pos }, events };
+  return { acc: { ...acc, position: p }, events };
 }

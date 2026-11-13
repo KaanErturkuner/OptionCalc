@@ -74,7 +74,7 @@ export function signalModeFor(accMode: PaperMode, rr: number): SignalMode | null
 export function eligibility(accMode: PaperMode, rr: number, score: number): { ok: true; mode: SignalMode } | { ok: false; reason: string } {
   const mode = signalModeFor(accMode, rr);
   if (accMode === 'DURDU') return { ok: false, reason: 'bugünlük durdu' };
-  if (!mode) return { ok: false, reason: 'RR yetersiz (1:5 veya 1:4 yok)' };
+  if (!mode) return { ok: false, reason: accMode === 'AGRESIF' ? 'RR yetersiz (1:5 veya 1:4 yok)' : 'RR yetersiz (1:2 veya 1:1,5 yok)' };
   const minScore = MODE_RULES[mode].minScore;
   if (score < minScore) return { ok: false, reason: `skor ${score} < ${minScore}` };
   return { ok: true, mode };

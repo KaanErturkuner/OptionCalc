@@ -14,7 +14,7 @@ import { alignFor } from '@/lib/signals/align';
 import { allowedFor, runSetups } from '@/lib/signals/setups/index';
 import { scanStrikes, type Quote } from '@/lib/signals/strikes';
 import { etMinutes, sessionLeftMin, timeToExpiryMin, timeToExpiryYears, scaleEm } from '@/lib/signals/session';
-import { buildOpp, type Opp, type OppInput } from '@/lib/signals/opp';
+import { buildOpp, minRrFor, type Opp, type OppInput } from '@/lib/signals/opp';
 import { t1ReversalCandle, t2VwapLoss, t3RegimeFlip, t6Theta, modeTargetR, profitR, type TriggerId } from '@/lib/signals/riskwatch';
 import { gateCheck, gateRecord, type Sent } from '@/lib/signals/gate';
 import { appendLog, type SignalLog } from '@/lib/signals/log';
@@ -198,18 +198,21 @@ function logOf(c: Card, decision?: SignalLog['decision']): SignalLog {
 }
 
 /** Kart yaşam döngüsü: bekleyen kartların süresi/geçersizliği, yeni uygun adaylar (soğuma ve günlük kapı). */
-function refreshCards(scans: Scan[], now: number, ttlMin: number | null) {
+function refreshCards(scans: Scan[], now: number, ttlMin: number | null, accMode: PaperAccount['mode']) {
   const cards = firsat.get().cards.map(c => ({ ...c }));
   let sent: Sent[] = firsat.get().sent;
   const byT = new Map(scans.map(s => [s.ticker, s]));
+  const floorRR = minRrFor(accMode);
+  const floorScore = accMode === 'GUVENLI_ZARAR' ? MODE_RULES.GUVENLI_ZARAR.minScore
+    : accMode === 'GUVENLI_KAR' ? MODE_RULES.GUVENLI_KAR.minScore : MODE_RULES.AGRESIF.minScore;
   for (const c of cards) {
     if (c.state !== 'bekliyor') continue;
     const sc = byT.get(c.ticker);
     if (!sc) continue;
     const fresh = sc.cands.find(x => x.key === c.key);
-    const ms = MODE_RULES[c.mode ?? 'AGRESIF'];
+    // Geçersizlik tabanı hesap modunun tabanı (Agresif'te 1:4 hâlâ geçerli; kart etiketi AGRESIF diye 1:5'e kilitleme).
     const reason = expiryReason(sigOf(c), { now, spot: sc.S, etMin: sc.etMin, marketOpen: sc.leftMin > 0,
-      fresh: fresh ? { score: fresh.score, rr: fresh.rr, minScore: ms.minScore, minRR: ms.minRR } : null }, c.ttlMs);
+      fresh: fresh ? { score: fresh.score, rr: fresh.rr, minScore: floorScore, minRR: floorRR } : null }, c.ttlMs);
     if (reason) {
       c.state = 'suresi-doldu'; c.note = reason; c.decidedAt = now;
       logPut(logOf(c, 'süresi doldu'));
@@ -287,7 +290,7 @@ export async function runSignalScan(): Promise<number> {
       }
     }
     paper = tickPaper(paper, scans, now);
-    refreshCards(scans, now, ttl);
+    refreshCards(scans, now, ttl, paper.mode);
     firsat.setPaper(paper);
     firsat.setLastScan(now);
   } finally { running = false; }
@@ -302,17 +305,26 @@ export async function approveCard(id: string): Promise<string> {
   let paper = firsat.get().paper;
   if (!paper) return 'Hesap yok.';
   const ttl = firsat.get().settings.ttlMin;
-  let fresh: Opp | undefined, spot = NaN, etMin = 0, leftMin = 0;
+  let fresh: Opp | undefined, spot = NaN, etMin = etMinutes(now), leftMin = sessionLeftMin(now), scanOk = false;
   try {
     const sc = await scanOne(card.ticker, now, acctOf(paper, ttl));
     fresh = sc.cands.find(x => x.key === card.key);
-    spot = sc.S; etMin = sc.etMin; leftMin = sc.leftMin;
+    spot = sc.S; etMin = sc.etMin; leftMin = sc.leftMin; scanOk = true;
     firsat.setStatus(card.ticker, sc.status);
-  } catch { /* taze veri yok: süre/geçersizlik kuralları yine çalışır */ }
-  const ms = MODE_RULES[card.mode ?? 'AGRESIF'];
+  } catch { /* taze veri yok: piyasa saatini yerelde hesapla, taramasız geçersizleşme uygulama */ }
+  const floorRR = minRrFor(paper.mode);
+  const floorScore = paper.mode === 'GUVENLI_ZARAR' ? MODE_RULES.GUVENLI_ZARAR.minScore
+    : paper.mode === 'GUVENLI_KAR' ? MODE_RULES.GUVENLI_KAR.minScore : MODE_RULES.AGRESIF.minScore;
+  // Tarama başarısızsa son bilinen skor/RR ile süre kuralları çalışır; "geçersizleşti" sayılmaz.
+  const freshForExpiry = fresh
+    ? { score: fresh.score, rr: fresh.rr, minScore: floorScore, minRR: floorRR }
+    : (!scanOk ? { score: card.freshScore ?? card.score, rr: card.freshRr ?? card.rr, minScore: floorScore, minRR: floorRR } : null);
   const expired = expiryReason(sigOf(card), { now, spot: Number.isFinite(spot) ? spot : card.spot0, etMin, marketOpen: leftMin > 0,
-    fresh: fresh ? { score: fresh.score, rr: fresh.rr, minScore: ms.minScore, minRR: ms.minRR } : null }, card.ttlMs);
-  const rep = fresh ? repriceOnApprove({ ask0: card.ask }, { ask: fresh.ask, rr: fresh.rr, minRR: ms.minRR }, paper.settings.slippage) : null;
+    fresh: freshForExpiry }, card.ttlMs);
+  const rep = fresh ? repriceOnApprove({ ask0: card.ask }, { ask: fresh.ask, rr: fresh.rr, minRR: floorRR }, paper.settings.slippage) : null;
+  if (!scanOk && !expired) {
+    return 'Başkan, taze fiyat alınamadı, tekrar dener misin? Kart duruyor.';
+  }
   const res = resolveApproval('bekliyor', 'onayla', expired, rep);
   let state = res.state;
   let note = res.reason ?? '';

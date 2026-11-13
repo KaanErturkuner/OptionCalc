@@ -7,7 +7,8 @@ import type { Sent } from '@/lib/signals/gate';
 import type { SignalLog } from '@/lib/signals/log';
 import type { Opp } from '@/lib/signals/opp';
 import type { ApprovalState } from '@/lib/paper/approval';
-import type { PaperAccount } from '@/lib/paper/types';
+import type { PaperAccount, Kademe } from '@/lib/paper/types';
+import { initAccount } from '@/lib/paper/account';
 
 const KEY = 'firsat-v1';
 export interface FirsatSettings {
@@ -59,7 +60,16 @@ async function doLoad() {
   if (loaded) return; loaded = true;
   try {
     const raw = await AsyncStorage.getItem(KEY);
-    if (raw) { const j = JSON.parse(raw); data = { ...EMPTY, ...j, settings: { ...DEF_FIRSAT, ...(j.settings ?? {}) } }; }
+    if (raw) {
+      const j = JSON.parse(raw);
+      data = { ...EMPTY, ...j, settings: { ...DEF_FIRSAT, ...(j.settings ?? {}) } };
+      if (j.paper) {
+        const start = Number(j.paper.settings?.startCapital ?? j.paper.capital) || 300;
+        const base = initAccount(start, {}, typeof j.paper.day === 'string' ? j.paper.day : '');
+        const k: Kademe = j.paper.kademe === 0.3 || j.paper.kademe === 0.4 || j.paper.kademe === 0.5 ? j.paper.kademe : 0.5;
+        data.paper = { ...base, ...j.paper, kademe: k, settings: { ...base.settings, ...(j.paper.settings ?? {}) } };
+      }
+    }
   } catch { /* boş */ }
   subs.forEach(f => f());
 }

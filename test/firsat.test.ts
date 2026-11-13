@@ -130,6 +130,17 @@ const tk = (over: Partial<TickIn> = {}): TickIn => ({ day: D, now: 1, etMin: 600
   const r = tickPosition(carried, tk({ day: '2026-11-16', etMin: 560, bid: 0.9, openUnd: 101, openBid: 0.9 }));
   ok('gap: 09:31 öncesi karar yok', r.acc.position !== null && r.events.length === 0);
 }
+{
+  // 15:45'te hedef veya stop, gece taşımanın önüne geçer
+  const acc = openAt(initAccount(300, NOCOST, D), { dte: 2, expiry: '2026-11-18', targetPrem: 3 });
+  const r = tickPosition(acc, tk({ etMin: 945, bid: 3 }));
+  ok('15:45 2DTE hedefte: taşınmaz, hedefle kapanır', r.acc.position === null && r.events[0]?.trade?.reason === 'hedef', JSON.stringify(r.events.map(e => e.kind + ':' + e.trade?.reason)));
+}
+{
+  const acc = openAt(initAccount(300, NOCOST, D), { dte: 2, expiry: '2026-11-18' });
+  const r = tickPosition(acc, tk({ etMin: 945, bid: 1 / 3 }));
+  ok('15:45 2DTE stopta: taşınmaz, stopla kapanır', r.acc.position === null && r.events[0]?.trade?.reason === 'stop', JSON.stringify(r.events.map(e => e.kind + ':' + e.trade?.reason)));
+}
 ok('outcome: hedef → hedef, stop/gap → stop, gece/zaman → zaman', outcomeOf('hedef') === 'hedef' && outcomeOf('gap') === 'stop' && outcomeOf('gece-kapanis') === 'zaman');
 ok('tetik adları Türkçe', TRIGGER_AD.T2 === 'VWAP kaybı');
 
