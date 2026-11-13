@@ -37,7 +37,8 @@ export interface RunOpts { source?: QuoteSource; costs?: Costs;
 
 export function dayInfo(d: Day, ratios?: number[]): DayInfo {
   const p0 = d.pts.find(p => p.F.em); const em = p0?.F.em?.move ?? null;
-  return { ticker: d.ticker, date: d.D, dte: d.dte, prevClose: d.SP ?? null, openPx: d.bars[0]?.o ?? NaN, em0: em != null ? em / Math.sqrt(1 + d.dte) : null, ratios };
+  return { ticker: d.ticker, date: d.D, dte: d.dte, prevClose: d.SP ?? null, openPx: d.bars[0]?.o ?? NaN, em0: em != null ? em / Math.sqrt(1 + d.dte) : null, ratios,
+    daily: d.qDaily, spyDaily: d.qSpy };
 }
 /** Günün OTM oynaklık oranı (oto k geçmişi için): max(yüksek − açılış, açılış − düşük) / EM0. Yalnız tamamlanmış gün. */
 export function dayRatio(d: Day): number {

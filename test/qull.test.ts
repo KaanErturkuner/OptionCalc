@@ -236,5 +236,18 @@ function ctxQ(bars: Bar[], over: Partial<SetupCtx> = {}): SetupCtx {
   ok('Q çıkış: EMA açık + tetik → iz süren stop nedeniyle kapanır', em.acc.position === null && em.events[0]?.trade?.reason === 'iz-suren-stop');
 }
 
+// Backtest sızıntısızlığı: gün i için yalnız D < i günlük barları kullanılır
+{
+  const { qdOf } = await import('../src/lib/odte/strategies/qull.ts');
+  const full = series(120, i => 100 + Math.sin(i / 5) * 5 + i * 0.1, 2);
+  const date = full[80].D;
+  const clean: any = { ticker: 'LEAK_A', date, dte: 0, prevClose: null, openPx: NaN, em0: 1, daily: full };
+  const tampered = full.map((b, i) => i >= 80 ? { ...b, c: 1e6, h: 1e6, l: 1, v: 1e9 } : b);
+  const dirty: any = { ticker: 'LEAK_B', date, dte: 0, prevClose: null, openPx: NaN, em0: 1, daily: tampered };
+  const a = qdOf(clean), b = qdOf(dirty);
+  ok('sızıntı: gelecek günler bozulsa da gün i’nin bağlamı aynı', a !== null && JSON.stringify(a) === JSON.stringify(b));
+  ok('sızıntı: geçmiş yetersizse (10 gün) null — gelecek veri kullanılmaz', qdOf({ ...clean, ticker: 'LEAK_C', date: full[10].D }) === null);
+}
+
 if (fail) { console.log(`\n${fail} test başarısız`); process.exit(1); }
 console.log('\nQullamaggie testleri tamam');

@@ -18,6 +18,7 @@ import { walkForward } from './wf.mts';
 import { defaultCosts, makeSource } from './sources.mts';
 import { loadPeers } from './peers.mts';
 import { START, END } from './common.mts';
+import { toPath, pct, f2, usd } from './tables-common.mts';
 import { firsatStrategies } from '../src/lib/odte/strategies/firsat.ts';
 import { replayTrades, runPathMc, rSummary, bootstrapMeanCiLo, rUnder, type PathTrade } from '../src/lib/paper/path.ts';
 import { backtestVerdict } from '../src/lib/signals/criteria.ts';
@@ -92,10 +93,6 @@ for (const [tk, ds] of gateDays) {
 }
 
 /* ——— 3) PathTrade dönüşümü, ticker × grup replay ——— */
-const toPath = (t: ETrade): PathTrade => ({ id: `${t.strat}|${t.ticker}|${t.D}|${t.m}`, ticker: t.ticker, dir: t.dir, dte: t.dte, D: t.D, entryT: t.entryT, exitT: t.exitT, fill: t.entry, R: t.R, hit: t.hit, stopped: t.stopped });
-const pct = (x: number) => Number.isFinite(x) ? (x * 100).toFixed(1) + '%' : '—';
-const f2 = (x: number) => Number.isFinite(x) ? x.toFixed(2) : '—';
-const usd = (x: number) => Number.isFinite(x) ? x.toFixed(0) + ' $' : '—';
 
 interface Row { group: string; ticker: string; n: number; win: number; avgR: number; pf: number; ciLo: number; spreadR: number; taken: number; busy: number; durdu: number; noCap: number; final: number; maxDd: number; ret: number; ruined: boolean }
 const rows: Row[] = [];
