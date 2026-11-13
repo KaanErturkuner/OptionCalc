@@ -101,30 +101,36 @@ async function main() {
   await coachSelftest();
 }
 
-/** 6) Koç uçtan uca (SAHTE Anthropic + Yahoo; ağ YOK, ücret YOK): çıkarma → bağlam → koçluk → karne, token kaydı, yedek model, sızıntı yok */
+/** 6) Koç uçtan uca (SAHTE Anthropic + Yahoo; ağ YOK, ücret YOK): dolum çıkarma → eşleştirme → koçluk → karne;
+ *    önbellek (aynı görüntü), sırasız yükleme, kısmi çıkış, hız sınırı (gap/daily), koçluk hatası ve kurtarma, anahtar sızıntısı */
 async function coachSelftest() {
   const KEY = 'sk-ant-SELFTEST-0000';
   const DAY = '2026-11-13';
-  const NOW = Date.UTC(2026, 10, 14, 15, 0);   // Cumartesi 18:00 İst
-  const extractJson = { trades: [{ ticker: 'QQQ', side: 'CALL', strike: 600, expiry: DAY, qty: 2, entryTime: DAY + 'T18:00', entryPrice: 1.0, exitTime: DAY + 'T18:40', exitPrice: 4.4, status: 'kapali', confidence: 'yuksek' }], okunamadi: null };
-  const coachJson = { feedback: [{ index: 0, neOldu: { oncesi: 'Giriş öncesi sakin.', sirasinda: 'Yükseliş sürdü.', sonrasi: 'Devam etti.' }, cikis: { karar: 'erken', neden: 'acele etmişsin, yön doğruydu ama erken çıktın' }, giris: { karar: 'iyi', neden: 'VWAP yakını, pencere içi' }, strike: { karar: 'uygun', neden: 'OTM uygun' }, kacanFirsatYorum: 'Tahmini opsiyon kazancı kaçtı.', birDahakine: ['Hedefi önceden yaz.', 'Stop kuralını koru.', 'Hacim dönüşünü bekle.'], karne: { disiplinCikis: 7, girisZamanlamasi: 9, strikeSecimi: 8, aciklama: 'Tek işlem.' } }] };
+  let clock = Date.UTC(2026, 10, 14, 15, 0);   // Cumartesi 18:00 İst (elle ilerletilir)
+  const fill = (o: Record<string, unknown>) => ({ tk: 'QQQ', exp: DAY, k: 600, cp: 'C', q: 2, side: 'buy', px: 1.0, t: DAY + 'T18:00', conf: 'yuksek', ...o });
+  const coachFeedback = { feedback: [{ index: 0, neOldu: { oncesi: 'Giriş öncesi sakin.', sirasinda: 'Yükseliş sürdü.', sonrasi: 'Devam etti.' }, cikis: { karar: 'erken', neden: 'acele etmişsin, yön doğruydu ama erken çıktın' }, giris: { karar: 'iyi', neden: 'VWAP yakını, pencere içi' }, strike: { karar: 'uygun', neden: 'OTM uygun' }, kacanFirsatYorum: 'Tahmini opsiyon kazancı kaçtı.', birDahakine: ['Hedefi önceden yaz.', 'Stop kuralını koru.', 'Hacim dönüşünü bekle.'], karne: { disiplinCikis: 7, girisZamanlamasi: 9, strikeSecimi: 8, aciklama: 'Tek işlem.' } }] };
   const karneJson = { ozet: 'Tek işlem, hedefte çıkış.', guclu: ['Pencere içi giriş'], tekrarlayanHata: [], yarinOdak: 'Hedefi işlem öncesi yaz.' };
+  // Sahte Haiku: çıkarma yanıtı sıradaki dolum listesi; koçluk yanıtı (bozulabilir); karne
+  let nextFills: unknown[] = [];
+  let coachBroken = false;
+  let modelReject = false;
+  const calls: { kind: string; model: string; key: string; maxTokens: number; images: number }[] = [];
   const bars: unknown[] = [], ts: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], v: number[] = [];
   for (let t = Date.UTC(2026, 10, 13, 14, 30); t <= Date.UTC(2026, 10, 13, 21, 0); t += 60000) {
     const i = ts.length; ts.push(t / 1000); const px = 600 + (i % 7) * 0.05;
     o.push(px); h.push(px + 0.2); l.push(px - 0.2); c.push(px + 0.05); v.push(1000 + (i === 250 ? 9000 : 0));
   }
   const yahoo = { chart: { result: [{ timestamp: ts, indicators: { quote: [{ open: o, high: h, low: l, close: c, volume: v }] } }] } };
-  const calls: { model: string; key: string; system: string; maxTokens: number }[] = [];
-  let modelReject = false;
   const fake = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     if (u === ANTHROPIC_URL) {
       const body = JSON.parse(String(init?.body));
       const key = String((init?.headers as Record<string, string>)['x-api-key']);
-      calls.push({ model: body.model, key, system: body.system, maxTokens: body.max_tokens });
+      const kind = body.system.includes('Midas') ? 'extract' : body.system.includes('GÖREV: Her işlem') ? 'coach' : 'karne';
+      calls.push({ kind, model: body.model, key, maxTokens: body.max_tokens, images: body.messages[0].content.filter((b: { type: string }) => b.type === 'image').length });
       if (modelReject && body.model === 'bad-model') return new Response(JSON.stringify({ type: 'error', error: { type: 'not_found_error', message: 'model: bad-model not found' } }), { status: 404 });
-      const payload = body.system.includes('GÖREV: Her işlem') ? coachJson : body.system.includes('Midas') ? extractJson : karneJson;
+      let payload: unknown = kind === 'extract' ? { fills: nextFills, note: null } : kind === 'coach' ? (coachBroken ? { oops: true } : coachFeedback) : karneJson;
+      if (kind === 'coach' && coachBroken) payload = { oops: true };
       return new Response(JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(payload) }], usage: { input_tokens: 100, output_tokens: 50 }, stop_reason: 'end_turn' }), { status: 200 });
     }
     if (u.startsWith('https://query1.finance.yahoo.com/')) return new Response(JSON.stringify(yahoo), { status: 200 });
@@ -132,49 +138,110 @@ async function coachSelftest() {
   }) as typeof fetch;
 
   const logs: string[] = [];
-  const mkCfg = (over: Record<string, unknown> = {}) => ({ ...loadConfig({ FLOW_DB: ':memory:', CREDENTIALS_DIRECTORY: '/nonexistent' }), anthropicKey: KEY, coachModel: 'claude-haiku-5-5', coachFallbackModel: '', coachDailyCap: 20, coachMinGapSec: 10, ...over });
-  const png = 'iVBORw0KGgoAAAANSUhEUg==';
+  const mkCfg = (over: Record<string, unknown> = {}) => ({ ...loadConfig({ FLOW_DB: ':memory:', CREDENTIALS_DIRECTORY: '/nonexistent' }), anthropicKey: KEY, coachModel: 'claude-haiku-5-5', coachFallbackModel: '', coachDailyCap: 100, coachMinGapSec: 2, ...over });
   const store = new Store(':memory:');
-  const coach = new Coach({ cfg: mkCfg(), store, f: fake, now: () => NOW, log: m => logs.push(m) });
-  const r = await coach.coachImage({ image: png, mime: 'image/png', day: DAY });
-  ok('koç: işlem çıkarıldı (1)', r.trades.length === 1 && r.trades[0].trade.ticker === 'QQQ');
-  ok('koç: rapor doğrulandı, net P/L kodda (674 = 680 − 6)', r.trades[0].report?.cikis.karar === 'erken' && r.trades[0].report?.header.netPnl === 674 && r.warning === null, JSON.stringify(r.trades[0].report?.header));
-  ok('koç: kurallar ve bağlam (duvar/akış yok → veri eksik listesi)', r.trades[0].rules.length >= 3 && r.trades[0].noData.some(x => x.includes('duvar')));
-  ok('koç: iki Haiku çağrısı, aynı model, anahtar başlıkta', calls.length === 2 && calls.every(x => x.model === 'claude-haiku-5-5' && x.key === KEY));
-  ok('koç: token kullanımı toplanır (2 × 150)', r.usage.inTok === 200 && r.usage.outTok === 100, JSON.stringify(r.usage));
-  ok('koç: token kaydı SQLite\'ta', store.coachUsageOn(DAY).calls === 2 && store.coachUsageOn(DAY).inTok === 200);
-  const dump = JSON.stringify(r) + logs.join('\n');
-  ok('koç: anahtar ne yanıtta ne logda', !dump.includes(KEY) && !dump.includes('SELFTEST'));
-  ok('koç: max_tokens sınırları (900 / 3500)', calls[0].maxTokens === 900 && calls[1].maxTokens === 3500);
-  ok('koç: çağrı logu durma nedenini (stop=) yazar', logs.some(m => m.includes('coach') && m.includes('stop=end_turn')), logs.join(' | '));
+  const coach = new Coach({ cfg: mkCfg(), store, f: fake, now: () => clock, log: m => logs.push(m) });
+  const kinds = (k: string) => calls.filter(x => x.kind === k).length;
+  const img = (n: number) => 'iVBORw0KGgoAAAANSUhEUg' + 'A'.repeat(n * 4) + '==';   // farklı görüntüler (PNG imzası + farklı kuyruk)
+  const up = async (b64: string, fills: unknown[]) => { nextFills = fills; clock += 5000; return coach.coachImage({ image: b64, mime: 'image/png', day: DAY }); };
 
-  // Hız sınırı: aynı anda ikinci istek 429
-  try { await coach.coachImage({ image: png, mime: 'image/png', day: DAY }); ok('koç: 10 sn içinde ikinci istek reddedilmeli', false); }
-  catch (e) { ok('koç: 10 sn içinde ikinci istek 429', e instanceof CoachError && e.status === 429); }
-  // Görüntü denetimi
-  try { await coach.coachImage({ image: png, mime: 'image/gif', day: DAY }); ok('koç: GIF reddedilmeli', false); }
-  catch (e) { ok('koç: GIF 400', e instanceof CoachError && e.status === 400); }
+  // 1) Açılış: tek dolum, eşleşme yok → koçluk yok, bekleyen 0 (açık pozisyon)
+  const r1 = await up(img(1), [fill({ px: 1.0, t: DAY + 'T18:00' })]);
+  ok('koç: dolum çıkarıldı ve kaydedildi (1 yeni)', r1.added === 1 && r1.fills.length === 1 && !r1.duplicate, JSON.stringify(r1.fills));
+  ok('koç: açılış tek başına → koçluk çağrısı yok', kinds('coach') === 0 && r1.coached === 0 && r1.pending === 0);
+  ok('koç: açık pozisyon görünümde', coach.view(DAY).open.length === 1 && coach.view(DAY).open[0].qty === 2);
 
-  // Karne ve görünüm
+  // 2) Aynı görüntü tekrar: önbellek (Haiku yok, sayaç yok)
+  const before = kinds('extract');
+  const r1b = await up(img(1), [fill({ px: 1.0, t: DAY + 'T18:00' })]);
+  ok('koç: aynı görüntü önbellekten (duplicate, Haiku yok)', r1b.duplicate === true && kinds('extract') === before && r1b.added === 0);
+  ok('koç: önbellek yanıtı önceki dolum kimliğini verir', r1b.fills[0]?.id === r1.fills[0].id);
+
+  // 3) Kapanış (ayrı ekran görüntüsü): eşleşir → bir koçluk çağrısı, rapor, net P/L kodda
+  const r2 = await up(img(2), [fill({ side: 'sell', px: 4.4, t: DAY + 'T18:40', conf: 'orta' })]);
+  ok('koç: kapanış eşleşti → 1 koçluk, bekleyen 0', r2.coached === 1 && r2.pending === 0 && kinds('coach') === 1, JSON.stringify({ c: r2.coached, p: r2.pending, w: r2.warnings }));
+  const v2 = coach.view(DAY);
+  const t2 = v2.trades[0];
+  ok('koç: görünümde tek işlem, rapor hazır', v2.trades.length === 1 && t2.status === 'hazir' && t2.report !== null && v2.open.length === 0, JSON.stringify(v2.trades.map(x => x.status)));
+  ok('koç: net P/L kodda (680 − 6 = 674)', t2.report?.header.netPnl === 674 && t2.report?.cikis.karar === 'erken', JSON.stringify(t2.report?.header));
+  ok('koç: koçluk çağrısı metin (görüntü bloğu yok)', calls.filter(x => x.kind === 'coach').every(x => x.images === 0));
+
+  // 4) Sırasız yükleme: önce satış (açığa satış gibi görünür), sonra alış (daha erken) → aynı eşleşme, koçluk 1 kez
+  const sOut = await up(img(3), [fill({ k: 605, side: 'sell', px: 3.0, q: 1, t: DAY + 'T19:00' })]);
+  ok('koç: sırasız — önce satış (açılışı yok): koçluk yok, eşleşmeyen satış', sOut.coached === 0 && coach.view(DAY).orphans.some(o => o.k === 605) && coach.view(DAY).trades.length === 1);
+  const bOut = await up(img(4), [fill({ k: 605, side: 'buy', px: 1.0, q: 1, t: DAY + 'T18:30' })]);
+  const tr605 = coach.view(DAY).trades.find(x => x.k === 605);
+  ok('koç: sırasız — sonra alış (daha erken): işlem giriş 18:30, eşleşmeyen satış kalktı, koçluk 1', !!tr605 && tr605.entryT.endsWith('18:30') && bOut.coached === 1 && kinds('coach') === 2 && coach.view(DAY).orphans.every(o => o.k !== 605), JSON.stringify(tr605));
+
+  // 5) Kısmi çıkış: 4 adet alış, 1 + 3 satış (ayrı ekranlar): tek işlem, çıkış ağırlıklı ortalama 2,75; ilk satıştan sonra açık pozisyon, koçluk yok
+  const cK = 610;
+  await up(img(5), [fill({ k: cK, px: 1.0, q: 4, t: DAY + 'T17:00' })]);
+  const pa = await up(img(6), [fill({ k: cK, side: 'sell', px: 2.0, q: 1, t: DAY + 'T17:10' })]);
+  const openK = coach.view(DAY).open.find(o => o.k === cK);
+  ok('koç: kısmi çıkış → açık pozisyon kalan 3 / kapanan 1, koçluk yok', !!openK && openK.qty === 3 && openK.closedQty === 1 && pa.coached === 0);
+  const pb = await up(img(7), [fill({ k: cK, side: 'sell', px: 3.0, q: 3, t: DAY + 'T17:20' })]);
+  const tK = coach.view(DAY).trades.find(x => x.k === cK);
+  ok('koç: kısmi çıkışlar tek işlemde (qty 4, çıkış ort. 2,75, 2 bacak)', !!tK && tK.qty === 4 && Math.abs(tK.exitPx - 2.75) < 1e-9 && tK.legs === 2 && pb.coached === 1, JSON.stringify(tK));
+
+  // 6) Koçluk hatası: yükleme yine başarılı, bekleyen 1; sonra kurtarma (süre dolunca /process)
+  coachBroken = true;
+  const cF = 615;
+  await up(img(8), [fill({ k: cF, px: 1.0, q: 1, t: DAY + 'T18:05' })]);
+  const rf = await up(img(9), [fill({ k: cF, side: 'sell', px: 1.5, q: 1, t: DAY + 'T18:15' })]);
+  ok('koç: koçluk hatası yüklemeyi bozmaz; uyarı + bekleyen 1', rf.added === 1 && rf.coached === 0 && rf.pending === 1 && rf.warnings.length === 1, JSON.stringify(rf.warnings));
+  coachBroken = false;
+  const proc1 = await coach.process(DAY);
+  ok('koç: hata sonrası hemen tekrar denenmez (1 sa bekleme)', proc1.processed === 0 && proc1.errors.length === 1);
+  clock += 3600_000 + 1000;
+  const proc2 = await coach.process(DAY);
+  ok('koç: süre dolunca /process koçluğu tamamlar', proc2.processed === 1 && proc2.pending === 0 && coach.view(DAY).pending === 0, JSON.stringify(proc2));
+
+  // 7) Karne (günün raporlarından) ve görünüm
   const kr = await coach.karne(DAY);
   ok('koç: karne üretildi ve kaydedildi', (kr.karne as { yarinOdak: string }).yarinOdak.length > 0 && store.coachKarneOn(DAY) != null);
-  ok('koç: GET görünümü işlem + karne', coach.view(DAY).trades.length === 1 && coach.view(DAY).karne != null);
-  try { await coach.karne('2026-11-01'); ok('koç: kayıtsız gün 404', false); }
-  catch (e) { ok('koç: kayıtsız gün 404', e instanceof CoachError && e.status === 404); }
+  ok('koç: karne yok gün → 404', await coach.karne('2026-11-01').then(() => false, e => e instanceof CoachError && e.status === 404));
 
-  // Yedek model: yalnız açıkça tanımlıysa, loglanır ve işaretlenir
+  // 8) Hız sınırı: gap (2 sn) ve günlük üst sınır (ayrı örnek, cap 3)
+  const cap = new Coach({ cfg: mkCfg({ coachDailyCap: 3 }), store: new Store(':memory:'), f: fake, now: () => clock, log: m => logs.push(m) });
+  nextFills = [fill({ px: 1.0 })];
+  await cap.coachImage({ image: img(10), mime: 'image/png', day: DAY });
+  try { await cap.coachImage({ image: img(11), mime: 'image/png', day: DAY }); ok('koç: 2 sn içinde ikinci yükleme reddedilmeli', false); }
+  catch (e) { ok('koç: gap → 429 kind=gap + retryAfterSec', e instanceof CoachError && e.status === 429 && e.extra.kind === 'gap' && typeof e.extra.retryAfterSec === 'number', JSON.stringify((e as CoachError).extra)); }
+  clock += 3000;
+  await cap.coachImage({ image: img(12), mime: 'image/png', day: DAY });
+  clock += 3000;
+  await cap.coachImage({ image: img(13), mime: 'image/png', day: DAY });
+  clock += 3000;
+  try { await cap.coachImage({ image: img(14), mime: 'image/png', day: DAY }); ok('koç: günlük üst sınır (3) aşılmamalı', false); }
+  catch (e) { ok('koç: 24 sa sınırı → 429 kind=daily', e instanceof CoachError && e.status === 429 && e.extra.kind === 'daily', JSON.stringify((e as CoachError).extra)); }
+  // önbellek sınıra takılmaz
+  ok('koç: önbellekli görüntü sınıra takılmaz', (await cap.coachImage({ image: img(10), mime: 'image/png', day: DAY })).duplicate === true);
+
+  // 9) Denetim: GIF reddi, boş dolum → 422, yedek model, anahtarsız 503, anahtar sızıntısı yok
+  try { await coach.coachImage({ image: img(15), mime: 'image/gif', day: DAY }); ok('koç: GIF reddedilmeli', false); }
+  catch (e) { ok('koç: GIF 400', e instanceof CoachError && e.status === 400); }
+  clock += 5000;
+  nextFills = [{ tk: 'QQQ' }];
+  try { await coach.coachImage({ image: img(16), mime: 'image/png', day: DAY }); ok('koç: geçersiz dolum → 422', false); }
+  catch (e) { ok('koç: geçersiz dolum 422 (kısmi kayıt yok)', e instanceof CoachError && e.status === 422); }
   modelReject = true;
-  const coach2 = new Coach({ cfg: mkCfg({ coachModel: 'bad-model', coachFallbackModel: 'claude-haiku-5-5' }), store: new Store(':memory:'), f: fake, now: () => NOW, log: m => logs.push(m) });
-  const fb = await coach2.coachImage({ image: png, mime: 'image/png', day: DAY });
+  const coachFb = new Coach({ cfg: mkCfg({ coachModel: 'bad-model', coachFallbackModel: 'claude-haiku-5-5' }), store: new Store(':memory:'), f: fake, now: () => clock, log: m => logs.push(m) });
+  nextFills = [fill({ px: 1.0 })];
+  const fb = await coachFb.coachImage({ image: img(17), mime: 'image/png', day: DAY });
   ok('koç: yedek model devreye girer ve işaretlenir', fb.fallback === true && logs.some(l => l.includes('yedek')));
-  // Yedek tanımsızsa: açık hata, sessiz geçiş yok
-  const coach3 = new Coach({ cfg: mkCfg({ coachModel: 'bad-model' }), store: new Store(':memory:'), f: fake, now: () => NOW, log: m => logs.push(m) });
-  try { await coach3.coachImage({ image: png, mime: 'image/png', day: DAY }); ok('koç: yedeksiz model reddi hata vermeli', false); }
-  catch (e) { ok('koç: yedeksiz model reddi açık hata (sessiz geçiş yok)', e instanceof CoachError && /model reddedildi/.test(e.message) && !(e.message.includes(KEY))); }
-  // Anahtar yoksa: 503
-  const coach4 = new Coach({ cfg: mkCfg({ anthropicKey: '' }), store: new Store(':memory:'), f: fake, now: () => NOW, log: m => logs.push(m) });
-  try { await coach4.coachImage({ image: png, mime: 'image/png', day: DAY }); ok('koç: anahtarsız 503', false); }
+  const coach3 = new Coach({ cfg: mkCfg({ coachModel: 'bad-model' }), store: new Store(':memory:'), f: fake, now: () => clock, log: m => logs.push(m) });
+  try { await coach3.coachImage({ image: img(18), mime: 'image/png', day: DAY }); ok('koç: yedeksiz model reddi hata vermeli', false); }
+  catch (e) { ok('koç: yedeksiz model reddi açık hata (sessiz geçiş yok)', e instanceof CoachError && /model reddedildi/.test(e.message) && !e.message.includes(KEY)); }
+  modelReject = false;
+  const coach4 = new Coach({ cfg: mkCfg({ anthropicKey: '' }), store: new Store(':memory:'), f: fake, now: () => clock, log: m => logs.push(m) });
+  try { await coach4.coachImage({ image: img(19), mime: 'image/png', day: DAY }); ok('koç: anahtarsız 503', false); }
   catch (e) { ok('koç: anahtarsız 503', e instanceof CoachError && e.status === 503); }
+  const dump = JSON.stringify(coach.view(DAY)) + JSON.stringify(r2) + logs.join('\n');
+  ok('koç: anahtar ne yanıtta ne görünümde ne logda', !dump.includes(KEY) && !dump.includes('SELFTEST'));
+  ok('koç: çağrı logu durma nedenini (stop=) yazar', logs.some(m => m.includes('koç extract') && m.includes('stop=end_turn')));
+  ok('koç: max_tokens çıkarma 400 / koçluk 3500', calls.filter(x => x.kind === 'extract').every(x => x.maxTokens === 400) && calls.filter(x => x.kind === 'coach').every(x => x.maxTokens === 3500));
+  ok('koç: çıkarma çağrısı tek görüntü', calls.filter(x => x.kind === 'extract').every(x => x.images === 1));
+  ok('koç: token kaydı SQLite\'ta (çıkarma + koçluk)', store.coachUsageOn(DAY).calls > 0 && store.coachUsageOn(DAY).inTok > 0);
   store.close();
 }
 

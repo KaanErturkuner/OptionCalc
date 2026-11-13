@@ -72,3 +72,52 @@ export interface CoachedTrade {
   context: Record<string, unknown> | null;
   model: string;
 }
+
+export type Conf = 'yuksek' | 'orta' | 'dusuk';
+export type FillSide = 'buy' | 'sell';
+
+/** Görüntüden okunan tek dolum (emir satırı). Sunucu SQLite'ta saklar; eşleştirme src/lib/coach/fills.ts. */
+export interface Fill {
+  id: number;
+  t: string;          // YYYY-MM-DDTHH:MM (İstanbul)
+  tk: string;         // dayanak, ör. QQQ
+  exp: string;        // vade YYYY-MM-DD
+  k: number;          // strike
+  cp: 'C' | 'P';
+  q: number;          // adet (pozitif)
+  side: FillSide;     // buy = alış/açılış, sell = satış/kapanış
+  px: number;         // prim $ (opsiyon fiyatı)
+  conf: Conf;
+}
+
+/** Uygulamanın Koç ekranı için günün görünümü (sunucu GET /coach). */
+export type CoachFillView = Fill;
+export interface CoachTradeView {
+  sig: string;
+  tk: string; exp: string; k: number; cp: 'C' | 'P';
+  qty: number;
+  entryT: string; entryPx: number;
+  exitT: string; exitPx: number;
+  legs: number;
+  conf: Conf;
+  status: 'hazir' | 'bekliyor';          // hazir: rapor var; bekliyor: koçluk henüz üretilmedi
+  ts: number;                            // rapor kayıt zamanı (ms); bekliyorda 0
+  report: TradeReport | null;
+}
+export interface CoachOpenView {
+  tk: string; exp: string; k: number; cp: 'C' | 'P';
+  qty: number;             // kalan (açık) adet
+  entryT: string; entryPx: number;
+  closedQty: number;       // kısmen kapatılmış kısım
+  closedPx: number | null;
+}
+export interface CoachDayView {
+  day: string;
+  fills: CoachFillView[];        // günün dolumları
+  trades: CoachTradeView[];      // günün (giriş tarihine göre) eşleşmiş işlemleri
+  open: CoachOpenView[];         // açık pozisyonlar (saklama penceresi içinde)
+  orphans: CoachFillView[];      // eşleşmeyen satışlar (açılışı ekran görüntülerinde yok)
+  pending: number;               // koçluk bekleyen eşleşmiş işlem sayısı
+  karne: { day: string; ts: number; model: string; body: Karne } | null;
+  usage: { calls: number; inTok: number; outTok: number };
+}

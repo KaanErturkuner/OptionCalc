@@ -36,9 +36,16 @@ export class Store {
       CREATE TABLE IF NOT EXISTS coach_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL,
         model TEXT NOT NULL, in_tok INTEGER NOT NULL, out_tok INTEGER NOT NULL, ok INTEGER NOT NULL, fallback INTEGER NOT NULL, ms INTEGER NOT NULL, err TEXT);
       CREATE INDEX IF NOT EXISTS coach_calls_ts ON coach_calls (ts);
-      CREATE TABLE IF NOT EXISTS coach_trades (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, day TEXT NOT NULL, trade TEXT NOT NULL,
-        rules TEXT NOT NULL, feedback TEXT, context TEXT, model TEXT NOT NULL);
-      CREATE INDEX IF NOT EXISTS coach_trades_day ON coach_trades (day);
+      CREATE TABLE IF NOT EXISTS coach_shots (hash TEXT PRIMARY KEY, ts INTEGER NOT NULL, day TEXT NOT NULL, model TEXT NOT NULL,
+        in_tok INTEGER NOT NULL, out_tok INTEGER NOT NULL, note TEXT, fills TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS coach_shots_day ON coach_shots (day);
+      CREATE TABLE IF NOT EXISTS coach_fills (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT NOT NULL, t TEXT NOT NULL, tk TEXT NOT NULL,
+        exp TEXT NOT NULL, k REAL NOT NULL, cp TEXT NOT NULL, q INTEGER NOT NULL, side TEXT NOT NULL, px REAL NOT NULL, conf TEXT NOT NULL,
+        shot TEXT NOT NULL, UNIQUE (t, tk, exp, k, cp, side, px, q));
+      CREATE INDEX IF NOT EXISTS coach_fills_day ON coach_fills (day);
+      CREATE TABLE IF NOT EXISTS coach_reports (sig TEXT PRIMARY KEY, day TEXT NOT NULL, ts INTEGER NOT NULL, model TEXT NOT NULL,
+        trade TEXT NOT NULL, rules TEXT NOT NULL, feedback TEXT NOT NULL, context TEXT);
+      CREATE INDEX IF NOT EXISTS coach_reports_day ON coach_reports (day);
       CREATE TABLE IF NOT EXISTS coach_karne (day TEXT PRIMARY KEY, ts INTEGER NOT NULL, model TEXT NOT NULL, body TEXT NOT NULL);
     `);
   }
@@ -187,16 +194,47 @@ export class Store {
     const r = this.db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(in_tok), 0) AS i, COALESCE(SUM(out_tok), 0) AS o FROM coach_calls WHERE day = ?').get(day) as { n: number; i: number; o: number };
     return { calls: Number(r.n), inTok: Number(r.i), outTok: Number(r.o) };
   }
-  coachAddTrade(r: { ts: number; day: string; trade: unknown; rules: unknown; feedback: unknown; context: unknown; model: string }): number {
-    const x = this.db.prepare('INSERT INTO coach_trades (ts, day, trade, rules, feedback, context, model) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(r.ts, r.day, JSON.stringify(r.trade), JSON.stringify(r.rules), r.feedback == null ? null : JSON.stringify(r.feedback), r.context == null ? null : JSON.stringify(r.context), r.model);
-    return Number(x.lastInsertRowid);
+  /** Aynı görüntü (sha256) daha önce işlendiyse özeti: Haiku çağrısı ve sayaç yok */
+  coachShotGet(hash: string): { ts: number; day: string; model: string; note: string | null; fills: unknown[]; inTok: number; outTok: number } | null {
+    const r = this.db.prepare('SELECT ts, day, model, note, fills, in_tok, out_tok FROM coach_shots WHERE hash = ?').get(hash) as
+      { ts: number; day: string; model: string; note: string | null; fills: string; in_tok: number; out_tok: number } | undefined;
+    return r ? { ts: Number(r.ts), day: r.day, model: r.model, note: r.note, fills: JSON.parse(r.fills), inTok: Number(r.in_tok), outTok: Number(r.out_tok) } : null;
   }
-  coachTradesOn(day: string): { id: number; ts: number; day: string; trade: unknown; rules: unknown; feedback: unknown; context: unknown; model: string }[] {
-    return (this.db.prepare('SELECT id, ts, day, trade, rules, feedback, context, model FROM coach_trades WHERE day = ? ORDER BY ts, id').all(day) as
-      { id: number; ts: number; day: string; trade: string; rules: string; feedback: string | null; context: string | null; model: string }[])
-      .map(r => ({ id: Number(r.id), ts: Number(r.ts), day: r.day, trade: JSON.parse(r.trade), rules: JSON.parse(r.rules),
-        feedback: r.feedback == null ? null : JSON.parse(r.feedback), context: r.context == null ? null : JSON.parse(r.context), model: r.model }));
+  coachShotPut(r: { hash: string; ts: number; day: string; model: string; inTok: number; outTok: number; note: string | null; fills: unknown[] }): void {
+    this.db.prepare('INSERT OR IGNORE INTO coach_shots (hash, ts, day, model, in_tok, out_tok, note, fills) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(r.hash, r.ts, r.day, r.model, r.inTok, r.outTok, r.note, JSON.stringify(r.fills));
+  }
+  /** Dolum ekle (aynı dolum tekrar gelirse yok sayılır). Dönüş: kimlik ve yeni mi. */
+  coachFillInsert(f: { day: string; t: string; tk: string; exp: string; k: number; cp: string; q: number; side: string; px: number; conf: string; shot: string }): { id: number; added: boolean } {
+    const x = this.db.prepare('INSERT OR IGNORE INTO coach_fills (day, t, tk, exp, k, cp, q, side, px, conf, shot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(f.day, f.t, f.tk, f.exp, f.k, f.cp, f.q, f.side, f.px, f.conf, f.shot);
+    if (Number(x.changes) > 0) return { id: Number(x.lastInsertRowid), added: true };
+    const r = this.db.prepare('SELECT id FROM coach_fills WHERE t = ? AND tk = ? AND exp = ? AND k = ? AND cp = ? AND side = ? AND px = ? AND q = ?')
+      .get(f.t, f.tk, f.exp, f.k, f.cp, f.side, f.px, f.q) as { id: number };
+    return { id: Number(r.id), added: false };
+  }
+  /** Saklama penceresindeki tüm dolumlar (gün ≥ fromDay), zaman sırasında değil: eşleştirici sıralar */
+  coachFillsSince(fromDay: string): CoachFillRow[] {
+    return (this.db.prepare('SELECT id, day, t, tk, exp, k, cp, q, side, px, conf FROM coach_fills WHERE day >= ? ORDER BY id').all(fromDay) as unknown as CoachFillRow[])
+      .map(r => ({ ...r, id: Number(r.id), k: Number(r.k), q: Number(r.q), px: Number(r.px) }));
+  }
+  coachReportGet(sig: string): CoachReportRow | null {
+    const r = this.db.prepare('SELECT sig, day, ts, model, trade, rules, feedback, context FROM coach_reports WHERE sig = ?').get(sig) as RawReport | undefined;
+    return r ? parseReport(r) : null;
+  }
+  coachReportPut(r: { sig: string; day: string; ts: number; model: string; trade: unknown; rules: unknown; feedback: unknown; context: unknown }): void {
+    this.db.prepare('INSERT OR REPLACE INTO coach_reports (sig, day, ts, model, trade, rules, feedback, context) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(r.sig, r.day, r.ts, r.model, JSON.stringify(r.trade), JSON.stringify(r.rules), JSON.stringify(r.feedback), r.context == null ? null : JSON.stringify(r.context));
+  }
+  coachReportsOn(day: string): CoachReportRow[] {
+    return (this.db.prepare('SELECT sig, day, ts, model, trade, rules, feedback, context FROM coach_reports WHERE day = ? ORDER BY ts, sig').all(day) as unknown as RawReport[]).map(parseReport);
+  }
+  /** Eşleşmesi değişen (artık var olmayan) işlemlerin raporlarını sil: yalnız day ≥ fromDay */
+  coachReportsPrune(fromDay: string, keep: Set<string>): number {
+    const rows = this.db.prepare('SELECT sig FROM coach_reports WHERE day >= ?').all(fromDay) as { sig: string }[];
+    let n = 0;
+    for (const r of rows) if (!keep.has(r.sig)) { this.db.prepare('DELETE FROM coach_reports WHERE sig = ?').run(r.sig); n++; }
+    return n;
   }
   coachSaveKarne(day: string, ts: number, model: string, body: unknown): void {
     this.db.prepare('INSERT INTO coach_karne (day, ts, model, body) VALUES (?, ?, ?, ?) ON CONFLICT (day) DO UPDATE SET ts = excluded.ts, model = excluded.model, body = excluded.body')
@@ -209,7 +247,9 @@ export class Store {
   /** 30 günden eski koç kayıtları (çağrı, işlem, karne) silinir */
   coachPrune(cutoffMs: number, cutoffDay: string): void {
     this.db.prepare('DELETE FROM coach_calls WHERE ts < ?').run(cutoffMs);
-    this.db.prepare('DELETE FROM coach_trades WHERE day < ?').run(cutoffDay);
+    this.db.prepare('DELETE FROM coach_shots WHERE day < ?').run(cutoffDay);
+    this.db.prepare('DELETE FROM coach_fills WHERE day < ?').run(cutoffDay);
+    this.db.prepare('DELETE FROM coach_reports WHERE day < ?').run(cutoffDay);
     this.db.prepare('DELETE FROM coach_karne WHERE day < ?').run(cutoffDay);
   }
 
@@ -227,5 +267,12 @@ function toEvent(r: Record<string, unknown>): FlowEvent {
   };
 }
 export type { ChainRow };
+
+export interface CoachFillRow { id: number; day: string; t: string; tk: string; exp: string; k: number; cp: 'C' | 'P'; q: number; side: 'buy' | 'sell'; px: number; conf: 'yuksek' | 'orta' | 'dusuk' }
+export interface CoachReportRow { sig: string; day: string; ts: number; model: string; trade: any; rules: any; feedback: any; context: any }
+type RawReport = { sig: string; day: string; ts: number; model: string; trade: string; rules: string; feedback: string; context: string | null };
+function parseReport(r: RawReport): CoachReportRow {
+  return { sig: r.sig, day: r.day, ts: Number(r.ts), model: r.model, trade: JSON.parse(r.trade), rules: JSON.parse(r.rules), feedback: JSON.parse(r.feedback), context: r.context == null ? null : JSON.parse(r.context) };
+}
 
 export interface ReportRow { id: number; kind: string; day: string; ts: number; title: string; body: string }

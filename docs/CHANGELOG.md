@@ -2,6 +2,49 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-14 — Claude — [grok] Koç v2: toplu yükleme, kodda eşleştirme, işlem başına koçluk (TASKS #37)
+
+**Ne:** 40'a kadar Midas görüntüsü tek seferde; her görüntü için tek küçük Haiku çıkarma çağrısı (dolum: tk, vade, strike, C/P, adet, alış/satış, prim, saat);
+dolumlar SQLite'ta; alış–satış eşleştirmesi koddan (sözleşme başına FIFO, kısmi çıkışlar tek işlemde, kapanmamış = açık pozisyon, açılışsız satış = eşleşmeyen);
+her kapanmış işlem için **bir** koçluk çağrısı (metin, görüntüsüz), rapor işlem imzasıyla saklanır (aynı işlem tekrar koçlanmaz).
+Aynı görüntü (sha256) önbellekten; Haiku ve sayaç harcamaz.
+
+**Dosyalar:** `src/lib/coach/fills.ts` (yeni, saf eşleştirme), `src/lib/coach/queue.ts` (yeni, saf yükleme kuyruğu: n/N, 429/ağ/5xx geri çekilme, günlük sınır ve 401'de dur),
+`src/lib/coach/{validate,prompt,limits,types,client}.ts`, `src/screens/Koc.tsx`, `src/ui/coachPicker.ts` (40), `server/app/{coach,store,http,config,selftest}.ts`,
+`server/README.md` (Koç bölümü + maliyet), `test/coach.test.ts`, `test/coach-fills.test.ts` (yeni), `test/coach-queue.test.ts` (yeni), `package.json` (test zinciri).
+Bağımlılık eklenmedi. Caddy 7 MB /coach sınırı korundu (tek görüntü ≤ 4 MB).
+
+**Kararlar (kendi seçimim, geri alınabilir):** (1) Yalnız uzun işlem: flat satış = eşleşmeyen satış (Kaan uzun opsiyon işliyor; açığa satış koçlanmaz).
+(2) Koçluk görüntüsüz (metin): görüntü tokeni yok, yalnız bağlam JSON. (3) Dolum kimliği = içerik (zaman+sözleşme+yön+fiyat+adet); aynı dakikada aynı
+sözleşme/yön/fiyat/adet iki ayrı dolum ise tek sayılır (ekranda tek satır görünürse nadir bir kayıp olabilir). (4) Yükleme başına en çok 3 koçluk;
+kalanı istemci döngüsü (`/coach/process`). (5) COACH_MIN_GAP_SEC 2, COACH_DAILY_CAP 100 (varsayılanlar; droplet'te env geçersiz kılma yok).
+
+**Doğrulama:**
+- `npm run check`: exit 0 (test + typecheck + lint + bt:selftest + flow:selftest). Sunucu öz-testi 49 sınama (0 FAIL; tüm öz-test 49 koç + tespit sınaması) (sahte Haiku/Yahoo): önbellek, sırasız yükleme,
+  kısmi çıkış (2,75 ort., 2 bacak), koçluk hatası ve kurtarma, gap/daily 429, karne, yedek model, anahtar sızıntısı yok.
+- Birim testleri: eşleştirme (FIFO, kısmi, farklı sözleşme/vade/C-P, sırasız, yetim, kimlik kararlılığı) ve kuyruk (gap, geçici, 422, daily, 401, n/N).
+- **Dağıtım:** `server/deploy.sh` başarılı; `optioncalc-flow` ve `caddy` active; `/coach/process` ve `GET /coach` anahtarsız 401, `/health` 200.
+- **Ücretli test: YAPILMADI (0 çağrı).** Anthropic anahtarı bu ortamda yok; droplet'teki anahtar okunmadı (kural). Yani çıkarma istemi (EXTRACT_SYSTEM v2)
+  gerçek modelle henüz denenmedi.
+
+**Canlı test komutu (Kaan, kendi terminalinde; anahtar ekrana basılmadan):** bir görüntüyle tek çıkarma:
+```bash
+K=$(ssh -i ~/.ssh/do_flow root@162.243.88.42 'cat /etc/optioncalc-flow/app_key')
+B=$(base64 -w0 midas.png)
+curl -s https://162-243-88-42.sslip.io/coach -H "x-app-key: $K" -H 'content-type: application/json' \
+  -d "{\"image\":\"$B\",\"mime\":\"image/png\",\"day\":\"2026-11-13\"}"
+```
+(Bu komut koçluk da üretir; ilk gerçek ekran görüntüsünü kullanın.)
+
+**Maliyet (tahmin, server/README):** 40 çıkarma + 20 koçluk ≈ **$0,035/gün** (Haiku 5.5: $0,10 / $0,50 per MTok). Görüntü tokeni
+ölçülmedi (varsayım ≈ 1.600 token); ilk gerçek yüklemeden sonra `usage` ile doğrulanmalı.
+
+**Açık / dikkat:**
+- Gerçek Midas ekranında çıkarma doğruluğu (fiyat, saat dilimi, C/P, alış/satış) canlı test edilmedi; en büyük risk bu.
+- Uygulama tarafı Expo Go'da (`expo-image-picker` mevcut) denenmedi; 40 görüntü belleği ~10–30 MB.
+- Eski tek görüntü tablosu `coach_trades` artık yazılmıyor (30 gün sonra temizlenir); yeni tablolar: `coach_shots`, `coach_fills`, `coach_reports`.
+- Commit öneki `[grok]` (istek üzerine), ajan notu Claude. Yayın (Expo) yok, push yok.
+
 ## 2026-11-14 — Claude — [grok] Koç canlı doğrulama: Caddy 413 düzeltildi, tam rapor üretildi (TASKS #37)
 
 **Sonuç:** koçluk artık kesilmiyor; tam rapor (Başlık · Ne oldu · Çıkış · Giriş · Strike · Kaçan fırsat · Bir dahakine · Karne) doğrulandı, uyarı yok.

@@ -1,12 +1,13 @@
 /*
  * Ekran görüntüsü seçici (expo-image-picker, SDK 58 ile Expo Go'da gelir; OTA ile dağıtılır).
- * İzin → çoklu seçim (en çok 5) → JPEG base64 (quality 0.7) → 4 MB ve sihirli bayt denetimi (src/lib/coach/image.ts).
+ * İzin → çoklu seçim (en çok 40) → JPEG base64 (quality 0.7) → 4 MB ve sihirli bayt denetimi (src/lib/coach/image.ts).
+ * Yükleme sıralı kuyrukla yapılır (src/lib/coach/queue.ts); seçim bellekte base64 tutar (40 görüntü ≈ 10–30 MB; quality 0.7).
  * Native modül yoksa (eski binary / dev build eksik) import hata verir: yakalanır, Türkçe mesaj döner, uygulama çökmez.
  */
 import { checkImage } from '@/lib/coach/image';
 
 export const PICKER_MISSING = 'Görsel seçici bu sürümde yok (expo-image-picker gerekir; Expo Go güncel değilse yenileyin).';
-export const MAX_PICK = 5;
+export const MAX_PICK = 40;   // tek seçimde en çok 40 görüntü (≈ 20 işlem × alış+satış)
 const PICK_QUALITY = 0.7;
 
 export interface PickedImage { base64: string; mime: 'image/jpeg' }

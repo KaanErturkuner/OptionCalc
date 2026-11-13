@@ -1,5 +1,6 @@
-/* Menü › Koç: Midas işlem ekran görüntüsü → sunucu (Haiku) → işlem listesi, kural kontrolleri, geri bildirim ve günün karnesi.
- * Eğitim amaçlıdır; yatırım tavsiyesi DEĞİLDİR. Görsel seçici kurulu değilse (expo-image-picker) yükleme devre dışı kalır, açıklama gösterilir. */
+/* Menü › Koç: Midas ekran görüntüleri (en çok 40, sıralı yükleme) → sunucu (Haiku) → dolumlar, eşleşmiş işlemler + koçluk,
+ * açık pozisyonlar, eşleşmeyen satışlar, günün karnesi. Eğitim amaçlıdır; yatırım tavsiyesi DEĞİLDİR.
+ * Görsel seçici kurulu değilse (expo-image-picker) yükleme devre dışı kalır, açıklama gösterilir. */
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,13 +8,18 @@ import { Btn, Card, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import { loadState } from '@/lib/state';
 import { flowKeyOf } from '@/lib/flow/client';
-import { fetchCoachDay, makeKarne, uploadScreenshot, type CoachDayView } from '@/lib/coach/client';
+import { fetchCoachDay, makeKarne, processCoach, uploadScreenshot, type CoachDayView, type UploadResult } from '@/lib/coach/client';
+import { runUploadQueue, type QueueProgress } from '@/lib/coach/queue';
 import { addDaysStr, etDate } from '@/lib/usmarket';
 import { pickScreenshots, MAX_PICK, PICKER_MISSING } from '@/ui/coachPicker';
 import CoachReport from '@/ui/CoachReport';
 
 const REFRESH_MS = 60000;
+const PROCESS_LOOPS = 12;   // bekleyen koçluk için en çok istek turu (her tur en çok 5 işlem)
 const dayLabel = (d: string) => d.split('-').reverse().join('.');
+const px = (x: number | null | undefined) => (x == null ? '—' : x.toFixed(2).replace('.', ','));
+const hm = (t: string) => t.slice(11, 16);
+const cpLabel = (cp: 'C' | 'P') => (cp === 'C' ? 'C' : 'P');
 
 export default function Koc({ active, onBack }: { active: boolean; onBack?: () => void }) {
   const insets = useSafeAreaInsets();
@@ -60,30 +66,52 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
     }
     const n = p.images.length;
     setBusy('upload'); setErr(null); setNotice(null); setProgress(`0/${n}`);
-    const errors: string[] = [];
-    let trades = 0; let done = 0; let inTok = 0; let outTok = 0; let warn: string | null = null;
+    let key = '';
     try {
-      const st = await loadState();
-      const key = flowKeyOf(st?.flowKey);
-      // Sıralı yükleme: sunucu iki yükleme arası ≥10 sn ister; her çağrı yanıtı beklediği için bu kendiliğinden sağlanır.
-      for (let i = 0; i < n; i++) {
-        setProgress(`${i + 1}/${n}`);
-        try {
-          const r = await uploadScreenshot(key, { base64: p.images[i].base64, mime: p.images[i].mime, day });
-          trades += r.trades.length; inTok += r.usage.inTok; outTok += r.usage.outTok; done++;
-          if (r.warning && !warn) warn = r.warning;
-        } catch (e) {
-          errors.push(`${i + 1}. görüntü: ${(e as Error).message}`);
-        }
-      }
+      key = flowKeyOf((await loadState())?.flowKey);
     } catch (e) {
-      errors.push((e as Error).message);
+      setErr((e as Error).message); setBusy(null); setProgress(null); return;
     }
-    const parts = [`${done}/${n} görüntü işlendi, ${trades} işlem (girdi ${inTok} / çıktı ${outTok} token).`];
-    if (p.skipped.length) parts.push(`Atlanan: ${p.skipped.join(' · ')}`);
-    if (warn) parts.push(`Uyarı: ${warn}`);
+    const sent: UploadResult[] = [];
+    const items = p.images.map((img, i) => ({ base64: img.base64, mime: img.mime, label: `${i + 1}. görüntü` }));
+    const res = await runUploadQueue(items, {
+      send: async item => {
+        const r = await uploadScreenshot(key, { base64: item.base64, mime: item.mime, day });
+        sent.push(r);
+        return { added: r.added, inTok: r.usage.inTok, outTok: r.usage.outTok, warnings: r.warnings };
+      },
+      sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
+      onProgress: (q: QueueProgress) => setProgress(progressText(q)),
+    });
+    // Bekleyen koçluklar (yükleme başına en çok birkaç; kalanı istemci döngüsü)
+    let coachedExtra = 0; let pendingLeft = sent.length ? sent[sent.length - 1].pending : 0;
+    const coachErrors: string[] = [];
+    for (let k = 0; k < PROCESS_LOOPS && pendingLeft > 0; k++) {
+      setProgress(`koçluk ${pendingLeft} kaldı`);
+      try {
+        const r = await processCoach(key, day);
+        coachedExtra += r.processed; pendingLeft = r.pending; coachErrors.push(...r.errors);
+        if (r.processed === 0 || r.errors.length) break;
+      } catch (e) {
+        coachErrors.push((e as Error).message); break;
+      }
+    }
+    const coached = sent.reduce((a, r) => a + r.coached, 0) + coachedExtra;
+    const added = sent.reduce((a, r) => a + r.added, 0);
+    const dup = sent.filter(r => r.duplicate).length;
+    const tok = sent.reduce((a, r) => ({ i: a.i + r.usage.inTok, o: a.o + r.usage.outTok }), { i: 0, o: 0 });
+    const parts = [
+      `${res.done}/${n} görüntü işlendi · ${added} yeni dolum${dup ? ` · ${dup} önceden yüklü (atlandı)` : ''} · ${coached} işlem koçlandı${pendingLeft ? ` · ${pendingLeft} koçluk bekliyor` : ''}.`,
+      `Token: girdi ${tok.i} / çıktı ${tok.o}.`,
+    ];
+    if (res.skipped) parts.push(`Gönderilmeyen: ${res.skipped} görüntü.`);
+    if (res.stopped) parts.push(`Durduruldu: ${res.stopped}.`);
+    if (p.skipped.length) parts.push(`Seçimde atlanan: ${p.skipped.join(' · ')}`);
+    const warn = [...new Set([...res.warnings, ...sent.flatMap(r => r.warnings)])];
+    if (warn.length) parts.push(`Uyarı: ${warn.join(' · ')}`);
     setNotice(parts.join(' '));
-    if (errors.length) setErr(errors.join(' · '));
+    const errs = [...res.failed.map(f => `${f.label}: ${f.message}`), ...coachErrors];
+    if (errs.length) setErr(errs.join(' · '));
     setProgress(null);
     try {
       await load(day);
@@ -129,10 +157,10 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
         </View>
       </Card>
 
-      <Card title="Ekran görüntüsü">
+      <Card title="Ekran görüntüleri">
         <Text style={{ color: C.muted, fontSize: 13, marginBottom: 8 }}>
-          Midas işlem ekranlarını seç (en çok {MAX_PICK} görüntü; her biri en çok 4 MB, JPEG olarak gönderilir). Koç işlemleri okur, kurallara ve çıkıştan sonraki fiyat hareketine bakar.
-          Günde en çok 20 yükleme; görüntüler sırayla yüklenir.
+          Her işlem için alış (Açılış) ve satış (Kapanış) ekranını seç; en çok {MAX_PICK} görüntü. Sırayla yüklenir (n/N), geçici hatalarda yeniden denenir.
+          Aynı görüntü tekrar yüklenirse yeniden işlenmez. Alış ve satış farklı zamanlarda yüklenebilir: eşleşince işlem koçlanır.
         </Text>
         {pickerOk ? null : <Text style={{ color: C.neg, fontSize: 12, marginBottom: 6 }}>{PICKER_MISSING}</Text>}
         <Btn label={busy === 'upload' ? `Yükleniyor… ${progress ?? ''}` : 'Görüntü seç ve yükle'} onPress={() => { void upload(); }} style={{ alignSelf: 'flex-start' }} />
@@ -143,17 +171,55 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
       {notice ? <Card><Text style={{ color: C.muted, fontSize: 13 }}>{notice}</Text></Card> : null}
       {busy === 'load' && !view ? <Text style={{ color: C.muted }}>Yükleniyor…</Text> : null}
 
-      {view && view.trades.length === 0 ? (
-        <Card><Text style={{ color: C.muted }}>Bu gün için koçluk kaydı yok.</Text></Card>
+      {view && view.trades.length === 0 && view.open.length === 0 && view.orphans.length === 0 ? (
+        <Card><Text style={{ color: C.muted }}>Bu gün için eşleşmiş işlem yok. Alış ve satış ekranlarını yükle.</Text></Card>
       ) : null}
 
-      {view?.trades.map((t, i) => t.report ? (
-        <CoachReport key={t.id} r={t.report} index={i + 1} ts={t.ts} />
+      {view?.trades.map((t, i) => t.report && t.status === 'hazir' ? (
+        <CoachReport key={t.sig} r={t.report} index={i + 1} ts={t.ts} />
       ) : (
-        <Card key={t.id} title={`${i + 1}. ${t.trade.ticker} ${t.trade.strike}${t.trade.side === 'CALL' ? 'C' : 'P'}`}>
-          <Text style={{ color: C.muted, fontSize: 13 }}>Koçluk metni bu kayıtta yok (doğrulama uyarısına bak).</Text>
+        <Card key={t.sig} title={`${i + 1}. ${t.tk} ${t.k}${cpLabel(t.cp)} · ${t.qty} adet`}>
+          <Text style={{ color: C.muted, fontSize: 13 }}>
+            Giriş {hm(t.entryT)} · {px(t.entryPx)} → çıkış {hm(t.exitT)} · {px(t.exitPx)} ({t.legs} bacak). Koçluk bekliyor (birkaç dakika içinde ya da «Bekleyenleri işle» ile).
+          </Text>
         </Card>
       ))}
+
+      {view && view.open.length ? (
+        <Card title="Açık pozisyonlar">
+          <View style={{ gap: 6 }}>
+            {view.open.map((o, i) => (
+              <Text key={`${o.tk}${o.exp}${o.k}${o.cp}${i}`} style={{ color: C.text, fontSize: 13 }}>
+                {o.tk} {o.k}{cpLabel(o.cp)} · {o.exp.slice(5).replace('-', '.')} · kalan {o.qty} adet · giriş {px(o.entryPx)} ({hm(o.entryT)})
+                {o.closedQty ? ` · ${o.closedQty} adet ${px(o.closedPx)} fiyatından kapandı` : ''}
+              </Text>
+            ))}
+          </View>
+        </Card>
+      ) : null}
+
+      {view && view.orphans.length ? (
+        <Card title="Açılışı bulunmayan satışlar">
+          <Text style={{ color: C.muted, fontSize: 12, marginBottom: 6 }}>Bu satışların alış ekranı yüklenmedi; alışı yükleyince işlem oluşur.</Text>
+          <View style={{ gap: 6 }}>
+            {view.orphans.map(o => (
+              <Text key={o.id} style={{ color: C.text, fontSize: 13 }}>{hm(o.t)} · {o.tk} {o.k}{cpLabel(o.cp)} · {o.q} adet · satış {px(o.px)}</Text>
+            ))}
+          </View>
+        </Card>
+      ) : null}
+
+      {view && view.fills.length ? (
+        <Card title={`Okunan dolumlar (${view.fills.length})`}>
+          <View style={{ gap: 4 }}>
+            {view.fills.map(f => (
+              <Text key={f.id} style={{ color: C.muted, fontSize: 12 }}>
+                {hm(f.t)} · {f.side === 'buy' ? 'alış' : 'satış'} · {f.tk} {f.k}{cpLabel(f.cp)} {f.exp.slice(5).replace('-', '.')} · {f.q} adet · {px(f.px)} · güven {f.conf}
+              </Text>
+            ))}
+          </View>
+        </Card>
+      ) : null}
 
       {view ? (
         <Card title="Günün karnesi">
@@ -170,7 +236,14 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
         </Card>
       ) : null}
 
-      {view ? <Text style={{ color: C.muted, fontSize: 11 }}>Bu gün: {view.usage.calls} çağrı · girdi {view.usage.inTok} / çıktı {view.usage.outTok} token</Text> : null}
+      {view ? <Text style={{ color: C.muted, fontSize: 11 }}>Bu gün: {view.usage.calls} çağrı · girdi {view.usage.inTok} / çıktı {view.usage.outTok} token · bekleyen koçluk {view.pending}</Text> : null}
     </ScrollView>
   );
+}
+
+function progressText(q: QueueProgress): string {
+  const at = `${q.index + 1}/${q.n}`;
+  if (q.phase === 'retry') return `${at} yeniden deneniyor (${Math.ceil((q.waitMs ?? 0) / 1000)} sn)`;
+  if (q.phase === 'fail') return `${at} hata`;
+  return at;
 }

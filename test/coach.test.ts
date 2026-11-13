@@ -3,7 +3,7 @@ import { istToMs, inEntryWindowIst, dteOf, istHm } from '../src/lib/coach/time.t
 import { ruleFacts, stopPriceOf, targetPriceOf, premiumPct } from '../src/lib/coach/rules.ts';
 import { aggregate, afterExitMove, parseYahooBars, sessionBars, vwapAt, volumeSpikeAfter, type Bar } from '../src/lib/coach/bars.ts';
 import { buildTradeContext } from '../src/lib/coach/context.ts';
-import { parseJsonLoose, validateExtract, validateCoach, validateKarne, validateFeedback } from '../src/lib/coach/validate.ts';
+import { parseJsonLoose, validateFills, validateCoach, validateKarne, validateFeedback } from '../src/lib/coach/validate.ts';
 import { b64Head, checkImage, MAX_IMAGE_BYTES } from '../src/lib/coach/image.ts';
 import { canCoach } from '../src/lib/coach/limits.ts';
 import { buildMessagesBody, parseMessagesReply } from '../src/lib/coach/anthropic.ts';
@@ -77,10 +77,19 @@ ok('bağlam: kurallar eklenir', ctx.rules.length >= 4);
 // ───── 5) Doğrulama ─────
 ok('parseJsonLoose: çit + önsöz', parseJsonLoose('Tamam:\n```json\n{"a":1}\n```').ok === true);
 ok('parseJsonLoose: JSON yok → hata', parseJsonLoose('merhaba').ok === false);
-const ex1 = validateExtract({ trades: [{ ticker: 'qqq', side: 'call', strike: 600, expiry: '2026-11-13', qty: 2.6, entryTime: '2026-11-13T18:00', entryPrice: 1, exitTime: null, exitPrice: null, status: 'kapali', confidence: 'yuksek' }, { ticker: '', side: 'CALL', strike: 1, expiry: '2026-11-13' }] });
-ok('extract: geçerli işlem alınır, geçersiz atılır', ex1.ok && ex1.value.trades.length === 1);
-ok('extract: büyük harf ticker, qty yuvarlanır, çıkış yoksa açık', ex1.ok && ex1.value.trades[0].ticker === 'QQQ' && ex1.value.trades[0].qty === 3 && ex1.value.trades[0].status === 'acik');
-ok('extract: boş liste → hata', validateExtract({ trades: [], okunamadi: 'görüntü bulanık' }).ok === false);
+const vf = validateFills({ fills: [
+  { tk: 'qqq', exp: '2026-11-13', k: 600, cp: 'call', q: 2.6, side: 'AL', px: 1.85, t: '2026-11-13T18:05', conf: 'yuksek' },
+  { tk: 'QQQ', exp: '2026-11-13', k: 600, cp: 'C', q: 2, side: 'sell', px: null, t: '2026-11-13T18:40', conf: 'orta' },
+  { tk: 'QQQ', exp: '13-11-2026', k: 600, cp: 'C', q: 1, side: 'buy', px: 1, t: '2026-11-13T18:00' },
+  { tk: 'QQQ', exp: '2026-11-13', k: 600, cp: 'X', q: 1, side: 'buy', px: 1, t: '2026-11-13T18:00' },
+  { tk: 'QQQ', exp: '2026-11-13', k: 600, cp: 'P', q: 1, side: 'buy', px: 1, t: '2026-11-13T25:00' },
+], note: null });
+ok('fills: geçerli satır alınır; ticker büyük harf; adet yuvarlanır; AL → buy; CALL → C', vf.ok && vf.value.fills.length === 1 && vf.value.fills[0].tk === 'QQQ' && vf.value.fills[0].q === 3 && vf.value.fills[0].side === 'buy' && vf.value.fills[0].cp === 'C', JSON.stringify(vf));
+ok('fills: eksik/bozuk/geçersiz (vade, cp, saat, px null) satırlar atılır', vf.ok && vf.value.fills.length === 1);
+ok('fills: hiç satır yoksa hata (note iletilir)', validateFills({ fills: [], note: 'görüntü bulanık' }).ok === false && (validateFills({ fills: [], note: 'görüntü bulanık' }) as { error: string }).error === 'görüntü bulanık');
+ok('fills: en çok 6 satır', validateFills({ fills: Array.from({ length: 9 }, () => ({ tk: 'QQQ', exp: '2026-11-13', k: 600, cp: 'C', q: 1, side: 'buy', px: 1, t: '2026-11-13T18:00' })) }).ok && (validateFills({ fills: Array.from({ length: 9 }, (_, i) => ({ tk: 'QQQ', exp: '2026-11-13', k: 600 + i, cp: 'C', q: 1, side: 'buy', px: 1, t: '2026-11-13T18:00' })) }) as { value: { fills: unknown[] } }).value.fills.length === 6);
+ok('fills: conf geçerliyse korunur', vf.ok && vf.value.fills[0].conf === 'yuksek');
+ok('fills: conf yoksa düşük', validateFills({ fills: [{ tk: 'QQQ', exp: '2026-11-13', k: 600, cp: 'C', q: 1, side: 'buy', px: 1, t: '2026-11-13T18:00' }] }).ok && (validateFills({ fills: [{ tk: 'QQQ', exp: '2026-11-13', k: 600, cp: 'C', q: 1, side: 'buy', px: 1, t: '2026-11-13T18:00' }] }) as { value: { fills: { conf: string }[] } }).value.fills[0].conf === 'dusuk');
 const GOOD = { neOldu: { oncesi: 'a', sirasinda: 'b', sonrasi: 'c' }, cikis: { karar: 'erken', neden: 'd' }, giris: { karar: 'kovalama', neden: 'e' }, strike: { karar: 'belirsiz', neden: 'f' }, kacanFirsatYorum: 'g (tahmini)', birDahakine: ['1', '2', '3'], karne: { disiplinCikis: 14, girisZamanlamasi: 7.4, strikeSecimi: -2, aciklama: 'h' } };
 const fb = validateFeedback(GOOD as unknown as Record<string, unknown>);
 ok('feedback: geçerli yorum kabul; karar enum; puan 0–10 kırpılır', fb != null && fb.cikis.karar === 'erken' && fb.karne.disiplinCikis === 10 && fb.karne.girisZamanlamasi === 7 && fb.karne.strikeSecimi === 0);
@@ -129,9 +138,10 @@ ok('b64Head: PNG imzası çözülür', b64Head(PNG, 4).join(',') === '137,80,78,
 
 // ───── 7) Hız sınırı ─────
 ok('limit: ilk istek serbest', canCoach({ nowMs: 1e12, countToday: 0, lastAtMs: null }).ok);
-ok('limit: 10 sn içinde ikinci istek reddedilir', !canCoach({ nowMs: 1e12 + 5000, countToday: 1, lastAtMs: 1e12 }).ok);
-ok('limit: 10 sn sonra serbest', canCoach({ nowMs: 1e12 + 10000, countToday: 1, lastAtMs: 1e12 }).ok);
-ok('limit: günlük 20 doluysa reddedilir', !canCoach({ nowMs: 1e12, countToday: 20, lastAtMs: null }).ok);
+ok('limit: 2 sn içinde ikinci yükleme reddedilir (kind=gap)', (() => { const r = canCoach({ nowMs: 1e12 + 1000, countToday: 1, lastAtMs: 1e12 }); return !r.ok && r.kind === 'gap' && r.retryAfterSec === 1; })());
+ok('limit: 2 sn sonra serbest', canCoach({ nowMs: 1e12 + 2000, countToday: 1, lastAtMs: 1e12 }).ok);
+ok('limit: 24 saatte 100 doluysa reddedilir (kind=daily)', (() => { const r = canCoach({ nowMs: 1e12, countToday: 100, lastAtMs: null }); return !r.ok && r.kind === 'daily'; })());
+ok('limit: 99 iken serbest', canCoach({ nowMs: 1e12, countToday: 99, lastAtMs: null }).ok);
 
 // ───── 8) Anthropic gövdesi ve yanıt ─────
 const body = buildMessagesBody({ model: 'claude-haiku-5-5', system: 'S', content: [{ type: 'text', text: 'x' }], maxTokens: 500 });
@@ -141,8 +151,8 @@ ok('anthropic: metin birleşir, usage okunur', rep.text === 'a\nb' && rep.inToke
 ok('anthropic: bozuk yanıt → boş metin', parseMessagesReply({}).text === '');
 
 // ───── 9) Promptlar: Türkçe, JSON şartı, kurallar ─────
-ok('prompt: sistem metinleri JSON şartı içerir', COACH_SYSTEM.includes('JSON') && EXTRACT_SYSTEM.includes('"trades"'));
-ok('prompt: kullanıcı metni bağlamı taşır', coachUserText([{ index: 0, trade: {}, rules: [], facts: {}, noData: [] }]).includes('"index":0'));
+ok('prompt: sistem metinleri JSON şartı içerir', COACH_SYSTEM.includes('JSON') && EXTRACT_SYSTEM.includes('"fills"') && EXTRACT_SYSTEM.includes('Midas'));
+ok('prompt: kullanıcı metni bağlamı taşır', coachUserText([{ index: 0, trade: {}, rules: [], facts: {}, noData: [] }]).includes('"index":0') && coachUserText([{ index: 0, trade: {}, rules: [], facts: {}, noData: [] }]).includes('TAM 1'));
 ok('prompt: kural özeti (1:5, %67, 16:30)', COACH_SYSTEM.includes('1:5') && COACH_SYSTEM.includes('%67') && COACH_SYSTEM.includes('16:30'));
 
 console.log(fail ? `\n${fail} BAŞARISIZ` : '\nTüm koç testleri geçti');

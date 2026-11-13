@@ -1,25 +1,35 @@
 /*
- * Koç uygulama istemcisi (saf fetch; ağ). Anahtar yalnız x-app-key başlığında gider, loglanmaz.
- * Sunucu: POST /coach, GET /coach?day=, POST /coach/karne?day=  (server/README.md "Koç").
+ * Koç uygulama istemcisi (fetch; ağ). Anahtar yalnız x-app-key başlığında gider, loglanmaz.
+ * Sunucu: POST /coach (tek görüntü), GET /coach?day=, POST /coach/process?day=, POST /coach/karne?day=  (server/README.md "Koç").
  */
 import { FLOW_BASE_URL } from '../flow/model.ts';
 import { APP_KEY_HEADER } from '../flow/proxy.ts';
-import type { ExtractedTrade, Karne, RuleFact, TradeReport } from './types.ts';
+import type { CoachDayView, Karne } from './types.ts';
 
-/** Günün görünümündeki tek işlem (sunucu GET /coach) */
-export interface CoachViewTrade { id: number; ts: number; trade: ExtractedTrade; rules: RuleFact[]; report: TradeReport | null; model: string }
+export type { CoachDayView, CoachFillView, CoachOpenView, CoachTradeView } from './types.ts';
 
-export interface CoachDayView {
+/** HTTP hatası: status (ağ hatasında yok), 429 için kind ve retryAfterSec (sunucu). */
+export class CoachHttpError extends Error {
+  status?: number;
+  kind?: 'gap' | 'daily';
+  retryAfterSec?: number;
+}
+
+export interface UploadResult {
   day: string;
-  trades: CoachViewTrade[];
-  karne: { day: string; ts: number; model: string; body: Karne } | null;
-  usage: { calls: number; inTok: number; outTok: number };
-}
-export interface CoachResult {
-  day: string; model: string; fallback: boolean; okuNamadi: string | null; warning: string | null;
+  duplicate: boolean;          // aynı görüntü daha önce işlendi (Haiku çağrısı yok, sayaç işlemedi)
+  added: number;               // yeni eklenen dolum sayısı
+  fills: { t: string; tk: string; exp: string; k: number; cp: 'C' | 'P'; q: number; side: 'buy' | 'sell'; px: number; conf: string }[];
+  note: string | null;
+  model: string;
+  fallback: boolean;
+  coached: number;             // bu istekte koçluk üretilen işlem sayısı
+  pending: number;             // hâlâ koçluk bekleyen işlem sayısı
+  warnings: string[];
   usage: { inTok: number; outTok: number };
-  trades: (CoachViewTrade & { noData: string[] })[];
 }
+
+export interface ProcessResult { processed: number; pending: number; errors: string[] }
 
 const base = (b?: string) => (b ?? FLOW_BASE_URL).replace(/\/+$/, '');
 const hdr = (key: string, json = false) => ({ [APP_KEY_HEADER]: key, Accept: 'application/json', ...(json ? { 'Content-Type': 'application/json' } : {}) });
@@ -33,30 +43,47 @@ async function call<T>(url: string, init: RequestInit & { timeoutMs?: number }):
     const text = await r.text();
     let j: any = null;
     try { j = text ? JSON.parse(text) : null; } catch { /* yapısal olmayan */ }
-    if (r.status === 401) throw new Error('Akış anahtarı yanlış (Hesapla › Ayarlar)');
-    if (!r.ok) throw new Error(typeof j?.error === 'string' ? j.error : `Sunucu hatası (HTTP ${r.status})`);
+    if (r.status === 401) throw httpErr('Akış anahtarı yanlış (Hesapla › Ayarlar)', 401);
+    if (!r.ok) {
+      const hdrRetry = Number(r.headers.get('retry-after'));
+      throw httpErr(typeof j?.error === 'string' ? j.error : `Sunucu hatası (HTTP ${r.status})`, r.status, {
+        kind: j?.kind === 'daily' || j?.kind === 'gap' ? j.kind : undefined,
+        retryAfterSec: Number(j?.retryAfterSec) || (Number.isFinite(hdrRetry) && hdrRetry > 0 ? hdrRetry : undefined),
+      });
+    }
     return j as T;
   } catch (e: any) {
-    if (e?.name === 'AbortError') throw new Error('Zaman aşımı — tekrar dene');
-    if (e instanceof TypeError) throw new Error('Sunucuya ulaşılamadı (ağ)');
+    if (e instanceof CoachHttpError) throw e;
+    if (e?.name === 'AbortError') throw httpErr('Zaman aşımı — tekrar dene');
+    if (e instanceof TypeError) throw httpErr('Sunucuya ulaşılamadı (ağ)');
     throw e;
   } finally {
     clearTimeout(timer);
   }
 }
 
-export function fetchCoachDay(key: string, day: string, b?: string): Promise<CoachDayView> {
-  if (!key) return Promise.reject(new Error('Akış anahtarı girilmedi (Hesapla › Ayarlar)'));
-  return call<CoachDayView>(`${base(b)}/coach?day=${encodeURIComponent(day)}`, { headers: hdr(key) });
+function httpErr(message: string, status?: number, extra: { kind?: 'gap' | 'daily'; retryAfterSec?: number } = {}): CoachHttpError {
+  const e = new CoachHttpError(message);
+  e.status = status; e.kind = extra.kind; e.retryAfterSec = extra.retryAfterSec;
+  return e;
 }
 
-/** Ekran görüntüsünü gönderir (base64, PNG/JPEG). Uzun sürebilir: iki Haiku çağrısı. */
-export function uploadScreenshot(key: string, img: { base64: string; mime: 'image/png' | 'image/jpeg'; day: string }, b?: string): Promise<CoachResult> {
-  if (!key) return Promise.reject(new Error('Akış anahtarı girilmedi (Hesapla › Ayarlar)'));
-  return call<CoachResult>(`${base(b)}/coach`, { method: 'POST', headers: hdr(key, true), body: JSON.stringify(img), timeoutMs: 120000 });
+const needKey = (key: string) => (key ? null : Promise.reject(httpErr('Akış anahtarı girilmedi (Hesapla › Ayarlar)')));
+
+export function fetchCoachDay(key: string, day: string, b?: string): Promise<CoachDayView> {
+  return needKey(key) ?? call<CoachDayView>(`${base(b)}/coach?day=${encodeURIComponent(day)}`, { headers: hdr(key) });
+}
+
+/** Tek ekran görüntüsü: sunucu çıkarır, eşleştirir, eşleşen yeni işlemler için koçluk üretir (en çok birkaç). */
+export function uploadScreenshot(key: string, img: { base64: string; mime: 'image/png' | 'image/jpeg'; day: string }, b?: string): Promise<UploadResult> {
+  return needKey(key) ?? call<UploadResult>(`${base(b)}/coach`, { method: 'POST', headers: hdr(key, true), body: JSON.stringify(img), timeoutMs: 150000 });
+}
+
+/** Bekleyen koçlukları işler (sunucu tek istekte birkaç işlem yapar; döngüyü istemci sürer). */
+export function processCoach(key: string, day: string, b?: string): Promise<ProcessResult> {
+  return needKey(key) ?? call<ProcessResult>(`${base(b)}/coach/process?day=${encodeURIComponent(day)}`, { method: 'POST', headers: hdr(key), timeoutMs: 150000 });
 }
 
 export function makeKarne(key: string, day: string, b?: string): Promise<{ day: string; model: string; karne: Karne; ts: number }> {
-  if (!key) return Promise.reject(new Error('Akış anahtarı girilmedi (Hesapla › Ayarlar)'));
-  return call(`${base(b)}/coach/karne?day=${encodeURIComponent(day)}`, { method: 'POST', headers: hdr(key), timeoutMs: 90000 });
+  return needKey(key) ?? call(`${base(b)}/coach/karne?day=${encodeURIComponent(day)}`, { method: 'POST', headers: hdr(key), timeoutMs: 90000 });
 }

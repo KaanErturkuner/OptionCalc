@@ -6,26 +6,22 @@ import { KAAN_RULES_TR } from './context.ts';
 
 const BASE = [
   'Sen Türkçe konuşan bir işlem KOÇUSUN (eğitim amaçlı). Yatırım tavsiyesi verme; "al/sat" çağrısı yapma.',
-  'Yalnız görüntüde ve verilen JSON bağlamında olan bilgiyi kullan. Okunamayan değer için null yaz, uydurma.',
+  'Yalnız verilen görüntüde veya JSON bağlamında olan bilgiyi kullan. Okunamayan değer için null yaz, uydurma.',
   'Yanıtın YALNIZ tek bir JSON nesnesi olsun; başka metin, açıklama veya kod çiti ekleme.',
 ].join('\n');
 
+/** Çıkarma (her ekran görüntüsü için bir çağrı): kısa sistem metni, en küçük şema, max_tokens 400. */
 export const EXTRACT_SYSTEM = `${BASE}
 
-GÖREV: Midas (aracı kurum uygulaması) işlem ekran görüntüsünden opsiyon işlemlerini oku.
-Şema:
-{"trades":[{"ticker":"QQQ","side":"CALL"|"PUT","strike":number,"expiry":"YYYY-MM-DD","qty":number|null,
- "entryTime":"YYYY-MM-DDTHH:MM"|null,"entryPrice":number|null,"exitTime":"YYYY-MM-DDTHH:MM"|null,"exitPrice":number|null,
- "status":"kapali"|"acik","confidence":"yuksek"|"orta"|"dusuk"}],"okunamadi":string|null}
-Kurallar:
-- Zamanlar İSTANBUL saatidir (ekranda ET görünüyorsa İstanbul'a çevir: EDT'de +7 saat, EST'de +8 saat). Tarih yoksa verilen işlem gününü kullan.
-- Fiyatlar dolar cinsinden prim (opsiyon fiyatı), strike dolar. Adet pozitif tam sayı.
-- Çıkış görünmüyorsa status "acik" ve exitTime/exitPrice null.
-- Okuyamadığın alanı null bırak; confidence'ı dürüstçe düşür.
-- En fazla 5 işlem. Görüntüde işlem yoksa trades boş dizi olsun ve okunamadi açıklasın.`;
+GÖREV: Midas ekran görüntüsündeki opsiyon emir/dolum satırlarını çıkar. Her satır bir dolum.
+Şema (YALNIZ bu JSON): {"fills":[{"tk":"QQQ","exp":"YYYY-MM-DD","k":600,"cp":"C"|"P","q":2,"side":"buy"|"sell","px":1.85,"t":"YYYY-MM-DDTHH:MM","conf":"yuksek"|"orta"|"dusuk"}],"note":null|"kısa not"}
+- side: alış/Açılış = "buy"; satış/Kapanış = "sell".
+- px: opsiyon primi (dolar), hisse fiyatı değil. k: strike. q: adet (pozitif tam sayı). cp: C=call, P=put.
+- t: İSTANBUL saati. Ekranda ET görünüyorsa İstanbul'a çevir (EDT +7 sa, EST +8 sa). Tarih yoksa işlem günü ipucunu kullan.
+- Zorunlu bir alanı okuyamıyorsan o satırı ekleme; note'ta yaz. Satır yoksa fills [] ve note'ta açıkla. En fazla 6 satır.`;
 
 export function extractUserText(day: string): string {
-  return `İşlem günü (ipucu, ET): ${day}. Görüntüdeki işlemleri şemaya göre JSON olarak çıkar.`;
+  return `İşlem günü ipucu (ET): ${day}. Dolumları şemaya göre JSON olarak çıkar.`;
 }
 
 export const COACH_SYSTEM = `${BASE}
@@ -57,8 +53,8 @@ Bölümlerin anlamı (karar alanları SABİT değerlerden biri olmalı):
  "karne":{"disiplinCikis":0,"girisZamanlamasi":0,"strikeSecimi":0,"aciklama":"..."}}]}
 Her metin en çok 2 cümle. Açık pozisyonda cikis "belirsiz" ve kacanFirsatYorum "pozisyon açık" de.`;
 
-export function coachUserText(items: { index: number; trade: unknown; rules: unknown; facts: unknown; noData: string[] }[]): string {
-  return `Aşağıdaki ${items.length} işlemi koçla. feedback dizisinde TAM ${items.length} öğe olsun (index 0..${items.length - 1}); başka öğe, tekrar veya ek metin ekleme. Bağlam JSON'u (sayılar hesaplanmış; uydurma değil):\n${JSON.stringify(items)}`;
+export function coachUserText(items: { index: number; trade: unknown; legs?: unknown; rules: unknown; facts: unknown; noData: string[] }[]): string {
+  return `Aşağıdaki ${items.length} işlemi koçla. feedback dizisinde TAM ${items.length} öğe olsun (index 0..${items.length - 1}); başka öğe, tekrar veya ek metin ekleme. legs = çıkış dolumları (kısmi çıkışlarda trade.exitPrice ağırlıklı ortalamadır). Bağlam JSON'u (sayılar hesaplanmış; uydurma değil):\n${JSON.stringify(items)}`;
 }
 
 export const KARNE_SYSTEM = `${BASE}

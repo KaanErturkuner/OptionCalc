@@ -9,8 +9,9 @@
  *  GET  /reports?limit=         — (anahtar) son raporlar, yeni → eski, tam metin (en çok 50, varsayılan 10)
  *  GET  /reports/<id>           — (anahtar) tek rapor
  *  GET  /api/md/<yol>?<sorgu>   — (anahtar) MarketData proxy'si; yalnız src/lib/flow/proxy.ts izinli listesi
- *  POST /coach {image,mime,day?} — (anahtar) ekran görüntüsü → işlem çıkarma + koçluk (Haiku; 4 MB; 20/gün, 10 sn)
- *  GET  /coach?day=              — (anahtar) günün işlemleri, geri bildirimleri ve karnesi
+ *  POST /coach {image,mime,day?} — (anahtar) ekran görüntüsü → dolum çıkarma, eşleştirme, koçluk (Haiku; 4 MB; 100/24 sa, 2 sn)
+ *  POST /coach/process?day=      — (anahtar) bekleyen koçlukları işle (en çok 5)
+ *  GET  /coach?day=              — (anahtar) günün dolumları, eşleşmiş işlemleri, açık pozisyonlar, karnesi
  *  POST /coach/karne?day=        — (anahtar) günün karnesini üret (Haiku)
  * Anahtar: başlık x-app-key (sabit zamanlı karşılaştırma). Anahtar/token asla loglanmaz.
  */
@@ -120,7 +121,7 @@ export function createHandler(d: Deps) {
         return r ? send(res, 200, { report: r }) : send(res, 404, { error: 'rapor bulunamadı' });
       }
       if (method === 'GET' && path.startsWith(MD_PROXY_PREFIX + '/')) return mdProxy(req, res, url, t);
-      if (path === '/coach' || path === '/coach/karne') return coachRoute(req, res, url, method, path);
+      if (path === '/coach' || path.startsWith('/coach/')) return coachRoute(req, res, url, method, path);
       return send(res, 404, { error: 'bulunamadı' });
     } catch (e) {
       console.error('istek hatası: ' + errText(e));
@@ -143,6 +144,11 @@ export function createHandler(d: Deps) {
         try { body = JSON.parse(raw); } catch { return send(res, 400, { error: 'geçersiz JSON' }); }
         return send(res, 200, await d.coach.coachImage(body ?? {}));
       }
+      if (method === 'POST' && path === '/coach/process') {
+        const day = url.searchParams.get('day') ?? undefined;
+        if (day != null && !/^\d{4}-\d{2}-\d{2}$/.test(day)) return send(res, 400, { error: 'day=YYYY-MM-DD gerekli' });
+        return send(res, 200, await d.coach.process(day));
+      }
       if (method === 'POST' && path === '/coach/karne') {
         const day = url.searchParams.get('day') ?? '';
         if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return send(res, 400, { error: 'day=YYYY-MM-DD gerekli' });
@@ -150,7 +156,7 @@ export function createHandler(d: Deps) {
       }
       return send(res, 405, { error: 'yöntem desteklenmiyor' });
     } catch (e) {
-      if (e instanceof CoachError) return send(res, e.status, { error: e.message });
+      if (e instanceof CoachError) return send(res, e.status, { error: e.message, ...e.extra });
       console.error('koç hatası: ' + errText(e));
       return send(res, 502, { error: 'koç geçici olarak kullanılamıyor' });
     }

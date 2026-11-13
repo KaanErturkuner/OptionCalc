@@ -68,8 +68,8 @@ export function loadConfig(env: Env = process.env): Config {
     // Yedek model YALNIZ açıkça tanımlanırsa devreye girer (birincil 404/model reddi); her kullanımda loglanır ve kayda yazılır.
     coachFallbackModel: (env.COACH_FALLBACK_MODEL || '').trim(),
     coachAuto: (env.COACH_KARNE_AUTO ?? 'on') !== 'off',
-    coachDailyCap: num(env.COACH_DAILY_CAP, 20),
-    coachMinGapSec: num(env.COACH_MIN_GAP_SEC, 10),
+    coachDailyCap: num(env.COACH_DAILY_CAP, 100),
+    coachMinGapSec: num(env.COACH_MIN_GAP_SEC, 2),
   };
 }
 

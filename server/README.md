@@ -34,8 +34,9 @@ Spec: [`docs/tasks/FLOW.md`](../docs/tasks/FLOW.md). Uygulama tarafı: `src/lib/
 | GET | `/reports?limit=` | ✓ | Son raporlar (yeni → eski, tam metin; en çok 50, varsayılan 10) |
 | GET | `/reports/<id>` | ✓ | Tek rapor |
 | GET | `/api/md/<MarketData yolu>?<sorgu>` | ✓ | MarketData proxy'si (yanıt MarketData ile aynı; `X-Flow-Cache`, `X-Api-Ratelimit-Consumed` başlıkları) |
-| POST | `/coach` `{"image":"<base64>","mime":"image/png","day":"YYYY-MM-DD"?}` | ✓ | Koç: görüntüden işlem çıkarma + koçluk (Haiku). Bkz. "Koç" |
-| GET | `/coach?day=YYYY-MM-DD` | ✓ | Günün koçluk kayıtları, kuralları, geri bildirimleri ve karnesi |
+| POST | `/coach` `{"image":"<base64>","mime":"image/png","day":"YYYY-MM-DD"?}` | ✓ | Koç: ekran görüntüsü → dolum çıkarma, eşleştirme, koçluk (Haiku). Bkz. "Koç" |
+| POST | `/coach/process?day=YYYY-MM-DD`? | ✓ | Koç: bekleyen koçlukları işle (en çok 5) |
+| GET | `/coach?day=YYYY-MM-DD` | ✓ | Günün dolumları, eşleşmiş işlemleri (rapor dâhil), açık pozisyonları, eşleşmeyen satışları, karnesi |
 | POST | `/coach/karne?day=YYYY-MM-DD` | ✓ | Günün karnesini üret (Haiku) |
 
 Saklama: olaylar son 5 işlem günü için tutulur (`store.prune`); eski günler silinir.
@@ -111,8 +112,8 @@ npm run flow:selftest            # sunucu öz-testi (ağ YOK)
 | `FLOW_CACHE_SEC` | 20 | Proxy yanıt önbelleği |
 | `COACH_MODEL` | `claude-haiku-5-5` | Koç birincil modeli |
 | `COACH_FALLBACK_MODEL` | (boş) | Yedek model; yalnız birincil reddedilirse, loglanarak |
-| `COACH_DAILY_CAP` | 20 | Koç: günlük istek sınırı (son 24 sa) |
-| `COACH_MIN_GAP_SEC` | 10 | Koç: iki istek arası asgari süre (sn) |
+| `COACH_DAILY_CAP` | 100 | Koç: 24 saatte (kayan) en çok yükleme (çıkarma çağrısı) |
+| `COACH_MIN_GAP_SEC` | 2 | Koç: iki yükleme arası asgari süre (sn) |
 | `COACH_KARNE_AUTO` | `on` | `off` = kapanış sonrası otomatik karne kapalı |
 
 Sırlar (dosya, root 600): `/etc/optioncalc-flow/md_token`, `/etc/optioncalc-flow/app_key`. (İsteğe bağlı Expo erişim tokenı:
@@ -151,45 +152,79 @@ uygulamada yeni anahtarı gir.
 
 ## Koç (işlem koçu, Haiku)
 
-Midas işlem ekran görüntüsünü alır; **Haiku** (`claude-haiku-5-5`) işlemi okur, Kaan'ın kurallarına ve çıkıştan sonraki fiyat hareketine göre
-Türkçe geri bildirim yazar. Eğitim amaçlıdır; tavsiye değildir.
+Midas ekran görüntülerinden işlemleri çıkarır, alış ile satışı **kodda** eşleştirir ve her kapanmış işlem için Türkçe koçluk
+raporu yazar. Eğitim amaçlıdır; tavsiye değildir. Uygulama: Menü › **Koç** (`src/screens/Koc.tsx`).
 
-- **Akış (tek istek):** görüntü → Haiku #1 (işlem çıkarma, JSON) → bağlam: dayanak 1 dk mumu (**Yahoo**, MarketData kredisi YOK),
-  seans VWAP, giriş/çıkış çevresi 5 dk mumları, çıkış sonrası hareket (15/30/60 dk, lehe/aleyhe), hacim patlaması, duvar
-  anlık görüntüsü (`snap`, poller'dan), akış olayları (SQLite) → Haiku #2 (görüntü + bağlam, koçluk JSON) → SQLite.
-- **Gövde sınırı (Caddy):** `/coach*` **7 MB**, diğer uçlar **8 KB** (`server/Caddyfile`). Tek site sınırı 8 KB görüntüyü 413 ile keserdi (2026-11-14 düzeltildi).
-- **Girdi:** `POST /coach` gövdesi `{ image: <base64>, mime: "image/png" | "image/jpeg", day?: "YYYY-MM-DD" }`. Çözülmüş görüntü en çok **4 MB**
-  (gövde sınırı 6 MB); PNG/JPEG imza baytları kontrol edilir. Gün verilmezse bugün (ET); son 7 güne kadar.
-- **Hız sınırı:** günde en çok **20** istek (son 24 sa, `COACH_DAILY_CAP`), iki istek arası en az **10 sn** (`COACH_MIN_GAP_SEC`). Sayaç SQLite'ta (`coach_calls`), yeniden başlatmada sıfırlanmaz.
-- **Kurallar (deterministik, `src/lib/coach/rules.ts`):** giriş 16:30–20:00 İst; 0–3 DTE; prim stopu = giriş × 0,33 (%67 kayıp);
-  hedef 1:5 (yedek 1:4), brüt. Görüntüden okunamayan değer "bilinmiyor" olur, uydurulmaz.
-- **Model:** `COACH_MODEL` (varsayılan `claude-haiku-5-5`). **Yedek model** `COACH_FALLBACK_MODEL` YALNIZ tanımlıysa ve birincil model
-  reddedilirse (404 / not_found / model hatası) kullanılır; her yedek kullanımı `KOÇ UYARI` olarak loglanır ve çağrı kaydında `fallback=1` olur.
-  Yedek tanımsızsa açık hata döner (sessiz geçiş yok).
-- **Anahtar:** `/etc/optioncalc-flow/anthropic_key` (root, 600), systemd `LoadCredential=anthropic_key`. Ortam değişkeni olarak görünmez; loglarda
-  ve yanıtlarda yer almaz. Dosya **boşsa** (yer tutucu) koç `503 Koç yapılandırılmadı` döner; diğer uç noktalar çalışır.
-  **Dikkat:** `LoadCredential` kaynak dosyası yoksa systemd servisi başlatmaz (`status=243/CREDENTIALS`, 2026-11-13 deneminde yaşandı).
-  `server/deploy.sh` boş, root 600 yer tutucuyu idempotent oluşturur.
-  Kopyalama (anahtar ekrana basılmadan; yerelde `ANTHROPIC_API_KEY` tanımlı olmalı):
+### Akış (v2, toplu)
+
+1. **Yükleme** (`POST /coach`, tek görüntü; uygulama 40 görüntüyü sırayla gönderir): sha256 hesaplanır. Aynı görüntü daha önce
+   işlendiyse **önbellek**: Haiku çağrısı yok, sayaç işlemez.
+2. **Dolum çıkarma** (Haiku #1, `EXTRACT_SYSTEM`, `max_tokens` 400): her satır = bir dolum (`tk, exp, k, cp, q, side buy|sell, px, t, conf`).
+   Dolumlar SQLite `coach_fills` tablosuna yazılır; aynı dolum (zaman+sözleşme+yön+fiyat+adet) tekrar gelirse yeni sayılmaz.
+3. **Eşleştirme** (saf kod, `src/lib/coach/fills.ts`): sözleşme başına (tk+vade+strike+C/P), zaman sırasıyla **FIFO**. Alış bir parti açar;
+   satış en eski partiden düşer. Parti **tamamen** kapanınca bir işlem oluşur (kademeli çıkışlar tek işlemde, çıkış fiyatı ağırlıklı
+   ortalama). Kısmi kapanış = açık pozisyon (koçluk yok). Açık parti yokken gelen satış = **eşleşmeyen satış** (açılışı yüklenmemiş).
+   Yükleme sırası sonucu değiştirmez (dolumlar zamana göre sıralanır); ekran görüntüsü her geldiğinde eşleştirme yeniden hesaplanır.
+4. **Koçluk** (Haiku #2, yalnız **metin**, görüntü yok): her yeni kapanmış işlem için bir çağrı. Girdi: işlem, bacaklar, kurallar,
+   Yahoo 1 dk bağlamı, duvar/akış (varsa). Rapor SQLite `coach_reports` tablosunda, anahtarı **işlem imzası** (dolum kimlikleri);
+   aynı işlem tekrar koçlanmaz. Bir yükleme isteğinde en çok 3 koçluk yapılır; kalanı `POST /coach/process` (uygulama, bekleyen kalmayınca
+   durur). Başarısız koçluk hata olarak loglanır, yüklemeyi bozmaz; aynı işlem 1 saat içinde yeniden denenmez.
+5. **Karne:** `POST /coach/karne?day=` (elle) veya kapanıştan 20 dk sonra otomatik (`COACH_KARNE_AUTO=off` kapatır).
+
+### Sınırlar ve kurallar
+
+- **Gövde (Caddy):** `/coach*` **7 MB**, diğer uçlar **8 KB**. Tek görüntü en çok 4 MB (base64 ≈ 5,6 MB); uygulama bir istekte bir görüntü gönderir.
+- **Hız:** 24 saatte (kayan) en çok **100** çıkarma çağrısı (`COACH_DAILY_CAP`), iki yükleme arası en az **2 sn** (`COACH_MIN_GAP_SEC`).
+  Sınırda `429` + `kind: "gap"` (kısa bekleme) veya `kind: "daily"` (dur). Uygulama `gap`'te geri çekilip yeniden dener, `daily`'de durur.
+- **Dolum kuralları:** en çok 6 satır/görüntü; zorunlu alanı (tk, vade, strike, C/P, adet, prim, saat) eksik satır atılır; hiç satır yoksa `422`.
+- **Saklama:** 30 gün (dolum, rapor, karne, çağrı kaydı). Eşleştirme penceresi de 30 gün; bundan eski açık pozisyonlar görünmez olur.
+- **Model:** `COACH_MODEL` (varsayılan `claude-haiku-5-5`). Yedek `COACH_FALLBACK_MODEL` yalnız tanımlıysa ve birincil reddedilirse
+  kullanılır (`KOÇ UYARI` logu, `fallback=1`).
+- **Anahtar:** `/etc/optioncalc-flow/anthropic_key` (root, 600), systemd `LoadCredential=anthropic_key`. Loglarda ve yanıtlarda yok.
+  Dosya **boşsa** koç `503 Koç yapılandırılmadı` döner. `LoadCredential` kaynağı yoksa servis başlamaz (`status=243/CREDENTIALS`).
+  `server/deploy.sh` boş, root 600 yer tutucuyu idempotent oluşturur. Kopyalama (anahtar ekrana basılmadan):
   ```bash
   printf '%s' "$ANTHROPIC_API_KEY" | ssh -i ~/.ssh/do_flow root@162.243.88.42 'umask 077; cat > /etc/optioncalc-flow/anthropic_key'
   ssh -i ~/.ssh/do_flow root@162.243.88.42 'systemctl restart optioncalc-flow'
   ```
-- **Karne:** `POST /coach/karne?day=` (elle) veya **otomatik**: işlem günü kapanıştan 20 dk sonra, o güne ait koçluk kaydı varsa ve karne
-  yoksa üretilir (dakikada bir kontrol; başarısızlıkta saatte bir yeniden dener). `COACH_KARNE_AUTO=off` kapatır.
-- **Kayıt:** `coach_calls` (her Haiku çağrısı: model, giriş/çıkış token, süre, hata, yedek), `coach_trades` (işlem, kurallar, geri bildirim, bağlam),
-  `coach_karne`. 30 gün tutulur.
-- **Yanıt (özet):** `{ day, model, fallback, okuNamadi, warning, usage:{inTok,outTok}, trades:[{id, trade, rules, report, noData}] }`.
-  `report` (TradeReport, `src/lib/coach/types.ts`): `header` (ticker, strike, C/P, DTE, giriş/çıkış, **brüt ve net P/L** — komisyon kodda
-  hesaplanır: $1,50 / kontrat / yön), `neOldu` (öncesi/sırasında/sonrası + sayılar), `cikis` (✅/⚠️/❌ + neden), `giris` (karar, VWAP
-  uzaklığı, pencere), `strike` (OTM %, beklenen harekete oranı; kural ≈ 0,5), `kacanFirsat` (tutarken/sonra lehe hareket; opsiyon
-  değerleri **tahmini**, Black-Scholes IV %45), `birDahakine` (tam 3 madde), `karne` (3 puan /10 + açıklama).
-  Model yalnız yorum ve karar üretir; sayılar `src/lib/coach/report.ts` + `context.ts` tarafından hesaplanır.
-- **Uygulama:** Menü › **Koç** (`src/screens/Koc.tsx`). Görsel seçici için `expo-image-picker` gerekir; **kurulu değil** (native modül,
-  OTA ile eklenemez → dev build). Seçici yokken ekran yükleme düğmesinde açıklama gösterir; liste, geri bildirim ve karne çalışır.
-  Seçici eklenince yalnız `src/ui/coachPicker.ts` `pickScreenshot()` doldurulur.
-- **Log:** her Haiku çağrısı `koç <tür> model=… in=… out=… stop=<stop_reason>` yazar; `stop=max_tokens` = çıktı kesildi.
-- **Yerel kuru test (ağ YOK, ücret YOK):** `npm run flow:selftest` sahte Anthropic/Yahoo ile uçtan uca koçu sınar.
+- **Log:** her Haiku çağrısı `koç <tür> model=… in=… out=… stop=<stop_reason>`; `stop=max_tokens` = çıktı kesildi.
+
+### Uç noktalar ve yanıtlar
+
+- `POST /coach` → `{ day, duplicate, added, fills:[{id,t,tk,exp,k,cp,q,side,px,conf}], note, model, fallback, coached, pending, warnings, usage }`.
+  `duplicate: true` ise Haiku çağrılmadı. Hata: `429` (`error`, `kind`, `retryAfterSec`), `422` (satır okunamadı), `400`, `503`, `502`.
+- `POST /coach/process?day=` → `{ processed, pending, errors }`.
+- `GET /coach?day=` → `{ day, fills, trades:[{sig,tk,exp,k,cp,qty,entryT,entryPx,exitT,exitPx,legs,conf,status:"hazir"|"bekliyor",ts,report}],
+  open:[{tk,exp,k,cp,qty,entryT,entryPx,closedQty,closedPx}], orphans:[fill], pending, karne, usage }`.
+  `report` (TradeReport, `src/lib/coach/types.ts`): başlık (brüt/net P/L, komisyon $1,50/kontrat/yön, kodda), öncesi/sırasında/sonrası,
+  çıkış/giriş/strike kararları (✅⚠️❌❔, kodda emoji), kaçan fırsat (**tahmini**, BS IV %45), 3 somut öneri, karne (/10).
+  Sayılar kodda hesaplanır; model yalnız yorum ve karar üretir.
+
+### Maliyet tahmini (Haiku 5.5: girdi $0,10 / çıktı $0,50 per MTok; 100K altı istem)
+
+Varsayım: görüntü ≈ 1.600 token (görüntü boyutuna bağlı; **ölçülmedi**, aşağıda), çıkarma istemi ≈ 450 token, çıktı ≈ 150 token;
+koçluk girdisi ≈ 3.500 token (istem + bağlam JSON; görüntü yok), çıktısı ≈ 1.500 token (canlı denemede 1.266–2.054).
+
+| Kalem | Adet/gün | Girdi | Çıktı | Maliyet |
+|---|---|---|---|---|
+| Dolum çıkarma | 40 | 40 × ~2.050 ≈ 82K | 40 × 150 = 6K | ≈ $0,011 |
+| Koçluk (eşleşen kapanmış işlem) | 20 | 20 × 3.500 = 70K | 20 × 1.500 = 30K | ≈ $0,022 |
+| Karne | 1 | ≈ 3K | ≈ 0,5K | ≈ $0,001 |
+| **Toplam** | | | | **≈ $0,035 / gün** (≈ $1 / 30 gün) |
+
+Önbellek (aynı görüntü) ve yeniden koçlanmayan işlemler maliyeti düşürür. Üst sınır: 100 çıkarma/24 sa ≈ $0,03 (çıkarma) + en çok
+koçluk. Gerçek görüntü tokeni `usage.inTok` ile yanıtta ve `GET /coach` içinde (`usage`) izlenir; ilk gerçek yüklemeden sonra bu tahmin güncellenmeli.
+
+### Yerel kuru test (ağ YOK, ücret YOK)
+
+`npm run flow:selftest`: sahte Anthropic ve Yahoo ile çıkarma → önbellek → sırasız yükleme → kısmi çıkış → koçluk hatası ve kurtarma →
+hız sınırı (gap/daily) → karne → anahtar sızıntısı yok. Saf eşleştirme: `test/coach-fills.test.ts`; yükleme kuyruğu: `test/coach-queue.test.ts`.
+
+### Uygulama (özet)
+
+- Seçici: en çok **40** görüntü (`src/ui/coachPicker.ts`, `expo-image-picker`); yükleme sırası: `src/lib/coach/queue.ts` (ilerleme `n/N`,
+  429/ağ/5xx'te üstel geri çekilme, günlük sınırda ve 401'de durur, tek görüntü hatasında devam eder).
+- Ekran: eşleşmiş işlemler (rapor kartı veya "koçluk bekliyor"), açık pozisyonlar, eşleşmeyen satışlar, okunan dolumlar, karne.
 
 ## Raporlar (zamanlanmış piyasa özetleri)
 
@@ -239,7 +274,7 @@ Anahtarlı istek için, anahtarı yerelde bir değişkene oku (`K=$(ssh … 'cat
 | `app/http.ts` | HTTP uç noktaları, anahtar kontrolü, hız sınırı, proxy izin listesi, önbellek |
 | `app/store.ts` | SQLite (kredi, taban, olaylar, soğuma, tokenlar) |
 | `app/push.ts` | Expo push gönderimi; `DeviceNotRegistered` tokenları siler |
-| `app/coach.ts` | Koç: Anthropic istemcisi (yedek model), görüntü → çıkarma → bağlam → koçluk, karne, oto-karne |
+| `app/coach.ts` | Koç: Anthropic istemcisi (yedek model), yükleme (önbellek, dolum çıkarma, eşleştirme), koçluk kuyruğu, karne, oto-karne |
 | `app/fixture.ts`, `fixtures/synthetic-chain.json` | Sentetik veriyle dry-run/test (gerçek MarketData verisi DEĞİL) |
 | `app/selftest.ts` | Öz-test (`npm run flow:selftest`) |
 | `provision.sh` | Sunucu kurulumu (idempotent) |

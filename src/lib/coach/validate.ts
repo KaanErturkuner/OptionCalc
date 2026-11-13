@@ -2,7 +2,7 @@
  * Model çıktısının ayrıştırılması ve doğrulanması (saf). Model metni güvenilmez girdidir: JSON ayıklanır, tipler
  * ve enum'lar denetlenir, uzunluklar kırpılır. Geçersiz çıktı → { ok:false, error } (asla kısmi/uydurma sonuç yok).
  */
-import type { ExtractedTrade, Karne, ModelFeedback, OptSide } from './types.ts';
+import type { Conf, Karne, ModelFeedback } from './types.ts';
 import { istToMs } from './time.ts';
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -25,34 +25,32 @@ const pick = <T extends string>(x: unknown, allowed: readonly T[], fallback: T):
   (allowed as readonly string[]).includes(x as string) ? (x as T) : fallback;
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Görüntüden çıkan işlem listesi */
-export function validateExtract(o: Record<string, unknown>): Result<{ trades: ExtractedTrade[]; okunamadi: string | null }> {
-  const raw = Array.isArray(o.trades) ? o.trades.slice(0, 5) : [];
-  const trades: ExtractedTrade[] = [];
+export interface FillInput { tk: string; exp: string; k: number; cp: 'C' | 'P'; q: number; side: 'buy' | 'sell'; px: number; t: string; conf: Conf }
+
+const SIDE: Record<string, 'buy' | 'sell'> = {
+  buy: 'buy', al: 'buy', alis: 'buy', 'alış': 'buy', acilis: 'buy', 'açılış': 'buy',
+  sell: 'sell', sat: 'sell', satis: 'sell', 'satış': 'sell', kapanis: 'sell', 'kapanış': 'sell',
+};
+
+/** Görüntüden çıkan dolumlar (en çok 6). Zorunlu alanı eksik/geçersiz satır atılır; hiç satır kalmazsa hata (note ile). */
+export function validateFills(o: Record<string, unknown>): Result<{ fills: FillInput[]; note: string | null }> {
+  const raw = Array.isArray(o.fills) ? o.fills.slice(0, 6) : [];
+  const fills: FillInput[] = [];
   for (const x of raw) {
     if (!x || typeof x !== 'object') continue;
     const r = x as Record<string, unknown>;
-    const side = String(r.side ?? '').toUpperCase();
-    const ticker = str(r.ticker, 12).toUpperCase().replace(/[^A-Z0-9.]/g, '');
-    const expiry = str(r.expiry, 10);
-    const strike = num(r.strike);
-    if (!ticker || (side !== 'CALL' && side !== 'PUT') || !YMD.test(expiry) || strike == null || strike <= 0) continue;
-    const entryTime = optStr(r.entryTime, 16), exitTime = optStr(r.exitTime, 16);
-    const trade: ExtractedTrade = {
-      ticker, side: side as OptSide, strike, expiry,
-      qty: num(r.qty) != null && (num(r.qty) as number) > 0 ? Math.round(num(r.qty) as number) : null,
-      entryTime: entryTime && istToMs(entryTime) != null ? entryTime : null,
-      entryPrice: num(r.entryPrice) != null && (num(r.entryPrice) as number) > 0 ? num(r.entryPrice) : null,
-      exitTime: exitTime && istToMs(exitTime) != null ? exitTime : null,
-      exitPrice: num(r.exitPrice) != null && (num(r.exitPrice) as number) >= 0 ? num(r.exitPrice) : null,
-      status: pick(r.status, ['kapali', 'acik'] as const, 'kapali'),
-      confidence: pick(r.confidence, ['yuksek', 'orta', 'dusuk'] as const, 'dusuk'),
-    };
-    if (trade.status === 'kapali' && (trade.exitTime == null || trade.exitPrice == null)) trade.status = 'acik';
-    trades.push(trade);
+    const tk = str(r.tk, 12).toUpperCase().replace(/[^A-Z0-9.]/g, '');
+    const exp = str(r.exp, 10);
+    const k = num(r.k), q = num(r.q), px = num(r.px);
+    const cpS = str(r.cp, 6).toUpperCase();
+    const cp = cpS === 'C' || cpS === 'CALL' ? 'C' : cpS === 'P' || cpS === 'PUT' ? 'P' : null;
+    const side = SIDE[str(r.side, 12).toLowerCase()] ?? null;
+    const t = optStr(r.t, 16);
+    if (!tk || !YMD.test(exp) || k == null || k <= 0 || !cp || q == null || q < 1 || !side || px == null || px <= 0 || !t || istToMs(t) == null) continue;
+    fills.push({ tk, exp, k, cp, q: Math.round(q), side, px, t, conf: pick(r.conf, ['yuksek', 'orta', 'dusuk'] as const, 'dusuk') });
   }
-  if (!trades.length) return { ok: false, error: str(o.okunamadi, 300) || 'Görüntüde işlem okunamadı' };
-  return { ok: true, value: { trades, okunamadi: optStr(o.okunamadi, 300) } };
+  if (!fills.length) return { ok: false, error: str(o.note, 300) || 'Görüntüde işlem satırı okunamadı' };
+  return { ok: true, value: { fills, note: optStr(o.note, 300) } };
 }
 
 const int010 = (x: unknown): number | null => { const n = num(x); return n == null ? null : Math.min(10, Math.max(0, Math.round(n))); };
