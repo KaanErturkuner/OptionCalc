@@ -8,7 +8,7 @@ import type { SignalLog } from '@/lib/signals/log';
 import type { Opp } from '@/lib/signals/opp';
 import type { ApprovalState } from '@/lib/paper/approval';
 import type { PaperAccount, Kademe } from '@/lib/paper/types';
-import { initAccount } from '@/lib/paper/account';
+import { initAccount, migrateSettings, FIRSAT_SCHEMA } from '@/lib/paper/account';
 
 const KEY = 'firsat-v1';
 export interface FirsatSettings {
@@ -40,6 +40,7 @@ export interface PosLive { bid: number; rMult: number; at: number; triggers: str
 export interface Archived { at: number; account: PaperAccount }
 
 export interface FirsatData {
+  schema?: number;                // kayıt şema sürümü (account.ts FIRSAT_SCHEMA)
   settings: FirsatSettings;
   status: Record<string, TickerStatus>;
   lastScan: number | null;
@@ -50,7 +51,7 @@ export interface FirsatData {
   posLive: PosLive | null;
   archive: Archived[];
 }
-const EMPTY: FirsatData = { settings: DEF_FIRSAT, status: {}, lastScan: null, sent: [], log: [], paper: null, cards: [], posLive: null, archive: [] };
+const EMPTY: FirsatData = { schema: FIRSAT_SCHEMA, settings: DEF_FIRSAT, status: {}, lastScan: null, sent: [], log: [], paper: null, cards: [], posLive: null, archive: [] };
 let data: FirsatData = EMPTY, loaded = false;
 const subs = new Set<() => void>();
 const emit = () => { subs.forEach(f => f()); AsyncStorage.setItem(KEY, JSON.stringify(data)).catch(() => {}); };
@@ -62,12 +63,14 @@ async function doLoad() {
     const raw = await AsyncStorage.getItem(KEY);
     if (raw) {
       const j = JSON.parse(raw);
-      data = { ...EMPTY, ...j, settings: { ...DEF_FIRSAT, ...(j.settings ?? {}) } };
+      const schema = Number(j.schema ?? 1);
+      data = { ...EMPTY, ...j, schema: FIRSAT_SCHEMA, settings: { ...DEF_FIRSAT, ...(j.settings ?? {}) } };
       if (j.paper) {
         const start = Number(j.paper.settings?.startCapital ?? j.paper.capital) || 300;
         const base = initAccount(start, {}, typeof j.paper.day === 'string' ? j.paper.day : '');
         const k: Kademe = j.paper.kademe === 0.3 || j.paper.kademe === 0.4 || j.paper.kademe === 0.5 ? j.paper.kademe : 0.5;
-        data.paper = { ...base, ...j.paper, kademe: k, settings: { ...base.settings, ...(j.paper.settings ?? {}) } };
+        const settings = migrateSettings({ ...base.settings, ...(j.paper.settings ?? {}) }, schema);
+        data.paper = { ...base, ...j.paper, kademe: k, settings };
       }
     }
   } catch { /* boş */ }

@@ -6,9 +6,8 @@ import { DEFAULT_COMMISSION, DEFAULT_SLIPPAGE, netPnl } from './costs.ts';
 
 // ---- sabitler (Kaan kuralları + §7.4 varsayımları) ----
 export const WIN_STREAK_KAR = 4;         // gün içi 4 kazanç → GUVENLI_KAR
-export const LOSS_STREAK_ZARAR = 2;      // üst üste 2 kayıp → GUVENLI_ZARAR
-export const LOSS_STREAK_DURDU = 4;      // güvenli modda 2 kayıp daha (toplam 4) → DURDU (§7.4, açık madde §11.2 #1)
-export const DRAWDOWN_DURDU = 0.5;       // gün içi düşüş ≥ gün başı sermayenin %50'si → DURDU
+export const LOSS_STREAK_ZARAR = 2;      // üst üste 2 kayıp → GUVENLI_ZARAR (Kaan kararı D12)
+export const SAFE_LOSS_DURDU = 2;        // GUVENLI_ZARAR'a girdikten sonra üst üste 2 kayıp daha → DURDU (Kaan kararı D12, varsayılan AÇIK)
 export const BREAKEVEN_PCT = 0.02;       // |net K/Z| < pozisyonun %2'si → başabaş
 export const TRADE_KEEP = 500;
 
@@ -26,11 +25,11 @@ export type SignalMode = Exclude<PaperMode, 'DURDU'>;
 
 export function initAccount(startCapital: number, over: Partial<PaperSettings> = {}, day = ''): PaperAccount {
   const settings: PaperSettings = {
-    // DURDU varsayılan KAPALI (Kaan kararı 2026-11-13, §11.1 K9). Ayar olarak açılabilir.
-    startCapital, fractional: false, commission: DEFAULT_COMMISSION, slippage: DEFAULT_SLIPPAGE, durduEnabled: false, ...over,
+    // DURDU varsayılan AÇIK (Kaan kararı D12, 2026-11-13). Ayarla kapatılabilir.
+    startCapital, fractional: false, commission: DEFAULT_COMMISSION, slippage: DEFAULT_SLIPPAGE, durduEnabled: true, ...over,
   };
   return {
-    capital: startCapital, kademe: START_KADEME, mode: 'AGRESIF', winStreak: 0, lossStreak: 0,
+    capital: startCapital, kademe: START_KADEME, mode: 'AGRESIF', winStreak: 0, lossStreak: 0, safeLossStreak: 0,
     day, dayStartCapital: startCapital, dayPnl: 0, position: null, trades: [], settings,
   };
 }
@@ -41,20 +40,25 @@ export function classify(net: number, costBasis: number): TradeResult {
   return net > 0 ? 'kazanc' : 'kayip';
 }
 
+/** Kayıt şema sürümü: 2 = DURDU açık (D12). Şema 1 kayıtlarda DURDU varsayılan kapalıydı; bir kere açılır. */
+export const FIRSAT_SCHEMA = 2;
+export function migrateSettings(s: PaperSettings, schema: number): PaperSettings {
+  return schema < FIRSAT_SCHEMA ? { ...s, durduEnabled: true } : s;
+}
+
 /** Gün geçişi (09:30 ET): mod AGRESIF, ardışık sayaçlar ve gün başı sermaye sıfırlanır. Kademe ve açık pozisyon taşınır (§7.4). */
 export function startDay(acc: PaperAccount, day: string): PaperAccount {
   if (acc.day === day) return acc;
-  return { ...acc, day, mode: 'AGRESIF', winStreak: 0, lossStreak: 0, dayStartCapital: acc.capital, dayPnl: 0 };
+  return { ...acc, day, mode: 'AGRESIF', winStreak: 0, lossStreak: 0, safeLossStreak: 0, dayStartCapital: acc.capital, dayPnl: 0 };
 }
 
 /** Hesap modu geçişi. Öncelik: DURDU > GUVENLI_ZARAR > GUVENLI_KAR > AGRESIF. Mod gün sonuna kadar yapışkandır. */
 export function nextMode(prev: PaperMode, s: {
-  winStreak: number; lossStreak: number; dayPnl: number; dayStartCapital: number;
-  lossLandedAt30: boolean; durduEnabled: boolean;
+  winStreak: number; lossStreak: number; safeLossStreak: number; durduEnabled: boolean;
 }): PaperMode {
-  const drawdown = s.dayStartCapital > 0 && -s.dayPnl >= DRAWDOWN_DURDU * s.dayStartCapital;
-  if (prev === 'DURDU' || (s.durduEnabled && (s.lossStreak >= LOSS_STREAK_DURDU || drawdown))) return 'DURDU';
-  if (prev === 'GUVENLI_ZARAR' || s.lossStreak >= LOSS_STREAK_ZARAR || s.lossLandedAt30) return 'GUVENLI_ZARAR';
+  // safeLossStreak: GUVENLI_ZARAR'a girişten sonraki ardışık kayıplar (kazanç sıfırlar, başabaş değiştirmez).
+  if (prev === 'DURDU' || (s.durduEnabled && prev === 'GUVENLI_ZARAR' && s.safeLossStreak >= SAFE_LOSS_DURDU)) return 'DURDU';
+  if (prev === 'GUVENLI_ZARAR' || s.lossStreak >= LOSS_STREAK_ZARAR) return 'GUVENLI_ZARAR';
   if (prev === 'GUVENLI_KAR' || s.winStreak >= WIN_STREAK_KAR) return 'GUVENLI_KAR';
   return 'AGRESIF';
 }
@@ -141,6 +145,9 @@ export function closePosition(acc: PaperAccount, exit: number, reason: ExitReaso
   const kademe = kademeAfter(p.kademe, result);
   const lossStreak = result === 'kazanc' ? 0 : result === 'kayip' ? a.lossStreak + 1 : a.lossStreak;
   const winStreak = result === 'kayip' ? 0 : result === 'kazanc' ? a.winStreak + 1 : a.winStreak;
+  // Güvenli moda girişten sonra sayılan kayıplar; işlem güvenli modda kapandıysa sayılır, değilse 0.
+  const inSafe = a.mode === 'GUVENLI_ZARAR';
+  const safeLossStreak = !inSafe ? 0 : result === 'kayip' ? a.safeLossStreak + 1 : result === 'kazanc' ? 0 : a.safeLossStreak;
   const capital = a.capital + net;
   const dayPnl = a.dayPnl + net;
   const trade: ClosedTrade = {
@@ -148,14 +155,11 @@ export function closePosition(acc: PaperAccount, exit: number, reason: ExitReaso
     fill: p.fill, exit, rDollars: p.rDollars, netPnl: net, rMultiple: p.rDollars > 0 ? net / p.rDollars : 0,
     result, reason, capitalBefore: a.capital, capitalAfter: capital, overnight: p.overnight, gap,
   };
-  const mode = nextMode(a.mode, {
-    winStreak, lossStreak, dayPnl, dayStartCapital: a.dayStartCapital,
-    lossLandedAt30: result === 'kayip' && kademe === 0.3, durduEnabled: a.settings.durduEnabled,
-  });
+  const mode = nextMode(a.mode, { winStreak, lossStreak, safeLossStreak, durduEnabled: a.settings.durduEnabled });
   return {
     ok: true,
     acc: {
-      ...a, capital, kademe, winStreak, lossStreak, dayPnl, mode, position: null,
+      ...a, capital, kademe, winStreak, lossStreak, safeLossStreak, dayPnl, mode, position: null,
       trades: [...a.trades, trade].slice(-TRADE_KEEP),
     },
   };
