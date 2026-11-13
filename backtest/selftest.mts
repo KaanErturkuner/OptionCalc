@@ -66,6 +66,14 @@ ok('B7: Kaan kuralları yalnız prim çıkışları ve zaman çıkışı üretir
 const ps = kr.filter(t => t.why === 'prim-stop'), pt5 = kr.filter(t => t.why === 'prim-target');
 ok('B7: prim stopu çıkışı ≤ giriş × 0,33 (+ tolerans)', ps.every(t => t.exit <= t.entry * 0.33 + 0.03), ps.map(t => `${t.entry}/${t.exit}`).join(' '));
 ok('B7: prim hedefi çıkışı ≥ giriş + 5 × 0,67 × giriş (− tolerans)', pt5.every(t => t.exit >= t.entry * (1 + 5 * 0.67) - 0.03), pt5.map(t => `${t.entry}/${t.exit}`).join(' '));
+// Kaan modunda dayanak hedefi çıkış değildir (yalnız prim hedefi); dayanak stopu çalışmaya devam eder.
+{
+  const near: any = { id: 'test-near', name: 'near', description: 'yakın dayanak hedefi', defaults: { ...COMMON_DEFAULTS, startMin: 15, endMin: 380, maxPerDay: 1 },
+    space: {}, evaluate: (c: any) => ({ dir: 'call', undTarget: c.S * 1.0005, undStop: c.S * 0.5 }) };
+  const plain = runStrategy(days, near, near.defaults, { source: src });
+  const kn = runStrategy(days, near, near.defaults, { source: src, kaan: { targetN: 5 } });
+  ok('Kaan modu: dayanak hedefi çıkışı yok (prim hedefi esas)', plain.some(t => t.why === 'target') && kn.every(t => t.why !== 'target'), kn.map(t => t.why).join(','));
+}
 // Oto k geçmişi sızıntısız: gün i'de ratios uzunluğu = i (yalnız önceki günler)
 {
   const seen = new Map<string, number>();

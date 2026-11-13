@@ -63,8 +63,9 @@ export function simulateEntry(d: Day, t: number, S: number, e: StratEntry, p: Co
     const tgtOpen = call ? b.o >= e.undTarget : b.o <= e.undTarget, tgtHit = call ? b.h >= e.undTarget : b.l <= e.undTarget;
     if (stopOpen) { Sx = b.o; tx = b.t; why = 'stop'; break; }
     if (stopHit) { Sx = e.undStop; tx = b.t + 30000; why = 'stop'; break; }
-    if (tgtOpen) { Sx = b.o; tx = b.t; why = 'target'; break; }
-    if (tgtHit) { Sx = e.undTarget; tx = b.t + 30000; why = 'target'; break; }
+    // Kaan modunda hedef PRİM hedefidir (uygulama riskwatch'ı da yalnız prim hedefinde kapatır); dayanak hedefi kazancı kırpmasın.
+    if (!kaan && tgtOpen) { Sx = b.o; tx = b.t; why = 'target'; break; }
+    if (!kaan && tgtHit) { Sx = e.undTarget; tx = b.t + 30000; why = 'target'; break; }
     if (kaan) {   // prim kuralları: aleyhte uç fiyatta prim stopu, lehte uç fiyatta risk bazlı prim hedefi
       const adv = call ? b.l : b.h, fav = call ? b.h : b.l;
       if (primBid(adv, b.t) <= primStopAt) { Sx = adv; tx = b.t + 30000; why = 'prim-stop'; break; }
