@@ -1,5 +1,5 @@
-/* Fırsat tarama turu: veri → vade → snapshot → A1/A2 uyumu (yardımcı semboller) → setuplar (S1–S6) → strike + RR → durum.
- * Skor (Aşama 2 bağlantısı) ve bildirim bu tura henüz bağlı değil. MarketData'ya HİÇ gitmez (zincir CBOE/Yahoo). */
+/* Fırsat tarama turu (Aşama 5 bağlantısı): veri → vade → snapshot → A1/A2/A3 → setuplar → strike + RR → skor → kart → onay/süre
+ * → kâğıt pozisyon tick'i → bildirim. MarketData'ya HİÇ gitmez (zincir CBOE/Yahoo). Gerçek emir yok. */
 import { loadSymbol, loadChain } from '@/lib/market';
 import { loadBars } from '@/lib/market/bars';
 import { trimChain } from '@/lib/odte/scan';
@@ -12,21 +12,41 @@ import { dteWarning } from '@/lib/signals/tickers';
 import { frameAligned, volRatio } from '@/lib/signals/features';
 import { alignFor } from '@/lib/signals/align';
 import { allowedFor, runSetups } from '@/lib/signals/setups/index';
-import { scanStrikes } from '@/lib/signals/strikes';
+import { scanStrikes, type Quote } from '@/lib/signals/strikes';
 import { etMinutes, sessionLeftMin, timeToExpiryMin, timeToExpiryYears, scaleEm } from '@/lib/signals/session';
+import { buildOpp, type Opp, type OppInput } from '@/lib/signals/opp';
+import { t1ReversalCandle, t2VwapLoss, t3RegimeFlip, t6Theta, modeTargetR, profitR, type TriggerId } from '@/lib/signals/riskwatch';
+import { gateCheck, gateRecord, type Sent } from '@/lib/signals/gate';
+import { appendLog, type SignalLog } from '@/lib/signals/log';
 import type { SetupCtx } from '@/lib/signals/types';
+import { initAccount, startDay, openPosition, MODE_RULES, type Result } from '@/lib/paper/account';
+import { tickPosition, outcomeOf } from '@/lib/paper/engine';
+import { approvalTtlMs, expiryReason, repriceOnApprove, resolveApproval, decisionLabel, type ApprovalSignal } from '@/lib/paper/approval';
+import type { PaperAccount, OpenPosition, Kademe } from '@/lib/paper/types';
 import { etDate } from '@/lib/usmarket';
+import { radar } from '@/ui/radarStore';
+import { notifyFirsat } from '@/ui/notify';
 import { cached, SCAN_TTL } from './scanCache';
-import { firsat, type TickerStatus } from './firsatStore';
+import { firsat, type TickerStatus, type Card, type PosLive } from './firsatStore';
 
 let running = false;
 const FRAMES = [1, 5, 15];
+const START_CAPITAL = 300;                      // Kaan'ın örnek sermayesi; ayardan değiştirilir
+const RADAR_WINDOW_MS = 30 * 60000;
 const dteOf = (exp: string, today: string) => Math.round((Date.parse(exp) - Date.parse(today)) / 864e5);
 const emptyStatus = (at: number): TickerStatus => ({
   at, spot: NaN, changePct: NaN, expiry: '', dte: 0, emPct: NaN, expectedMove: NaN,
   k: NaN, kSource: '', kNote: '', vwapSide: '—', frames: '', volRatio: null,
   source: '', delayedMin: 0, warn: null, setups: [],
 });
+
+/** Bir tarama turunda bir ticker için tüm girdi/çıktılar. */
+export interface Scan {
+  ticker: string; status: TickerStatus; cands: Opp[]; quotes: Quote[];
+  S: number; ivAtm: number | null; sb: Bar[]; leftMin: number; etMin: number; emRemain: number;
+  ratio: number; regimeSideNow: 1 | -1 | null; chainAgeSec: number; barAgeSec: number; delayedMin: number; source: string;
+}
+interface Acct { mode: PaperAccount['mode']; capital: number; kademe: Kademe; commission: number; fractional: boolean; hasPosition: boolean; ttlMin: number | null }
 
 async function loadAux(syms: string[], now: number): Promise<Record<string, Bar[] | undefined>> {
   const out: Record<string, Bar[] | undefined> = {};
@@ -37,7 +57,21 @@ async function loadAux(syms: string[], now: number): Promise<Record<string, Bar[
   return out;
 }
 
-async function scanOne(t: string, now: number): Promise<TickerStatus> {
+/** Radar uyarılarından son 30 dk'da aynı yön (toplam şiddet) ve ters yön (en büyük şiddet). */
+function radarFor(t: string, dir: 'bull' | 'bear', now: number): { same: number; oppMax: number } {
+  let same = 0, oppMax = 0;
+  const opp = dir === 'bull' ? 'bear' : 'bull';
+  for (const a of radar.get().alerts) {
+    if (a.ticker !== t || now - a.at > RADAR_WINDOW_MS) continue;
+    for (const s of a.signals) {
+      if (s.direction === dir) same += s.severity;
+      else if (s.direction === opp) oppMax = Math.max(oppMax, s.severity);
+    }
+  }
+  return { same, oppMax };
+}
+
+async function scanOne(t: string, now: number, acct: Acct): Promise<Scan> {
   const today = etDate(now), p = profileFor(t);
   const data = await cached('fırsat:' + t, SCAN_TTL, async () => {
     const L = await loadSymbol(t, 'auto', {});
@@ -46,7 +80,7 @@ async function scanOne(t: string, now: number): Promise<TickerStatus> {
     const pick = exps.find((_, i) => dtes[i] >= p.dte[0] && dtes[i] <= p.dte[1]) ?? exps[0];
     if (!pick) throw new Error('vade bulunamadı');
     const [chRaw, B] = await Promise.all([loadChain(L.provider, t, pick, {}, 40), loadBars(t)]);
-    return { L, dtes, pick, chain: trimChain(chRaw, L.quote.price), bars: B.bars };
+    return { L, dtes, pick, chain: trimChain(chRaw, L.quote.price), bars: B.bars, at: Date.now() };
   });
   const sb = sessionBars(data.bars, now);
   const price = data.L.quote.price;
@@ -54,41 +88,181 @@ async function scanOne(t: string, now: number): Promise<TickerStatus> {
     source: data.L.quote.source, delayedMin: data.L.quote.delayedMin, dataTime: data.L.quote.time, prevOi: null, atmIvSession0: null, sector: null });
   const vw = vwap(sb), or = openRange(sb, 15), ratio = volRatio(sb);
   const bullN = FRAMES.filter(m => frameAligned(sb, 'bull', m)).length, bearN = FRAMES.filter(m => frameAligned(sb, 'bear', m)).length;
-  // Geçmiş oranı henüz birikmediği için k başlangıç değeridir
   const ak = autoK({ rule: p.otm, ratios: [], ivRank: null });
   const dte = dteOf(data.pick, today);
   const setups: string[] = [];
-  // Setuplar: seans açık, EM/OR/VWAP/hacim hazırsa çalışır
+  const cands: Opp[] = [];
   const etMin = etMinutes(now), leftMin = sessionLeftMin(now);
   const toExpMin = timeToExpiryMin(today, data.pick, leftMin);
   const T0 = timeToExpiryYears(toExpMin);
   const { emDay: em, emRemain } = scaleEm(snap.expectedMove ?? NaN, leftMin, toExpMin);
+  const barAgeSec = sb.length ? Math.max(0, (now - sb[sb.length - 1].t) / 1000) : 0;
+  const chainAgeSec = Math.max(0, (now - data.at) / 1000);
+  let regimeSideNow: 1 | -1 | null = null;
   if (leftMin > 0 && Number.isFinite(em) && or && vw != null && sb.length >= 2 && Number.isFinite(ratio)) {
     const aux = await loadAux(auxSymbols([t]), now);
     aux[t] = sb; // rejimde kendi sembolü olan profiller (QQQ) için
-    const align = { bull: alignFor(p, aux, 'bull').all, bear: alignFor(p, aux, 'bear').all };
+    const bull = alignFor(p, aux, 'bull'), bear = alignFor(p, aux, 'bear');
+    const prim = p.regime[0], pb = prim ? aux[prim.sym] : undefined;
+    if (prim && pb && pb.length) {
+      const v = vwap(pb), last = pb[pb.length - 1].c;
+      const side = v == null ? 0 : Math.sign(last - v) * prim.sign;
+      regimeSideNow = side > 0 ? 1 : side < 0 ? -1 : null;
+    }
     const ctx: SetupCtx = { ticker: t, now, etMin, dte, bars: sb, S: price, em, emRemain, vwap: vw, orHi: or.high, orLo: or.low,
-      volRatio: ratio, align, allowed: allowedFor(t), newsImpulse: null,
+      volRatio: ratio, align: { bull: bull.all, bear: bear.all }, allowed: allowedFor(t), newsImpulse: null,
       walls: { call: snap.callWall, put: snap.putWall, gexNeg: (snap.netGex ?? 0) < 0 }, ivRank: null, rv10: null, atmIv: snap.atmIv ?? null };
-    const quotes = [...data.chain.calls, ...data.chain.puts].map(q => ({ type: q.type, strike: q.strike, bid: q.bid, ask: q.ask, iv: q.iv, volume: q.volume, oi: q.oi }));
+    const quotes: Quote[] = [...data.chain.calls, ...data.chain.puts].map(q => ({ type: q.type, strike: q.strike, bid: q.bid, ask: q.ask, iv: q.iv, volume: q.volume, oi: q.oi }));
     for (const c of runSetups(ctx)) {
-      const type = c.dir === 'bull' ? 'call' : 'put', dl = type === 'call' ? 'call' : 'put';
+      const type = c.dir === 'bull' ? 'call' : 'put';
       const pick = scanStrikes({ type, S: price, d: otmDistance(ak.k, em), quotes, T0, und: c.und, emRemain, sessionLeftMin: leftMin,
         minVol: p.minVol, minOi: p.minOi, maxSpreadPct: p.maxSpreadPct });
+      if (pick) {
+        const q = quotes.find(x => x.type === type && x.strike === pick.strike);
+        if (q) {
+          const al = c.dir === 'bull' ? bull : bear, other = c.dir === 'bull' ? bear : bull;
+          const oi: OppInput = {
+            ticker: t, setup: c.setup, dir: c.dir, pick, spot: price, und: c.und, reasons: c.reason,
+            em, emRemain, expiry: data.pick, dte, etMin, leftMin, marketOpen: leftMin > 0, now,
+            delayedMin: data.L.quote.delayedMin, barAgeSec, chainAgeSec,
+            regime: { vwapAll: al.vwapAll, orAll: al.orAll, opposite: other.vwapAll },
+            sector: { present: p.sector.length > 0, vwapOk: al.sectorAll },
+            frames: c.dir === 'bull' ? bullN : bearN, volRatio: ratio,
+            radar: radarFor(t, c.dir, now),
+            maxSpreadPct: p.maxSpreadPct, spreadPct: q.ask > 0 ? ((q.ask - q.bid) / q.ask) * 100 : 100,
+            liquid: q.volume >= p.minVol || q.oi >= p.minOi,
+            account: { mode: acct.mode, capital: acct.capital, kademe: acct.kademe, commission: acct.commission, fractional: acct.fractional },
+            ttlMin: approvalTtlMs(dte, acct.ttlMin ?? undefined) / 60000,
+            quote: { bid: q.bid, ask: q.ask, iv: q.iv },
+          };
+          const opp = buildOpp(oi);
+          if (acct.hasPosition) { opp.eligible = false; opp.reason = 'açık pozisyon var'; }
+          cands.push(opp);
+          setups.push(opp.eligible
+            ? `${c.setup} ${type} · strike ${pick.strike} · RR 1:${pick.rr.rr.toFixed(1)} · skor ${opp.score} · uygun`
+            : `${c.setup} ${type} · strike ${pick.strike} · RR 1:${pick.rr.rr.toFixed(1)} · skor ${opp.score} · ${opp.reason}`);
+          continue;
+        }
+      }
       setups.push(pick
-        ? `${c.setup} ${dl} · strike ${pick.strike} · RR 1:${pick.rr.rr.toFixed(1)} · dayanak ${c.und.stop.toFixed(2)} → ${c.und.target.toFixed(2)}`
-        : `${c.setup} ${dl}: uygun strike/RR yok`);
+        ? `${c.setup} ${type} · strike ${pick.strike} · RR 1:${pick.rr.rr.toFixed(1)} · dayanak ${c.und.stop.toFixed(2)} → ${c.und.target.toFixed(2)}`
+        : `${c.setup} ${type}: uygun strike/RR yok`);
     }
   }
-  return {
+  const status: TickerStatus = {
     at: now, spot: price, changePct: data.L.quote.changePct, expiry: data.pick, dte, emPct: snap.emPct ?? NaN, expectedMove: snap.expectedMove ?? NaN,
     k: ak.k, kSource: ak.source, kNote: ak.note, vwapSide: vw == null ? '—' : price >= vw ? 'üstünde' : 'altında',
     frames: `yükseliş ${bullN}/3 · düşüş ${bearN}/3`, volRatio: Number.isFinite(ratio) ? +ratio.toFixed(2) : null,
     source: data.L.quote.source, delayedMin: data.L.quote.delayedMin, warn: dteWarning(t, data.dtes), setups,
   };
+  const quotes: Quote[] = [...data.chain.calls, ...data.chain.puts].map(q => ({ type: q.type, strike: q.strike, bid: q.bid, ask: q.ask, iv: q.iv, volume: q.volume, oi: q.oi }));
+  return { ticker: t, status, cands, quotes, S: price, ivAtm: snap.atmIv ?? null, sb, leftMin, etMin, emRemain: Number.isFinite(emRemain) ? emRemain : 0,
+    ratio, regimeSideNow, chainAgeSec, barAgeSec, delayedMin: data.L.quote.delayedMin, source: data.L.quote.source };
 }
 
-/** Bir tur: ayardaki tüm sinyal tickerları. Aynı anda ikinci tur başlamaz. Döner: başarılı ticker sayısı. */
+const acctOf = (a: PaperAccount, ttlMin: number | null): Acct => ({
+  mode: a.mode, capital: a.capital, kademe: a.kademe, commission: a.settings.commission, fractional: a.settings.fractional,
+  hasPosition: !!a.position, ttlMin,
+});
+const ensurePaper = (now: number): PaperAccount => firsat.get().paper ?? initAccount(START_CAPITAL, {}, etDate(now));
+
+/** Pozisyon tetikleri (T1, T2, T3, T6). T4/T5/T7 bu turda veri yokluğu nedeniyle kapalıdır. */
+function flagsFor(sc: Scan, pos: OpenPosition): Partial<Record<TriggerId, boolean>> {
+  const dirSign = pos.dir === 'call' ? 1 : -1;
+  const last = sc.sb[sc.sb.length - 1], vw = vwap(sc.sb);
+  return {
+    T1: last ? t1ReversalCandle(last, dirSign, sc.ratio) : false,
+    T2: last && vw != null ? t2VwapLoss(last.c, vw, dirSign) : false,
+    T3: t3RegimeFlip(sc.regimeSideNow, dirSign),
+    T6: pos.und ? t6Theta(pos.dte, sc.leftMin, Math.abs(pos.und.target - sc.S), sc.emRemain) : false,
+  };
+}
+
+/** Onay girdisi: kartın dayanak seviyeleri ve süresi. */
+const sigOf = (c: Card): ApprovalSignal => ({
+  createdAt: c.createdAt, dte: c.dte, dirSign: c.dir === 'bull' ? 1 : -1, spot0: c.spot0,
+  entryUnd: c.und.entry, stopUnd: c.und.stop, targetUnd: c.und.target, ask0: c.ask,
+  mode: c.mode ?? 'AGRESIF', windowEndMin: c.dte === 0 ? 14 * 60 + 30 : 16 * 60,
+});
+
+function logPut(entry: SignalLog) {
+  const log = firsat.get().log.filter(x => x.id !== entry.id);
+  firsat.setLog(appendLog(log, entry));
+}
+function logOf(c: Card, decision?: SignalLog['decision']): SignalLog {
+  return {
+    id: c.id, t: c.createdAt, ticker: c.ticker, setup: c.setup, dir: c.dir, score: c.score, label: c.label,
+    components: Object.fromEntries(c.components.map(x => [x.key, x.pts])), vetoes: c.vetoes,
+    source: firsat.get().status[c.ticker]?.source ?? '', dataAgeSec: c.barAgeSec, decision,
+  };
+}
+
+/** Kart yaşam döngüsü: bekleyen kartların süresi/geçersizliği, yeni uygun adaylar (soğuma ve günlük kapı). */
+function refreshCards(scans: Scan[], now: number, ttlMin: number | null) {
+  const cards = firsat.get().cards.map(c => ({ ...c }));
+  let sent: Sent[] = firsat.get().sent;
+  const byT = new Map(scans.map(s => [s.ticker, s]));
+  for (const c of cards) {
+    if (c.state !== 'bekliyor') continue;
+    const sc = byT.get(c.ticker);
+    if (!sc) continue;
+    const fresh = sc.cands.find(x => x.key === c.key);
+    const ms = MODE_RULES[c.mode ?? 'AGRESIF'];
+    const reason = expiryReason(sigOf(c), { now, spot: sc.S, etMin: sc.etMin, marketOpen: sc.leftMin > 0,
+      fresh: fresh ? { score: fresh.score, rr: fresh.rr, minScore: ms.minScore, minRR: ms.minRR } : null }, c.ttlMs);
+    if (reason) {
+      c.state = 'suresi-doldu'; c.note = reason; c.decidedAt = now;
+      logPut(logOf(c, 'süresi doldu'));
+    } else if (fresh) {
+      c.freshAsk = fresh.ask; c.freshRr = fresh.rr; c.freshScore = fresh.score; c.freshAt = now;
+    }
+  }
+  for (const sc of scans) for (const cand of sc.cands) {
+    if (!cand.eligible) continue;
+    if (cards.some(c => c.key === cand.key && c.state === 'bekliyor')) continue;
+    const day = etDate(now);
+    const g = gateCheck(sent, `${cand.ticker}|${cand.setup}`, now, day);
+    if (!g.ok) continue;
+    sent = gateRecord(sent, `${cand.ticker}|${cand.setup}`, now, day);
+    const card: Card = { ...cand, id: `${cand.key}|${now}`, state: 'bekliyor', ask: cand.ask, ttlMs: approvalTtlMs(cand.dte, ttlMin ?? undefined),
+      freshAsk: cand.ask, freshRr: cand.rr, freshScore: cand.score, freshAt: now };
+    cards.push(card);
+    logPut(logOf(card));
+    notifyFirsat(`Fırsat · ${card.text.title}`, `${card.text.body} (${card.ttlMs / 60000} dk)`, card.id).catch(() => {});
+  }
+  firsat.setCards(cards);
+  firsat.setSent(sent);
+}
+
+/** Açık pozisyonu tick'ler: risk, gece, gap. Sonuçları kaydeder ve bildirir. */
+function tickPaper(paper: PaperAccount, scans: Scan[], now: number): PaperAccount {
+  const pos = paper.position;
+  if (!pos) { firsat.setPosLive(null); return paper; }
+  const sc = scans.find(s => s.ticker === pos.ticker);
+  if (!sc) return paper;
+  const q = sc.quotes.find(x => x.type === pos.dir && x.strike === pos.strike);
+  const flags = flagsFor(sc, pos);
+  const r = tickPosition(paper, {
+    day: etDate(now), now, etMin: sc.etMin, bid: q ? q.bid : null, flags, S: sc.S, ivAtm: sc.ivAtm ?? NaN,
+    openUnd: sc.sb.length ? sc.sb[0].o : undefined, openBid: q?.bid,
+    eventBeforeOpen: false, strongTriggerLast30: !!(flags.T1 || flags.T2 || flags.T3), regimeAligned: !flags.T3,
+  });
+  for (const e of r.events) {
+    notifyFirsat(`Fırsat · ${pos.ticker} kâğıt`, e.text, `${pos.id}|${e.kind}|${now}`).catch(() => {});
+    if (e.kind === 'close' && e.trade) {
+      const log = firsat.get().log;
+      firsat.setLog(log.map(l => l.id === pos.id ? { ...l, result: outcomeOf(e.trade!.reason), r: e.trade!.rMultiple } : l));
+    }
+  }
+  const np = r.acc.position;
+  const live: PosLive | null = np && q
+    ? { bid: q.bid, rMult: profitR(np, q.bid), at: now, triggers: Object.entries(flags).filter(([, v]) => v).map(([k]) => k), stop: np.stopPrem }
+    : null;
+  firsat.setPosLive(live);
+  return r.acc;
+}
+
+/** Bir tur: ayardaki tüm sinyal tickerları (+ açık pozisyonun tickerı). Aynı anda ikinci tur başlamaz. Döner: başarılı ticker sayısı. */
 export async function runSignalScan(): Promise<number> {
   if (running) return 0;
   running = true;
@@ -96,15 +270,94 @@ export async function runSignalScan(): Promise<number> {
   try {
     await firsat.load();
     const now = Date.now();
-    for (const t of firsat.get().settings.tickers) {
-      try { firsat.setStatus(t, await scanOne(t, now)); ok++; }
-      catch (e) {
+    let paper = startDay(ensurePaper(now), etDate(now));
+    firsat.setPaper(paper);
+    const ttl = firsat.get().settings.ttlMin;
+    const tickers = [...firsat.get().settings.tickers];
+    if (paper.position && !tickers.includes(paper.position.ticker)) tickers.push(paper.position.ticker);
+    const scans: Scan[] = [];
+    for (const t of tickers) {
+      try {
+        const sc = await scanOne(t, now, acctOf(paper, ttl));
+        scans.push(sc); firsat.setStatus(t, sc.status); ok++;
+      } catch (e) {
         const prev = firsat.get().status[t];
         const msg = e instanceof Error ? e.message : 'veri alınamadı';
         firsat.setStatus(t, { ...(prev ?? emptyStatus(now)), at: now, error: msg, setups: prev?.setups ?? [] });
       }
     }
+    paper = tickPaper(paper, scans, now);
+    refreshCards(scans, now, ttl);
+    firsat.setPaper(paper);
     firsat.setLastScan(now);
   } finally { running = false; }
   return ok;
+}
+
+/** "Onayla": kart süresi ve fiyat kontrolü (zincir taze çekilir), yeniden fiyatlama, kâğıt pozisyon açılır. Dönüş: Türkçe sonuç. */
+export async function approveCard(id: string): Promise<string> {
+  const card = firsat.get().cards.find(c => c.id === id);
+  if (!card || card.state !== 'bekliyor') return 'Bu kartın kararı verilmiş.';
+  const now = Date.now();
+  let paper = firsat.get().paper;
+  if (!paper) return 'Hesap yok.';
+  const ttl = firsat.get().settings.ttlMin;
+  let fresh: Opp | undefined, spot = NaN, etMin = 0, leftMin = 0;
+  try {
+    const sc = await scanOne(card.ticker, now, acctOf(paper, ttl));
+    fresh = sc.cands.find(x => x.key === card.key);
+    spot = sc.S; etMin = sc.etMin; leftMin = sc.leftMin;
+    firsat.setStatus(card.ticker, sc.status);
+  } catch { /* taze veri yok: süre/geçersizlik kuralları yine çalışır */ }
+  const ms = MODE_RULES[card.mode ?? 'AGRESIF'];
+  const expired = expiryReason(sigOf(card), { now, spot: Number.isFinite(spot) ? spot : card.spot0, etMin, marketOpen: leftMin > 0,
+    fresh: fresh ? { score: fresh.score, rr: fresh.rr, minScore: ms.minScore, minRR: ms.minRR } : null }, card.ttlMs);
+  const rep = fresh ? repriceOnApprove({ ask0: card.ask }, { ask: fresh.ask, rr: fresh.rr, minRR: ms.minRR }, paper.settings.slippage) : null;
+  const res = resolveApproval('bekliyor', 'onayla', expired, rep);
+  let state = res.state;
+  let note = res.reason ?? '';
+  if (state === 'onaylandi' && rep && rep.ok && fresh) {
+    const mode = card.mode ?? 'AGRESIF';
+    const o: Result = openPosition(paper, {
+      id: card.id, ticker: card.ticker, setup: card.setup, dir: card.type, expiry: card.expiry, dte: card.dte, strike: card.strike,
+      fill: rep.fill, stopPrem: card.stopPrem * (rep.fill / card.fill), targetPrem: fresh.primTarget, targetR: modeTargetR(mode, fresh.rr),
+      mode, now, day: etDate(now), und: card.und,
+    });
+    if (o.ok) { paper = o.acc; firsat.setPaper(paper); }
+    else { state = 'reddedildi'; note = o.reason; }
+  } else if (state === 'fiyat-kacti') {
+    note = rep && !rep.ok ? rep.detail : note;
+  }
+  const label = decisionLabel(state);
+  const cards = firsat.get().cards.map(c => c.id === id ? { ...c, state, note, decidedAt: now } : c);
+  firsat.setCards(cards);
+  const updated = cards.find(c => c.id === id);
+  if (updated) logPut(logOf(updated, label === 'bekliyor' ? undefined : label));
+  if (state === 'onaylandi') return `Başkan, ${card.ticker} kâğıt pozisyonu açıldı (${rep && rep.ok ? rep.fill.toFixed(2).replace('.', ',') : ''} $).`;
+  if (state === 'fiyat-kacti') return `Başkan, fiyat kaçtı, girmedim (${note}).`;
+  return `Başkan, ${card.ticker} fırsatının süresi doldu veya girilemedi (${note || state}).`;
+}
+
+/** "Geç": kâğıt hesabı ve sayaçları etkilemez; kalibrasyona reddedildi olarak girer (§7.7). */
+export function passCard(id: string): void {
+  const now = Date.now();
+  const cards = firsat.get().cards.map(c => c.id === id && c.state === 'bekliyor' ? { ...c, state: 'reddedildi' as const, decidedAt: now } : c);
+  firsat.setCards(cards);
+  const c = cards.find(x => x.id === id);
+  if (c && c.state === 'reddedildi') logPut(logOf(c, 'reddedildi'));
+}
+
+/** Yeni hesap (eski hesap arşivlenir). */
+export function resetAccount(startCapital: number): void {
+  const old = firsat.get().paper;
+  if (old) firsat.archive({ at: Date.now(), account: old });
+  firsat.setPaper(initAccount(startCapital, old ? { ...old.settings, startCapital } : { startCapital }, etDate(Date.now())));
+  firsat.setCards(firsat.get().cards.map(c => c.state === 'bekliyor' ? { ...c, state: 'suresi-doldu' as const, note: 'hesap sıfırlandı' } : c));
+  firsat.setPosLive(null);
+}
+
+/** Hesap ayarlarını günceller (komisyon, kayma, kesirli, DURDU). Sermaye yalnızca sıfırlamada değişir. */
+export function updatePaperSettings(p: Partial<PaperAccount['settings']>): void {
+  const paper = firsat.get().paper ?? initAccount(START_CAPITAL, {}, etDate(Date.now()));
+  firsat.setPaper({ ...paper, settings: { ...paper.settings, ...p } });
 }

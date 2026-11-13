@@ -5,7 +5,6 @@ import { Btn, Card, Chip, Seg, TextField, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import { radar, useRadar } from '@/ui/radarStore';
 import { runRadarScan } from '@/ui/radarScan';
-import SignalTickers from '@/ui/SignalTickers';
 import { DIR_LABEL, inEntryWindowIst } from '@/lib/radar/text';
 import { summarize, type Scored } from '@/lib/radar/track';
 import type { Alert } from '@/lib/radar/engine';
@@ -89,7 +88,6 @@ export default function Radar({ onOpenCalc }: { onOpenCalc: () => void }) {
           </View>
           <TextField label="SEC iletişim e-postası (User-Agent; boşsa SEC kapalı)" value={D.settings.secUa} onChange={v => radar.setSettings({ secUa: v })} autoCapitalize="none" placeholder="ad@ornek.com" />
           <TextField label="Finnhub anahtarı (isteğe bağlı)" value={D.settings.finnhubKey} onChange={v => radar.setSettings({ finnhubKey: v })} autoCapitalize="none" />
-          <SignalTickers />
           <Text style={{ color: C.muted, fontSize: 12, marginTop: 6 }}>Radar yalnızca anahtarsız kaynakları (CBOE, Yahoo) kullanır; MarketData’ya istek atmaz.</Text>
         </Card>
       ) : null}

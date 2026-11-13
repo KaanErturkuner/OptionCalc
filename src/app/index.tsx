@@ -5,6 +5,7 @@ import Calc from '@/screens/Calc';
 import Odte from '@/screens/Odte';
 import Journal from '@/screens/Journal';
 import Radar from '@/screens/Radar';
+import Firsat from '@/screens/Firsat';
 import { tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import { checkOpenPositions, syncBackgroundTask } from '@/ui/monitor';
@@ -14,15 +15,15 @@ import { firsat } from '@/ui/firsatStore';
 import { runSignalScan } from '@/ui/signalScan';
 import { marketOpen } from '@/lib/usmarket';
 
-type Tab = 'calc' | 'radar' | 'odte' | 'journal';
-const TABS: [Tab, string, string][] = [['calc', '∑', 'Hesapla'], ['radar', '◎', 'Radar'], ['odte', '⚡', '0DTE'], ['journal', '☰', 'Geçmiş']];
+type Tab = 'calc' | 'radar' | 'firsat' | 'odte' | 'journal';
+const TABS: [Tab, string, string][] = [['calc', '∑', 'Hesapla'], ['radar', '◎', 'Radar'], ['firsat', '◆', 'Fırsat'], ['odte', '⚡', '0DTE'], ['journal', '☰', 'Geçmiş']];
 const RADAR_EVERY_MS = 5 * 60000;
 
 export default function Home() {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>('calc');
   // 0DTE ekranı baştan bağlı: bildirimler açıksa sinyal taraması diğer sekmelerdeyken de sürer
-  const [seen, setSeen] = useState<Record<Tab, boolean>>({ calc: true, radar: false, odte: true, journal: false });
+  const [seen, setSeen] = useState<Record<Tab, boolean>>({ calc: true, radar: false, firsat: false, odte: true, journal: false });
   // Hesapla'ya Radar'dan kontrat aktarımında Calc yeniden bağlanır (durumu mount'ta okur)
   const [calcKey, setCalcKey] = useState(0);
   // Uygulama açıkken: açık pozisyonları 2 dk'da bir kontrol et (hedef/stop bildirimi); arka plan görevini eşitle
@@ -46,7 +47,9 @@ export default function Home() {
   useEffect(() => {
     const id = setInterval(() => {
       const f = firsat.get();
-      const due = !f.lastScan || Date.now() - f.lastScan >= f.settings.intervalMin * 60000;
+      // Açık kâğıt pozisyon varken risk izleyicisi için her dakika; değilse ayarlanan aralık
+      const every = f.paper?.position ? 1 : f.settings.intervalMin;
+      const due = !f.lastScan || Date.now() - f.lastScan >= every * 60000;
       if (AppState.currentState === 'active' && marketOpen() && f.settings.tickers.length && due) runSignalScan().catch(() => {});
     }, 60000);
     return () => clearInterval(id);
@@ -60,6 +63,7 @@ export default function Home() {
       {/* Ekranlar bir kez açıldıktan sonra bağlı kalır (durum korunur) */}
       <View style={{ flex: 1, display: tab === 'calc' ? 'flex' : 'none' }}><Calc key={calcKey} /></View>
       {seen.radar ? <View style={{ flex: 1, display: tab === 'radar' ? 'flex' : 'none' }}><Radar onOpenCalc={() => { setCalcKey(k => k + 1); go('calc'); }} /></View> : null}
+      {seen.firsat ? <View style={{ flex: 1, display: tab === 'firsat' ? 'flex' : 'none' }}><Firsat /></View> : null}
       {seen.odte ? <View style={{ flex: 1, display: tab === 'odte' ? 'flex' : 'none' }}><Odte active={tab === 'odte'} onJournal={() => go('journal')} /></View> : null}
       {seen.journal ? <View style={{ flex: 1, display: tab === 'journal' ? 'flex' : 'none' }}><Journal active={tab === 'journal'} /></View> : null}
       <View style={{ flexDirection: 'row', backgroundColor: '#0d1426', borderTopWidth: 0.5, borderTopColor: C.border, paddingBottom: insets.bottom }}>
