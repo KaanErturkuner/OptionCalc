@@ -33,6 +33,9 @@ src/lib/odte/signal.ts     in-app engine: features() + decide(); DEFAULT_OPTS (v
 src/lib/odte/scan.ts       fetch + analyze one symbol
 src/lib/odte/strategies/   pluggable strategies (pure TS, app-compatible): types.ts, util.ts, orbVwap, gammaRegime, oiWall, emBreach, confluence (wraps signal.ts), index.ts (registry, withTimeFilter)
 backtest/                Node-only .mts scripts (not in tsc / Metro bundle) — see backtest/README.md
+server/                  Akış sunucusu (droplet 162.243.88.42, Node 24, systemd, Caddy HTTPS): TEK MarketData istemcisi + izinli proxy + olağandışı akış + Expo push — server/README.md (tsc/lint dışı; npm run flow:selftest)
+src/lib/flow/            akış saf mantığı: vade (expiry), tespit (detect), plan/kredi (plan), proxy izin listesi (proxy), istemci (client), tipler (model)
+src/screens/Akis.tsx     Akış sekmesi (sunucudan olaylar; bilgi amaçlı)
 test/run.ts              unit tests (Node type stripping; fixtures in test/fixtures)
 docs/PLAN.md             post-API-approval plan (TR);  docs/TASKS.md  task board;  docs/CHANGELOG.md  handoff log
 ```
@@ -61,6 +64,7 @@ Then tell Kaan to fully close and reopen Expo Go (once or twice). Native module 
 ## 5. Secrets — hard rules
 - **Never commit or print tokens.** `EXPO_TOKEN`, `MARKETDATA_TOKEN`, Tradier keys come from environment variables only. `.env*` files stay untracked.
 - The app stores user-entered keys on-device (AsyncStorage) — never hardcode a key in source, fixtures, tests, or docs.
+- **Uygulama MarketData'yı doğrudan çağırmaz** (2026-11-14'ten beri): her çağrı sunucu proxy'sinden (`server/`). Sunucu çalışırken `backtest/` scriptleri (`fetch`, `record`, `probe`, `peers`) MarketData'yı doğrudan çağırır → çalıştırma; önce sunucu durdurulmalı.
 - MarketData **one-device rule**: the same token used from two devices/IPs at once locks the account for 5 minutes. Before running any `backtest/*` script that hits the API (`fetch`, `record`, `probe`), make sure the phone isn't using MarketData. Never run two API scripts at the same time.
 - Respect the credit budget (Trader: 100k/day, resets 09:30 ET). Use `BT_DRYRUN=1` to estimate first; `BT_MAX_CREDITS` / `BT_RESERVE` guard every script.
 

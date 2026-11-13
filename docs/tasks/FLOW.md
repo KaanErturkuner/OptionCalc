@@ -1,6 +1,7 @@
 # FLOW — Canlı "olağandışı opsiyon akışı" (Unusual Whales benzeri) — TASLAK
 
-> Durum: **taslak / yalnız araştırma** (kod yok). Yazan: Başkan (Grok), 2026-11-13. Kaan onayı yok.
+> Durum: **uygulandı** (2026-11-14, TASKS #31): sunucu `server/`, akış mantığı `src/lib/flow/`, Akış sekmesi. Ayrıntı ve doğrulama: `server/README.md`, CHANGELOG 2026-11-14.
+> Aşağıdaki metin, uygulamadan önceki taslağın araştırma notudur (2026-11-13). Yazan: Başkan (Grok), 2026-11-13. Kaan onayı yok.
 > Kural: API bilgileri yalnız MarketData'nın resmi dokümanından alınmıştır, her maddenin yanında kaynak URL var.
 > Dokümanda bulunamayan bilgiler **"bilinmiyor / doğrulanmalı"** olarak işaretlendi. Uydurma yok.
 > Bu taslak hazırlanırken MarketData'ya hiç istek atılmadı.

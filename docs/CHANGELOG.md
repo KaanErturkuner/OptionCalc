@@ -2,6 +2,39 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-14 — Grok — [grok] FLOW: akış sunucusu, MarketData proxy'si, Akış sekmesi, Expo push (TASKS #31)
+
+Kaan'ın talebiyle (`docs/tasks/FLOW.md`). Commit'ler: `95f2b71` (sunucu + saf akış mantığı), `6c56073` (uygulama), docs commit'i bu girdinin commit'i.
+
+**Ne:**
+- **Sunucu** `server/` — DigitalOcean `optioncalc-flow` (162.243.88.42, Ubuntu 24.04): Node 24 LTS, `node:sqlite`, sıfır npm bağımlılığı, systemd `optioncalc-flow` (kullanıcı `ocflow`), Caddy HTTPS (`https://162-243-88-42.sslip.io`), ufw yalnız 22/80/443. Port 80 yalnız 308 yönlendirme.
+- **Tek MarketData istemcisi:** sunucu. Token yalnız `/etc/optioncalc-flow/md_token` (root 600, systemd `LoadCredential`); kod ortam değişkeninden token OKUMAZ. Aynı anda tek istek kuyruğu.
+- **Proxy:** `/api/md/...` yalnız dört yol (hisse kotu, vade listesi, zincir cached/live, 1 dk mum); diğerleri 403. Uygulama anahtarı `x-app-key`, sunucuda `openssl rand` ile üretildi, root 600 dosyada; sabit zamanlı karşılaştırma; dakikada 120 istek; 20 sn önbellek.
+- **Akış tarayıcısı:** piyasa saatlerinde 2 dk; ticker başına TEK cached istek (`dte` listesi: 0DTE + 3 ay Cuma, tatil Cuması → Perşembe); dV ile aday; en yüksek 6 aday canlı teyit (`options/quotes`); teyitsizler kayıtlı ama push'suz; kontrat başına 15 dk soğuma; push: yalnız teyitli + dar spread + ≥100k$ prim, günde en çok 30.
+- **Kredi:** günlük akış tavanı 10k, toplam tavan 40k, MarketData kalan kredisi 5k altına inerse durur. Tahmin: önbellekli 1 365 + teyit tavanı 1 170 ≈ **≤ 2 535/gün** (2 dk, 7 ticker). Sayaç SQLite'ta, `/health` ve `/status`'ta.
+- **Uygulama:** Akış sekmesi (Türkçe; kontrat, call/put, hacim Δ, prim, orta fiyat, OI, hacim/OI, İstanbul saati, teyit/geniş-spread rozetleri, yenile + dakikada bir). MarketData çağrıları artık sunucudan; anahtar “Hesapla › Ayarlar › Akış sunucusu anahtarı”. Eski kayıtlı MarketData tokenı yükleme sırasında silinir. `EXPO_PUBLIC_FLOW_API_KEY` isteğe bağlı yedek. Push kaydı `src/ui/flowPush.ts` (mevcut izin akışı, `expo-notifications` zaten bağımlılık; native ekleme YOK).
+- **Test:** `test/flow.test.ts` (vade seçimi incl. Kutsal Cuma → Perşembe ve 25 Aralık → 24 Aralık, tespit eşikleri, baseline, kredi tahmini, proxy izin listesi, URL, biçim, sütun → satır). `server/app/selftest.ts` (sentetik fixture uçtan uca, anahtar, hız sınırı, Expo push sahte fetch, bütçe freni). `npm run check`'e `flow:selftest` eklendi; `server/` tsc ve eslint'ten dışlandı.
+
+**Dosyalar:** `server/**`, `src/lib/flow/**`, `src/lib/market/marketdata.ts`, `src/lib/state.ts`, `src/lib/freshness.ts` (sağlayıcı adı), `src/screens/{Akis,Calc,Odte}.tsx`, `src/ui/{flowPush,monitor}.ts`, `src/app/index.tsx`, `test/flow.test.ts`, `package.json`, `tsconfig.json`, `eslint.config.js`.
+
+**Nasıl doğrulandı:**
+- `npm run check` yeşil (testler 929+ OK, tsc, lint, bt:selftest, flow:selftest).
+- Droplet: `systemctl is-active` = active; `127.0.0.1:8787` dinleniyor; HTTPS sertifikası Let's Encrypt; `/health` 200; anahtarsız `/flow` ve `/api/md/…` 401; port 80 → 308.
+- Dry-run (ağ yok): `npm run flow:dry` ve sunucuda `--dry-run --fixture` aynı sonucu verdi; sunucu `selftest` geçti.
+- Anahtarlı uçtan uca (sunucudan; droplet'in toplam MarketData kullanımı 4 kredi): `stocks/quotes/SPY` → 203, `consumed=1`. `options/chain/QQQ` (`dte` listesi, cached) → 203, `consumed=1`, 4 880 satır, 802 KB, tüm alanlar. Bu yanıtla vade kontrolü: 10/14 planlanan Cuma listeli (4'ü QQQ'da yok, doğal).
+- `options/quotes` (teyit): tek kontrat, sunucudan doğrudan 1 kredi, 203, sütun biçimli, aynı alanlar.
+- Push kaydı: sahte token `POST /push/register` → 200; geçersiz biçim → 400; `unregister` → 200; DB'de sayı 0 (silindi).
+- Sızıntı taraması: `git grep` ve staged diff'te MarketData tokenı yok; anahtar hiçbir çıktıya/repoya girmedi.
+
+**⚠ Kayıt — ben yaptım:** Geliştirme sırasında yerel bir sunucu testi, bu kutunun ortam değişkeninde bulunan MarketData tokenı ile **1 kredilik bir SPY kotasyonu** çağırdı (21:12 UTC). Hata: config’te ortam değişkeni yedeği vardı. Düzeltildi (artık yalnız dosya). Sonrasında droplet çağrıları bu pencereden 5+ dk sonra yapıldı (tek IP kuralı). Bu kutuda `MARKETDATA_TOKEN` ortam değişkeni hâlâ tanımlı; `backtest/` scriptleri bunu kullanır → sunucu çalışırken backtest çalıştırılmamalı.
+
+**Açık / Kaan:**
+1. **Uygulama anahtarını almak** (sohbete yazılmadı): `ssh -i ~/.ssh/do_flow root@162.243.88.42 'cat /etc/optioncalc-flow/app_key' | pbcopy` → Hesapla › Ayarlar › “Akış sunucusu anahtarı”. (Yerel kopya/okuma yok.)
+2. **Yayın kararı:** uygulama değişikliği OTA ile gitmeli mi? Kaan isteyince `eas update` (bu görevde YAYINLANMADI). Uzak push için Expo Go’nun yetmeyebileceği not edildi; gerekirse dev build (native ekleme yok).
+3. **Pazartesi 2026-11-16 09:30 ET:** ilk canlı tarama. `journalctl -u optioncalc-flow -f` ve `/status` ile izle; eşikler (25k$ olay, 100k$ push) ilk günlerde kalibre edilmeli.
+4. `backtest/` scriptleri hâlâ MarketData'yı doğrudan çağırır (proxy dışı). Tek IP kuralı için sunucu çalışırken çalıştırılmamalı; istenirse proxy üzerinden yönlendirilir.
+5. `docs/PLAN.md` / sinyal motoru: akış yalnız bilgi amaçlı; sinyal değil (“No proven edge”).
+
 ## 2026-11-13 — Claude — [claude] Veri tazelik göstergesi (TASKS #30)
 
 **Ne:**
