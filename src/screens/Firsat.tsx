@@ -13,6 +13,16 @@ import { BROKER_COMMISSION } from '@/lib/paper/costs';
 import { KADEMELER } from '@/lib/paper/sizing';
 import type { PaperMode } from '@/lib/paper/types';
 import { TRIGGER_AD } from '@/lib/signals/riskwatch';
+import { isQ, type QSettings } from '@/lib/signals/qull/policy';
+
+/** Qullamaggie ayar satırları (Qullamaggie uyarlaması — Kaan onayı yok). */
+const Q_ROWS: [keyof QSettings, string][] = [
+  ['Q1', 'Q1 · ORH kırılımı (call)'], ['Q1S', 'Q1S · ORL kırılımı, zayıf isim (put)'],
+  ['Q2', 'Q2 · Episodic Pivot (gap + hacim)'], ['Q3', 'Q3 · Parabolik short (deneysel, varsayılan kapalı)'],
+];
+const Q_EXIT_ROWS: [keyof QSettings, string][] = [
+  ['exitLod', 'LOD/HOD kırılırsa çık'], ['exitEma', '5 dk EMA10 iz süren stop'],
+];
 
 const MODE_TXT: Record<PaperMode, string> = {
   AGRESIF: 'Agresif 1:5', AGRESIF_4: 'Yedek 1:4', GUVENLI_KAR: 'Güvenli (gün yeterli)', GUVENLI_ZARAR: 'Güvenli (zarar molası)', DURDU: 'Bugünlük bitti',
@@ -45,11 +55,13 @@ function OpportunityCard({ c, now, open, toggle, n, locked }: { c: OppCard; now:
   return (
     <View style={{ borderWidth: 0.5, borderColor: pending ? C.accent : C.border, borderRadius: 12, padding: 10, gap: 6, opacity: pending ? 1 : 0.6 }}>
       <Text onPress={() => { tap(); toggle(); }} style={{ color: C.text, fontSize: 15, fontWeight: '800' }}>{c.text.title}</Text>
+      {isQ(c.setup) ? <Text style={{ color: C.blue, fontSize: 11, fontWeight: '700' }}>Q · Qullamaggie uyarlaması — Kaan onayı yok</Text> : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <Text style={{ color: scoreCol, fontSize: 28, fontWeight: '800' }}>{c.score}</Text>
         <Text style={{ color: C.muted, fontSize: 12 }}>/100 · {c.label} · {n >= 30 ? 'n ≥ 30 (güvenilir için backtest şartı bekleniyor)' : `doğrulanmamış ${n}/30`}</Text>
       </View>
       <Text style={{ color: C.text, fontSize: 12 }}>{c.text.body}</Text>
+      {c.qual ? <Text style={{ color: C.text, fontSize: 12 }}>{`Q-kalite ${c.qual.score}/100 — ${c.qual.note}`}</Text> : null}
       <Text style={{ color: C.muted, fontSize: 12 }}>
         {`${c.dte} DTE · RR 1:${trNum(c.rr, 1)} · giriş ${usd(c.fill, 2)} · stop ${usd(c.stopPrem, 2)} · hedef ${usd(c.primTarget, 2)}`}
         {c.delayedMin > 0 ? ` · ≈ gecikmeli (${c.delayedMin} dk)` : ''}
@@ -73,6 +85,8 @@ function OpportunityCard({ c, now, open, toggle, n, locked }: { c: OppCard; now:
       ) : null}
       {c.state === 'bekliyor' && locked ? (
         <Text style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>Açık kâğıt pozisyon varken yeni giriş yok (bilgi kartı).</Text>
+      ) : pending && !c.eligible ? (
+        <Text style={{ color: C.warn, fontSize: 12, marginTop: 4 }}>{`Kâğıda uygun değil: ${c.reason}`}</Text>
       ) : pending ? (
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
           <View style={{ flex: 1 }}><Btn label={busy ? 'Kontrol ediliyor…' : 'Onayla'} kind="primary" onPress={() => { if (!busy) act(); }} /></View>
@@ -218,6 +232,24 @@ export default function Firsat() {
             <Btn label="Hesabı sıfırla (eskisi arşivlenir)" kind="danger" onPress={() => { if (capIn && capIn > 0) resetAccount(capIn); }} />
           </View>
         ) : <Text style={{ color: C.muted, fontSize: 13 }}>Hesap yükleniyor…</Text>}
+        <View style={{ gap: 8, marginTop: 6 }}>
+          <Text style={{ color: C.text, fontSize: 13, fontWeight: '800' }}>Qullamaggie setupları</Text>
+          {Q_ROWS.map(([k, label]) => (
+            <View key={k} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={{ color: C.text, fontSize: 13, flex: 1 }}>{label}</Text>
+              <Switch value={D.settings.q[k]} onValueChange={v => firsat.setQ({ [k]: v })} />
+            </View>
+          ))}
+          <Text style={{ color: C.muted, fontSize: 12, fontWeight: '700' }}>Çıkış uyarlamaları (varsayılan kapalı)</Text>
+          {Q_EXIT_ROWS.map(([k, label]) => (
+            <View key={k} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={{ color: C.text, fontSize: 13, flex: 1 }}>{label}</Text>
+              <Switch value={D.settings.q[k]} onValueChange={v => firsat.setQ({ [k]: v })} />
+            </View>
+          ))}
+          <Text style={{ color: C.warn, fontSize: 11 }}>Qullamaggie uyarlaması — Kaan onayı yok. Q setupları backtest kriterini geçene kadar yalnız sinyal listesinde; kâğıt işleme uygun değil.</Text>
+          <Text style={{ color: C.muted, fontSize: 11 }}>0–3 DTE’de Qullamaggie’nin 3–5 gün sonra kısmi satış ve 10/20 günlük MA ile iz sürmesi uygulanamaz (günlük bar yok).</Text>
+        </View>
       </Card>
     </ScrollView>
   );

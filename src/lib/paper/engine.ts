@@ -19,6 +19,8 @@ export interface TickIn {
   calendar: CalendarCheck;     // gece kapısı: bilanço + FOMC/CPI/NFP (D12); ok değilse 15:45'te kapanır
   strongTriggerLast30: boolean;
   regimeAligned: boolean;
+  /** Q çıkış uyarlamaları (Qullamaggie uyarlaması — Kaan onayı yok; ayar kapalıysa yok/false) */
+  qExit?: { lod: boolean; ema: boolean };
 }
 
 export interface TickEvent { kind: 'warn' | 'close' | 'carry' | 'info'; text: string; trade?: ClosedTrade }
@@ -67,6 +69,8 @@ export function tickPosition(acc0: PaperAccount, t: TickIn): TickResult {
     const trig = dec.triggers.length ? ` (${dec.triggers.join(', ')})` : '';
     return close({ ...acc, position: dec.pos }, t.bid, r, `${REASON_TEXT[r]}${r === 'risk' ? trig : ''}`);
   }
+  if (t.qExit?.lod) return close({ ...acc, position: dec.pos }, t.bid, 'risk', 'LOD/HOD kırıldı, çıkıyorum (Qullamaggie uyarlaması — Kaan onayı yok)');
+  if (t.qExit?.ema) return close({ ...acc, position: dec.pos }, t.bid, 'iz-suren-stop', '5 dk EMA10 kırıldı, çıkıyorum (Qullamaggie uyarlaması — Kaan onayı yok)');
   p = dec.pos;
   if (dec.action === 'warn') {
     events.push({ kind: 'warn', text: `Başkan, ${dec.message ?? 'risk artıyor'}.` });

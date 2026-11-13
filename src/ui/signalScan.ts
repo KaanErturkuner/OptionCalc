@@ -1,7 +1,8 @@
 /* Fırsat tarama turu (Aşama 5 bağlantısı): veri → vade → snapshot → A1/A2/A3 → setuplar → strike + RR → skor → kart → onay/süre
  * → kâğıt pozisyon tick'i → bildirim. MarketData'ya HİÇ gitmez (zincir CBOE/Yahoo). Gerçek emir yok. */
 import { loadSymbol, loadChain } from '@/lib/market';
-import { loadBars } from '@/lib/market/bars';
+import { loadBars, yahooDailyBars } from '@/lib/market/bars';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { trimChain } from '@/lib/odte/scan';
 import { sessionBars, vwap, type Bar } from '@/lib/odte/analytics';
 import { openRange } from '@/lib/odte/strategies/util';
@@ -12,13 +13,17 @@ import { dteWarning } from '@/lib/signals/tickers';
 import { frameAligned, volRatio } from '@/lib/signals/features';
 import { alignFor } from '@/lib/signals/align';
 import { allowedFor, runSetups } from '@/lib/signals/setups/index';
+import { qullDaily, type DailyBar } from '@/lib/signals/qull/daily';
+import { enabledQ, isQ, Q_DEFAULT_PARAMS } from '@/lib/signals/qull/policy';
+import { qNote } from '@/lib/signals/qull/note';
+import { qExitTriggers } from '@/lib/signals/qull/exits';
 import { scanStrikes, type Quote } from '@/lib/signals/strikes';
 import { etMinutes, sessionLeftMin, timeToExpiryMin, timeToExpiryYears, scaleEm } from '@/lib/signals/session';
 import { calendarCheck, isEtf, type CalendarCheck, type EarningsInfo } from '@/lib/calendar/events';
 import { fetchFinnhubEarnings } from '@/lib/news/finnhub';
 import { buildOpp, minRrFor, type Opp, type OppInput } from '@/lib/signals/opp';
 import { t1ReversalCandle, t2VwapLoss, t3RegimeFlip, t6Theta, modeTargetR, profitR, type TriggerId } from '@/lib/signals/riskwatch';
-import { gateCheck, gateRecord, type Sent } from '@/lib/signals/gate';
+import { gateCheck, gateRecord, COOL_MS, type Sent } from '@/lib/signals/gate';
 import { appendLog, type SignalLog } from '@/lib/signals/log';
 import type { SetupCtx } from '@/lib/signals/types';
 import { initAccount, startDay, openPosition, MODE_RULES, type Result } from '@/lib/paper/account';
@@ -74,6 +79,22 @@ function radarFor(t: string, dir: 'bull' | 'bear', now: number): { same: number;
   return { same, oppMax };
 }
 
+const DAILY_TTL = 60 * 60000;
+const dailyKey = (s: string) => `qd-v1:${s}`;
+/** Günlük barlar (Yahoo 6 ay): ticker başına günde bir kez, AsyncStorage'da. Bugünkü kısmi bar dışarıda (sızıntı yok). Hata → null (Q üretmez). */
+function dailyFor(sym: string, today: string): Promise<DailyBar[] | null> {
+  return cached('qd:' + sym + ':' + today, DAILY_TTL, async () => {
+    try {
+      const raw = await AsyncStorage.getItem(dailyKey(sym));
+      const j = raw ? JSON.parse(raw) : null;
+      if (j && j.day === today && Array.isArray(j.bars)) return j.bars as DailyBar[];
+    } catch { /* bozuk önbellek: yeniden çekilir */ }
+    const bars = (await yahooDailyBars(sym)).filter(b => b.D < today);
+    if (bars.length) AsyncStorage.setItem(dailyKey(sym), JSON.stringify({ day: today, bars })).catch(() => {});
+    return bars;
+  }).catch(() => null);
+}
+
 async function scanOne(t: string, now: number, acct: Acct): Promise<Scan> {
   const today = etDate(now), p = profileFor(t);
   const data = await cached('fırsat:' + t, SCAN_TTL, async () => {
@@ -87,6 +108,10 @@ async function scanOne(t: string, now: number, acct: Acct): Promise<Scan> {
   });
   const sb = sessionBars(data.bars, now);
   const price = data.L.quote.price;
+  // Qullamaggie (Kaan onayı yok): günlük bağlam yalnız açık Q setupları varsa çekilir
+  const qEnabled = enabledQ(firsat.get().settings.q);
+  const [dBars, spyBars] = qEnabled.length ? await Promise.all([dailyFor(t, today), dailyFor('SPY', today)]) : [null, null];
+  const qd = dBars && dBars.length ? qullDaily(dBars, spyBars && spyBars.length ? spyBars : null, sb[0]?.o) : null;
   const snap = buildSnapshot({ ticker: t, price, changePct: data.L.quote.changePct, chain: data.chain, expiry: data.pick, bars: data.bars, now,
     source: data.L.quote.source, delayedMin: data.L.quote.delayedMin, dataTime: data.L.quote.time, prevOi: null, atmIvSession0: null, sector: null });
   const vw = vwap(sb), or = openRange(sb, 15), ratio = volRatio(sb);
@@ -94,6 +119,7 @@ async function scanOne(t: string, now: number, acct: Acct): Promise<Scan> {
   const ak = autoK({ rule: p.otm, ratios: [], ivRank: null });
   const dte = dteOf(data.pick, today);
   const setups: string[] = [];
+  if (qEnabled.length && !qd) setups.push('Q: günlük veri yok');
   const cands: Opp[] = [];
   const etMin = etMinutes(now), leftMin = sessionLeftMin(now);
   const toExpMin = timeToExpiryMin(today, data.pick, leftMin);
@@ -113,8 +139,9 @@ async function scanOne(t: string, now: number, acct: Acct): Promise<Scan> {
       regimeSideNow = side > 0 ? 1 : side < 0 ? -1 : null;
     }
     const ctx: SetupCtx = { ticker: t, now, etMin, dte, bars: sb, S: price, em, emRemain, vwap: vw, orHi: or.high, orLo: or.low,
-      volRatio: ratio, align: { bull: bull.all, bear: bear.all }, allowed: allowedFor(t), newsImpulse: null,
-      walls: { call: snap.callWall, put: snap.putWall, gexNeg: (snap.netGex ?? 0) < 0 }, ivRank: null, rv10: null, atmIv: snap.atmIv ?? null };
+      volRatio: ratio, align: { bull: bull.all, bear: bear.all }, allowed: allowedFor(t, qEnabled), newsImpulse: null,
+      walls: { call: snap.callWall, put: snap.putWall, gexNeg: (snap.netGex ?? 0) < 0 }, ivRank: null, rv10: null, atmIv: snap.atmIv ?? null,
+      qd, orWin: { m5: openRange(sb, 5), m30: openRange(sb, 30) } };
     const quotes: Quote[] = [...data.chain.calls, ...data.chain.puts].map(q => ({ type: q.type, strike: q.strike, bid: q.bid, ask: q.ask, iv: q.iv, volume: q.volume, oi: q.oi }));
     for (const c of runSetups(ctx)) {
       const type = c.dir === 'bull' ? 'call' : 'put';
@@ -137,6 +164,8 @@ async function scanOne(t: string, now: number, acct: Acct): Promise<Scan> {
             account: { mode: acct.mode, capital: acct.capital, kademe: acct.kademe, commission: acct.commission, fractional: acct.fractional },
             ttlMin: approvalTtlMs(dte, acct.ttlMin ?? undefined) / 60000,
             quote: { bid: q.bid, ask: q.ask, iv: q.iv },
+            qual: isQ(c.setup) && qd ? { score: c.dir === 'bull' ? qd.qualityUp : qd.qualityDown,
+              note: qNote(c.setup, c.dir, qd, Q_DEFAULT_PARAMS.orMin, ratio) } : null,
           };
           const opp = buildOpp(oi);
           if (acct.hasPosition) { opp.eligible = false; opp.reason = 'açık pozisyon var'; }
@@ -224,8 +253,14 @@ function refreshCards(scans: Scan[], now: number, ttlMin: number | null, accMode
     }
   }
   for (const sc of scans) for (const cand of sc.cands) {
-    if (!cand.eligible) continue;
     if (cards.some(c => c.key === cand.key && c.state === 'bekliyor')) continue;
+    if (!cand.eligible) {
+      // Q adayı: kâğıda uygun değil → yalnız kart (Onayla yok); bildirim ve günlük kaydı yok; aynı ticker+setup için 30 dk soğuma
+      if (!isQ(cand.setup) || cards.some(c => c.ticker === cand.ticker && c.setup === cand.setup && now - c.createdAt < COOL_MS)) continue;
+      cards.push({ ...cand, id: `${cand.key}|${now}`, state: 'bekliyor', ask: cand.ask, ttlMs: approvalTtlMs(cand.dte, ttlMin ?? undefined),
+        freshAsk: cand.ask, freshRr: cand.rr, freshScore: cand.score, freshAt: now });
+      continue;
+    }
     const day = etDate(now);
     const g = gateCheck(sent, `${cand.ticker}|${cand.setup}`, now, day);
     if (!g.ok) continue;
@@ -272,6 +307,7 @@ function tickPaper(paper: PaperAccount, scans: Scan[], now: number, calendar: Ca
   const r = tickPosition(paper, {
     day: etDate(now), now, etMin: sc.etMin, bid: q ? q.bid : null, flags, S: sc.S, ivAtm: sc.ivAtm ?? NaN,
     openUnd: sc.sb.length ? sc.sb[0].o : undefined, openBid: q?.bid,
+    qExit: qExitTriggers(pos, sc.sb, { lod: firsat.get().settings.q.exitLod, ema: firsat.get().settings.q.exitEma }),
     calendar: calendar ?? { ok: false, reasons: ['takvim sorgulanmadı'] }, strongTriggerLast30: !!(flags.T1 || flags.T2 || flags.T3), regimeAligned: !flags.T3,
   });
   for (const e of r.events) {
@@ -328,6 +364,7 @@ export async function runSignalScan(): Promise<number> {
 export async function approveCard(id: string): Promise<string> {
   const card = firsat.get().cards.find(c => c.id === id);
   if (!card || card.state !== 'bekliyor') return 'Bu kartın kararı verilmiş.';
+  if (!card.eligible) return `Bu fırsat kâğıda uygun değil (${card.reason}).`;
   const now = Date.now();
   let paper = firsat.get().paper;
   if (!paper) return 'Hesap yok.';

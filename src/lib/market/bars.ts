@@ -3,6 +3,7 @@ import type { Bar } from '../odte/analytics.ts';
 import { getJSON } from './types.ts';
 import { mdCandles } from './marketdata.ts';
 import { etDate } from '../usmarket.ts';
+import type { DailyBar } from '../signals/qull/daily.ts';
 
 export function parseYahooChart(j: any): Bar[] {
   const r = j?.chart?.result?.[0]; if (!r) return [];
@@ -18,6 +19,12 @@ export async function yahooBars(symbol: string, signal?: AbortSignal): Promise<B
   const j = await getJSON(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=false`,
     { signal, headers: { 'User-Agent': 'Mozilla/5.0' }, timeoutMs: 15000 });
   return parseYahooChart(j);
+}
+/** Günlük barlar (Yahoo v8, 6 ay, anahtarsız). Bugünkü kısmi bar dâhil gelebilir: çağıran `D < bugün` ile süzer (sızıntı yok). */
+export async function yahooDailyBars(symbol: string, signal?: AbortSignal): Promise<DailyBar[]> {
+  const j = await getJSON(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=6mo&includePrePost=false`,
+    { signal, headers: { 'User-Agent': 'Mozilla/5.0' }, timeoutMs: 15000 });
+  return parseYahooChart(j).map(b => ({ D: etDate(b.t), o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
 }
 /**
  * Önce Yahoo (anahtarsız, kredisiz, gerçek zamanlıya yakın); olmazsa MarketData candles.

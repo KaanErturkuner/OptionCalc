@@ -199,5 +199,37 @@ function ctxQ(bars: Bar[], over: Partial<SetupCtx> = {}): SetupCtx {
   ok('kart: Q-kalite satırı taşınır (62/100)', opp.qual?.score === 62 && opp.text.body.includes('Q-kalite 62/100'));
 }
 
+// Çıkış uyarlamaları (varsayılan kapalı)
+{
+  const { qExitTriggers, fiveMinCloses, ema5Broken } = await import('../src/lib/signals/qull/exits.ts');
+  const bs: Bar[] = Array.from({ length: 60 }, (_, i) => ({ t: i * 60000, o: 100, h: 100.2, l: 99.8, c: 100, v: 100 }));
+  const pos = { setup: 'Q1', dir: 'call' as const, und: { stop: 99.8 } };
+  ok('çıkış: varsayılan kapalı → tetik yok (LOD kırık olsa bile)', !qExitTriggers(pos, [...bs.slice(0, 59), { ...bs[0], c: 99.5 }], { lod: false, ema: false }).lod);
+  const broken = [...bs.slice(0, 59), { ...bs[0], c: 99.5, l: 99.4 }];
+  ok('çıkış: LOD açık + kapanış LOD altında → lod tetik', qExitTriggers(pos, broken, { lod: true, ema: false }).lod);
+  ok('çıkış: Q olmayan pozisyonda tetik yok', !qExitTriggers({ ...pos, setup: 'S1' }, broken, { lod: true, ema: true }).lod);
+  ok('çıkış: 5 dk kapanış < 10 → EMA tetiği yok', !ema5Broken(pos, bs.slice(0, 30)));
+  const up = Array.from({ length: 80 }, (_, i) => ({ t: i * 60000, o: 100, h: 101, l: 99, c: 100 + i * 0.05, v: 100 }));
+  ok('çıkış: 5 dk kapanış sayısı = ⌊n/5⌋', fiveMinCloses(up).length === 16);
+  ok('çıkış: yükselen seride call EMA tetiği yok', !ema5Broken(pos, up));
+  const dropAtEnd = [...up.slice(0, 79), { ...up[79], c: 90 }];
+  ok('çıkış: son 5 dk kapanış EMA10 altına düşerse call EMA tetiği', ema5Broken(pos, dropAtEnd));
+}
+
+// Çıkış uyarlamaları paper motorunda (ayar açık olmadan etkisiz)
+{
+  const { tickPosition } = await import('../src/lib/paper/engine.ts');
+  const { initAccount, openPosition } = await import('../src/lib/paper/account.ts');
+  const D = '2026-11-13';
+  const acc = (openPosition(initAccount(300, { commission: 0, slippage: 0 } as any, D), { id: 'q1', ticker: 'QQQ', setup: 'Q1', dir: 'call', expiry: D, dte: 0,
+    strike: 100, fill: 1, stopPrem: 1 / 3, targetPrem: 3, targetR: 5, mode: 'AGRESIF', now: 0, day: D, und: { entry: 100, stop: 99.8, target: 102.8 } } as any) as any).acc;
+  const base: any = { day: D, now: 1, etMin: 600, bid: 1, flags: {}, S: 99.5, ivAtm: 0.2, calendar: { ok: true, reasons: [] }, strongTriggerLast30: false, regimeAligned: true };
+  ok('Q çıkış: ayar kapalı (qExit yok) → pozisyon açık kalır', tickPosition(acc, base).acc.position !== null);
+  const on = tickPosition(acc, { ...base, qExit: { lod: true, ema: false } });
+  ok('Q çıkış: LOD açık + tetik → kapanır (risk)', on.acc.position === null && on.events[0]?.trade?.reason === 'risk', JSON.stringify(on.events.map(e => e.text)));
+  const em = tickPosition(acc, { ...base, qExit: { lod: false, ema: true } });
+  ok('Q çıkış: EMA açık + tetik → iz süren stop nedeniyle kapanır', em.acc.position === null && em.events[0]?.trade?.reason === 'iz-suren-stop');
+}
+
 if (fail) { console.log(`\n${fail} test başarısız`); process.exit(1); }
 console.log('\nQullamaggie testleri tamam');

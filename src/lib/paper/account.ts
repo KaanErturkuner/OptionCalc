@@ -41,9 +41,9 @@ export function classify(net: number, costBasis: number): TradeResult {
 }
 
 /** Kayıt şema sürümü: 2 = DURDU açık (D12). Şema 1 kayıtlarda DURDU varsayılan kapalıydı; bir kere açılır. */
-export const FIRSAT_SCHEMA = 2;
+export const FIRSAT_SCHEMA = 3;   // 3: Q ayarları (firsat store); paper migrasyonu yalnız şema < 2 için DURDU'yu açar
 export function migrateSettings(s: PaperSettings, schema: number): PaperSettings {
-  return schema < FIRSAT_SCHEMA ? { ...s, durduEnabled: true } : s;
+  return schema < 2 ? { ...s, durduEnabled: true } : s;
 }
 
 /** Gün geçişi (09:30 ET): mod AGRESIF, ardışık sayaçlar ve gün başı sermaye sıfırlanır. Kademe ve açık pozisyon taşınır (§7.4). */
