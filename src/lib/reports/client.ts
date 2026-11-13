@@ -3,7 +3,7 @@ import { FLOW_BASE_URL } from '../flow/model.ts';
 import { APP_KEY_HEADER } from '../flow/proxy.ts';
 import { getJSON } from '../market/types.ts';
 
-export interface ReportItem { id: number; kind: string; day: string; ts: number; title: string; body: string }
+export interface ReportItem { id: number; kind: string; day: string; ts: number; title: string; body: string; example?: boolean }
 
 const hdr = (key: string) => ({ [APP_KEY_HEADER]: key, Accept: 'application/json' });
 function errText(e: unknown): Error {
@@ -16,7 +16,7 @@ function errText(e: unknown): Error {
 }
 
 /** Son raporlar, yeni → eski, tam metinle */
-export async function fetchReports(key: string, limit = 20, base = FLOW_BASE_URL): Promise<ReportItem[]> {
+export async function fetchReports(key: string, limit = 50, base = FLOW_BASE_URL): Promise<ReportItem[]> {
   if (!key) throw new Error('Akış anahtarı girilmedi (Hesapla › Ayarlar)');
   const j = await getJSON(`${base.replace(/\/+$/, '')}/reports?limit=${Math.min(50, Math.max(1, limit))}`, { headers: hdr(key), timeoutMs: 15000 })
     .catch(e => { throw errText(e); });

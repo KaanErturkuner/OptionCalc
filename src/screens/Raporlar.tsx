@@ -1,22 +1,23 @@
-/* Menü › Raporlar: sunucunun zamanlanmış piyasa raporları (piyasa öncesi, açılış +30 dk / +1,5 sa / +2,5 sa, gün sonu).
- * Liste: tür, İstanbul saati, başlık. Dokununca tam metin. Kural tabanlıdır; yatırım tavsiyesi değildir. */
-import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, Text, View } from 'react-native';
+/* Menü › Raporlar: sunucunun raporları gün klasörlerinde (en yeni gün önce). Gün → daraltılabilir kutular
+ * ("17:00 Raporu" … "Gün Sonu Raporu"); kutuya dokununca tam metin açılır. Örnek (geçmiş yeniden kurulum) raporlar "örnek" etiketli.
+ * Kural tabanlıdır; yatırım tavsiyesi değildir. */
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Btn, Card, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import { loadState } from '@/lib/state';
 import { flowKeyOf } from '@/lib/flow/client';
 import { fetchReports, type ReportItem } from '@/lib/reports/client';
-import { fmtIstTime } from '@/lib/flow/model';
+import { groupByDay } from '@/lib/reports/group';
 
 const REFRESH_MS = 60000;
-const KIND_TR: Record<string, string> = { premarket: 'Piyasa öncesi', intra1: 'Açılış +30 dk', intra2: 'Açılış +1,5 sa', intra3: 'Açılış +2,5 sa', eod: 'Gün sonu' };
 
 export default function Raporlar({ active, onBack }: { active: boolean; onBack?: () => void }) {
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<ReportItem[]>([]);
-  const [open, setOpen] = useState<ReportItem | null>(null);
+  const [day, setDay] = useState<string | null>(null);
+  const [openIds, setOpenIds] = useState<Set<number>>(new Set());
   const [err, setErr] = useState<string | null>(null);
   const [noKey, setNoKey] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -28,7 +29,7 @@ export default function Raporlar({ active, onBack }: { active: boolean; onBack?:
       const key = flowKeyOf(st?.flowKey);
       setNoKey(!key);
       if (!key) { setItems([]); setErr(null); return; }
-      setItems(await fetchReports(key, 20));
+      setItems(await fetchReports(key, 50));
       setErr(null);
     } catch (e) {
       setErr((e as Error).message || 'Veri alınamadı');
@@ -44,43 +45,70 @@ export default function Raporlar({ active, onBack }: { active: boolean; onBack?:
     return () => { clearTimeout(first); clearInterval(id); };
   }, [active, refresh]);
 
-  const header = (
-    <View style={{ gap: 8 }}>
-      {onBack ? <Btn label="‹ Menü" onPress={() => { tap(); onBack(); }} style={{ alignSelf: 'flex-start', minHeight: 36 }} /> : null}
-      <Text style={{ color: C.text, fontSize: 24, fontWeight: '800' }}>Raporlar</Text>
-    </View>
-  );
+  const folders = useMemo(() => groupByDay(items), [items]);
+  const folder = day ? folders.find(f => f.day === day) ?? null : null;
+  const toggle = (id: number) => setOpenIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const pageStyle = { padding: 12, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 40, gap: 10 };
+  const refreshControl = <RefreshControl refreshing={busy} onRefresh={() => { tap(); refresh(); }} tintColor={C.muted} />;
 
-  if (open) {
+  if (folder) {
     return (
-      <ScrollView style={{ flex: 1, backgroundColor: C.bg }}
-        contentContainerStyle={{ padding: 12, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 40, gap: 10 }}>
-        <Btn label={`‹ Raporlar`} onPress={() => { tap(); setOpen(null); }} style={{ alignSelf: 'flex-start', minHeight: 36 }} />
-        <Card title={open.title}>
-          <Text style={{ color: C.muted, fontSize: 12, marginBottom: 6 }}>{KIND_TR[open.kind] ?? open.kind} · {open.day}</Text>
-          <Text style={{ color: C.text, fontSize: 13.5, lineHeight: 20 }}>{open.body}</Text>
-        </Card>
+      <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={pageStyle} refreshControl={refreshControl}>
+        <Btn label="‹ Raporlar" onPress={() => { tap(); setDay(null); setOpenIds(new Set()); }} style={{ alignSelf: 'flex-start', minHeight: 36 }} />
+        <Text style={{ color: C.text, fontSize: 20, fontWeight: '800' }}>{folder.label}</Text>
+        {folder.items.map(r => {
+          const isOpen = openIds.has(r.id);
+          return (
+            <Card key={r.id}>
+              <Pressable onPress={() => { tap(); toggle(r.id); }} accessibilityRole="button" accessibilityState={{ expanded: isOpen }}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 }}>
+                  <Text style={{ color: C.text, fontSize: 15, fontWeight: '700' }}>{r.boxTitle}</Text>
+                  {r.example ? (
+                    <Text style={{ color: C.warn, fontSize: 11, fontWeight: '800', borderWidth: 1, borderColor: C.warn, borderRadius: 6, paddingHorizontal: 5 }}>örnek</Text>
+                  ) : null}
+                </View>
+                <Text style={{ color: C.muted, fontSize: 14 }}>{isOpen ? '▾' : '▸'}</Text>
+              </Pressable>
+              {isOpen ? (
+                <View style={{ marginTop: 10, gap: 6 }}>
+                  <Text style={{ color: C.text, fontSize: 13, fontWeight: '700' }}>{r.title}</Text>
+                  <Text style={{ color: C.text, fontSize: 13.5, lineHeight: 20 }} selectable>{r.body}</Text>
+                </View>
+              ) : null}
+            </Card>
+          );
+        })}
       </ScrollView>
     );
   }
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: C.bg }}
-      contentContainerStyle={{ padding: 12, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 40, gap: 10 }}
-      refreshControl={<RefreshControl refreshing={busy} onRefresh={() => { tap(); refresh(); }} tintColor={C.muted} />}>
-      {header}
+    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={pageStyle} refreshControl={refreshControl}>
+      {onBack ? <Btn label="‹ Menü" onPress={() => { tap(); onBack(); }} style={{ alignSelf: 'flex-start', minHeight: 36 }} /> : null}
+      <Text style={{ color: C.text, fontSize: 24, fontWeight: '800' }}>Raporlar</Text>
       {noKey ? (
         <Card title="Anahtar gerekli"><Text style={{ color: C.warn, fontSize: 13, lineHeight: 19 }}>Akış anahtarı girilmedi. Hesapla › Ayarlar › “Akış sunucusu anahtarı”.</Text></Card>
       ) : err ? (
         <Card title="Veri alınamadı"><Text style={{ color: C.neg, fontSize: 13 }}>{err}</Text><Btn label="Yeniden dene" onPress={() => { tap(); refresh(); }} style={{ marginTop: 8 }} /></Card>
-      ) : items.length === 0 ? (
+      ) : folders.length === 0 ? (
         <Card title="Henüz rapor yok"><Text style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>Raporlar işlem günlerinde piyasa öncesi (17:00 İst), açılıştan 30 dk, 1,5 ve 2,5 saat sonra ve gün sonunda üretilir. Çekmek için aşağı kaydır.</Text></Card>
-      ) : items.map(r => (
-        <Card key={r.id} title={r.title} right={<Text style={{ color: C.blue, fontSize: 12, fontWeight: '700' }}>{KIND_TR[r.kind] ?? r.kind}</Text>}>
-          <Text style={{ color: C.muted, fontSize: 12 }} onPress={() => { tap(); setOpen(r); }}>
-            {`${r.day} · ${fmtIstTime(r.ts)} İst · Tam metin için dokun`}
-          </Text>
-        </Card>
+      ) : folders.map(f => (
+        <Pressable key={f.day} onPress={() => { tap(); setDay(f.day); setOpenIds(new Set()); }} accessibilityRole="button">
+          <Card>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <View style={{ flexShrink: 1, gap: 2 }}>
+                <Text style={{ color: C.text, fontSize: 16, fontWeight: '800' }}>{f.label}</Text>
+                <Text style={{ color: C.muted, fontSize: 12 }}>{f.count} rapor{f.examples ? ` · ${f.examples} örnek` : ''}</Text>
+              </View>
+              <Text style={{ color: C.muted, fontSize: 18 }}>›</Text>
+            </View>
+          </Card>
+        </Pressable>
       ))}
       <Text style={{ color: C.muted, fontSize: 11, textAlign: 'center', marginTop: 8 }}>Kural tabanlı otomatik özet; yatırım tavsiyesi değildir.</Text>
     </ScrollView>
