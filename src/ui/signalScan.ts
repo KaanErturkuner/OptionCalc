@@ -14,12 +14,15 @@ import { alignFor } from '@/lib/signals/align';
 import { allowedFor, runSetups } from '@/lib/signals/setups/index';
 import { scanStrikes, type Quote } from '@/lib/signals/strikes';
 import { etMinutes, sessionLeftMin, timeToExpiryMin, timeToExpiryYears, scaleEm } from '@/lib/signals/session';
+import { calendarCheck, isEtf, type CalendarCheck, type EarningsInfo } from '@/lib/calendar/events';
+import { fetchFinnhubEarnings } from '@/lib/news/finnhub';
 import { buildOpp, minRrFor, type Opp, type OppInput } from '@/lib/signals/opp';
 import { t1ReversalCandle, t2VwapLoss, t3RegimeFlip, t6Theta, modeTargetR, profitR, type TriggerId } from '@/lib/signals/riskwatch';
 import { gateCheck, gateRecord, type Sent } from '@/lib/signals/gate';
 import { appendLog, type SignalLog } from '@/lib/signals/log';
 import type { SetupCtx } from '@/lib/signals/types';
 import { initAccount, startDay, openPosition, MODE_RULES, type Result } from '@/lib/paper/account';
+import { nextTradingDay } from '@/lib/paper/overnight';
 import { tickPosition, outcomeOf } from '@/lib/paper/engine';
 import { approvalTtlMs, expiryReason, repriceOnApprove, resolveApproval, decisionLabel, type ApprovalSignal } from '@/lib/paper/approval';
 import type { PaperAccount, OpenPosition, Kademe } from '@/lib/paper/types';
@@ -237,8 +240,29 @@ function refreshCards(scans: Scan[], now: number, ttlMin: number | null, accMode
   firsat.setSent(sent);
 }
 
+/** Gece takvim kapısı (D12): bilanço (ETF değil; anahtar yoksa bilinmiyor) + FOMC/CPI/NFP. Gün başına bir kez sorgulanır. */
+const calCache = new Map<string, CalendarCheck>();
+async function nightCalendar(ticker: string, day: string): Promise<CalendarCheck> {
+  const key = `${ticker}|${day}`;
+  const hit = calCache.get(key);
+  if (hit) return hit;
+  const next = nextTradingDay(day), fkey = radar.get().settings.finnhubKey;
+  let earn: EarningsInfo;
+  if (isEtf(ticker)) earn = { kind: 'etf' };
+  else if (!fkey) earn = { kind: 'bilinmiyor' };
+  else {
+    try {
+      const d = await fetchFinnhubEarnings(ticker, fkey, day, next);
+      earn = d ? { kind: 'var', date: d } : { kind: 'yok' };
+    } catch { earn = { kind: 'bilinmiyor' }; }
+  }
+  const r = calendarCheck(day, next, earn);
+  calCache.set(key, r);
+  return r;
+}
+
 /** Açık pozisyonu tick'ler: risk, gece, gap. Sonuçları kaydeder ve bildirir. */
-function tickPaper(paper: PaperAccount, scans: Scan[], now: number): PaperAccount {
+function tickPaper(paper: PaperAccount, scans: Scan[], now: number, calendar: CalendarCheck | null): PaperAccount {
   const pos = paper.position;
   if (!pos) { firsat.setPosLive(null); return paper; }
   const sc = scans.find(s => s.ticker === pos.ticker);
@@ -248,7 +272,7 @@ function tickPaper(paper: PaperAccount, scans: Scan[], now: number): PaperAccoun
   const r = tickPosition(paper, {
     day: etDate(now), now, etMin: sc.etMin, bid: q ? q.bid : null, flags, S: sc.S, ivAtm: sc.ivAtm ?? NaN,
     openUnd: sc.sb.length ? sc.sb[0].o : undefined, openBid: q?.bid,
-    eventBeforeOpen: false, strongTriggerLast30: !!(flags.T1 || flags.T2 || flags.T3), regimeAligned: !flags.T3,
+    calendar: calendar ?? { ok: false, reasons: ['takvim sorgulanmadı'] }, strongTriggerLast30: !!(flags.T1 || flags.T2 || flags.T3), regimeAligned: !flags.T3,
   });
   for (const e of r.events) {
     notifyFirsat(`Fırsat · ${pos.ticker} kâğıt`, e.text, `${pos.id}|${e.kind}|${now}`).catch(() => {});
@@ -289,7 +313,10 @@ export async function runSignalScan(): Promise<number> {
         firsat.setStatus(t, { ...(prev ?? emptyStatus(now)), at: now, error: msg, setups: prev?.setups ?? [] });
       }
     }
-    paper = tickPaper(paper, scans, now);
+    // Gece kararı yalnız 15:45 ET'de verilir; takvim o andan önce sorgulanmaz (ağ çağrısı tasarrufu).
+    const pos = paper.position;
+    const calendar = pos && pos.dte >= 1 && etMinutes(now) >= 945 ? await nightCalendar(pos.ticker, etDate(now)) : null;
+    paper = tickPaper(paper, scans, now, calendar);
     refreshCards(scans, now, ttl, paper.mode);
     firsat.setPaper(paper);
     firsat.setLastScan(now);

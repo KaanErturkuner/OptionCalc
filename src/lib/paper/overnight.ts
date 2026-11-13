@@ -4,6 +4,7 @@ import { americanPrice, FAST_STEPS, type OptType } from '../american.ts';
 import { closeMs, exDivMs, addDaysStr, isTradingDay, YEAR_MS } from '../usmarket.ts';
 import type { OpenPosition } from './types.ts';
 import { RATE } from '../signals/rr.ts';
+import type { CalendarCheck } from '../calendar/events.ts';
 
 export const GAP_BAD_R_MAX = 1.5;       // kötü senaryo kaybı ≤ 1,5R ise taşınır
 export const NIGHT_SIGMA_MULT = 2;      // kötü senaryo: 2 × σ_gece (pozisyon aleyhine)
@@ -34,7 +35,7 @@ export interface OvernightInput {
   day: string;                  // bugünkü işlem günü (ET)
   S: number;                    // dayanak (kapanış)
   ivAtm: number;                // ATM IV (ondalık)
-  eventBeforeOpen: boolean;     // bilanço veya makro (FOMC/CPI/NFP) açılıştan önce
+  calendar: CalendarCheck;      // bilanço + FOMC/CPI/NFP kapısı (calendarCheck); ok değilse taşınmaz (D12)
   strongTriggerLast30: boolean; // son 30 dk'da güçlü risk tetiği
   regimeAligned: boolean;       // rejim pozisyon yönünde
   pricer?: Pricer;
@@ -55,7 +56,7 @@ export function overnightDecision(i: OvernightInput): OvernightDecision {
   if (p.dte < 1) reasons.push('0DTE gün bitmeden kapanır');
   const next = nextTradingDay(i.day);
   if (p.expiry < next) reasons.push('vade ertesi seanstan önce');
-  if (i.eventBeforeOpen) reasons.push('açılıştan önce bilanço veya makro olay');
+  if (!i.calendar.ok) reasons.push(...i.calendar.reasons);
   if (i.strongTriggerLast30) reasons.push('son 30 dk güçlü risk tetiği');
   if (!i.regimeAligned) reasons.push('rejim pozisyon yönünde değil');
   if (!(i.ivAtm > 0) || !Number.isFinite(i.S)) reasons.push('IV/dayanak verisi yok (gece riski hesaplanamaz)');

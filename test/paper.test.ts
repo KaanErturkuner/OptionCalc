@@ -366,13 +366,15 @@ ok('takvim: 2026-11-13 Cuma → sonraki işlem günü Pazartesi 16 Kas', nextTra
   ok('σ_gece: Cuma → Pazartesi ≈ 65,5 saat (hafta sonu)', near(s, expected, 1e-6), String(s));
 }
 const ovPos = (over: Partial<OpenPosition> = {}) => pos({ dte: 2, expiry: '2026-11-18', contracts: 1.5, costBasis: 150, rDollars: 100, ...over });
-const ovIn = (over: Record<string, any> = {}) => ({ pos: ovPos(), day: D, S: 100, ivAtm: 0.2, eventBeforeOpen: false,
+const CAL_OK = { ok: true, reasons: [] as string[] };
+const ovIn = (over: Record<string, any> = {}) => ({ pos: ovPos(), day: D, S: 100, ivAtm: 0.2, calendar: CAL_OK,
   strongTriggerLast30: false, regimeAligned: true, pricer: () => 0.6, ...over });
 {
   const d = overnightDecision(ovIn());
   // kötü senaryo: değer 0,6 × 100 × 1,5 = 90 → kayıp 150 − 90 = 60 → 0,6R
   ok('gece: tüm koşullar sağlanır → taşınır (kötü senaryo 0,6R)', d.carry && near(d.badR, 0.6), JSON.stringify(d));
-  ok('gece: bilanço/makro → taşınmaz', !overnightDecision(ovIn({ eventBeforeOpen: true })).carry);
+  ok('gece: takvim kapısı (bilanço/makro) → taşınmaz', !overnightDecision(ovIn({ calendar: { ok: false, reasons: ['CPI olayı 2026-11-13'] } })).carry);
+  ok('gece: takvim sebebi karara yazılır', overnightDecision(ovIn({ calendar: { ok: false, reasons: ['bilanço 2026-11-13'] } })).reasons.includes('bilanço 2026-11-13'));
   ok('gece: son 30 dk güçlü tetik → taşınmaz', !overnightDecision(ovIn({ strongTriggerLast30: true })).carry);
   ok('gece: rejim pozisyon yönünde değil → taşınmaz', !overnightDecision(ovIn({ regimeAligned: false })).carry);
   ok('gece: 0DTE → taşınmaz (15:45 kapanır)', !overnightDecision(ovIn({ pos: ovPos({ dte: 0, expiry: D }) })).carry);

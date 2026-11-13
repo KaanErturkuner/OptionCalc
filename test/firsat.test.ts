@@ -87,7 +87,7 @@ function openAt(acc: PaperAccount, over: Partial<OpenInput> = {}): PaperAccount 
   return r.acc;
 }
 const tk = (over: Partial<TickIn> = {}): TickIn => ({ day: D, now: 1, etMin: 600, bid: 1, flags: {}, S: 100, ivAtm: 0.2,
-  eventBeforeOpen: false, strongTriggerLast30: false, regimeAligned: true, ...over });
+  calendar: { ok: true, reasons: [] }, strongTriggerLast30: false, regimeAligned: true, ...over });
 
 {
   const r = tickPosition(openAt(initAccount(300, NOCOST, D)), tk({ bid: 3 }));

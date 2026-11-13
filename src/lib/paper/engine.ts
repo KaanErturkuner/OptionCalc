@@ -5,6 +5,7 @@ import { startDay, closePosition } from './account.ts';
 import { exitFill } from './costs.ts';
 import { overnightDecision, gapOpenAction } from './overnight.ts';
 import { evaluatePosition, type TriggerId } from '../signals/riskwatch.ts';
+import type { CalendarCheck } from '../calendar/events.ts';
 
 export interface TickIn {
   day: string;                 // bugünkü işlem günü (ET)
@@ -15,7 +16,7 @@ export interface TickIn {
   S: number;                   // dayanak (son fiyat)
   ivAtm: number;               // ATM IV (gece riski için)
   openUnd?: number; openBid?: number;   // ertesi sabah ilk bar (gap)
-  eventBeforeOpen: boolean;    // bilanço/makro açılıştan önce
+  calendar: CalendarCheck;     // gece kapısı: bilanço + FOMC/CPI/NFP (D12); ok değilse 15:45'te kapanır
   strongTriggerLast30: boolean;
   regimeAligned: boolean;
 }
@@ -74,7 +75,7 @@ export function tickPosition(acc0: PaperAccount, t: TickIn): TickResult {
   // 3) 15:45 ET: hâlâ açıksa 1–3 DTE gece kararı (0DTE yukarıda zorunlu çıkışla kapanır).
   if (p.dte >= 1 && t.etMin >= 945 && p.nightDay !== t.day) {
     const d = overnightDecision({
-      pos: p, day: t.day, S: t.S, ivAtm: t.ivAtm, eventBeforeOpen: t.eventBeforeOpen,
+      pos: p, day: t.day, S: t.S, ivAtm: t.ivAtm, calendar: t.calendar,
       strongTriggerLast30: t.strongTriggerLast30, regimeAligned: t.regimeAligned,
     });
     p = { ...p, nightDay: t.day };
