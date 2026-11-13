@@ -110,14 +110,16 @@ const ET = (iso: string) => Date.parse(iso);        // 13 Kasım: EST (UTC−5)
   const owners = { odte: 2 * MIN };
   const m1 = F.assess('quotes', rec({ okAt: OPEN - MIN, provider: 'marketdata', owners }), OPEN, true);
   ok('MD hisse taze → güncel + delayNote (15 dk)', m1.status === 'guncel' && m1.delayNote, m1.status);
-  const m2 = F.assess('quotes', rec({ okAt: OPEN - 12 * MIN, provider: 'marketdata', owners }), OPEN, true);
-  ok('MD hisse 12 dk önce (15 dk gecikme payı içinde) → sarı değil', m2.status === 'guncel', m2.status);
+  const m2 = F.assess('quotes', rec({ okAt: OPEN - 5 * MIN, provider: 'marketdata', owners }), OPEN, true);
+  ok('MD hisse çekimi 5 dk önce (2 dk aralık + 4 dk tolerans içinde) → güncel + not', m2.status === 'guncel' && m2.delayNote, m2.status);
+  const m2b = F.assess('quotes', rec({ okAt: OPEN - 12 * MIN, provider: 'marketdata', owners }), OPEN, true);
+  ok('MD hisse çekimi 12 dk önce → gecikmeli (15 dk veri gecikmesi çekim tazeliğini örtmez), not yine var', m2b.status === 'gecikmeli' && m2b.delayNote, m2b.status);
   const m3 = F.assess('quotes', rec({ okAt: OPEN - 5 * MIN, errAt: OPEN - MIN, provider: 'marketdata', owners }), OPEN, true);
   ok('MD hisse: gerçek hata → kırmızı', m3.status === 'hata', m3.status);
   const y1 = F.assess('quotes', rec({ okAt: OPEN - 12 * MIN, provider: 'yahoo', owners }), OPEN, true);
   ok('Yahoo aynı yaşta → gecikmeli (delayNote yok)', y1.status === 'gecikmeli' && !y1.delayNote, y1.status);
   const m4 = F.assess('quotes', rec({ okAt: OPEN - 60 * MIN, provider: 'marketdata', owners }), OPEN, true);
-  ok('MD: 15 dk payı da aşılırsa gecikmeli (beslemenin durması)', m4.status === 'gecikmeli', m4.status);
+  ok('MD: besleme durduysa (60 dk) gecikmeli, kırmızı değil', m4.status === 'gecikmeli', m4.status);
   ok('md-options MD hisse notu üretmez (yalnız quotes)', !F.assess('md-options', rec({ okAt: OPEN - MIN, provider: 'marketdata' }), OPEN, true).delayNote);
 }
 

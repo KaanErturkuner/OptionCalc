@@ -17,7 +17,7 @@ export type Status = 'kapali' | 'hata' | 'guncel' | 'gecikmeli' | 'kullanilmiyor
 export const STATUS_LABEL: Record<Status, string> = {
   kapali: 'Piyasa kapalı', hata: 'Veri yok / hata', guncel: 'Güncel', gecikmeli: 'Gecikmeli', kullanilmiyor: 'Kullanılmıyor',
 };
-export const MD_DELAY_MS = 15 * 60000;   // MarketData hisse verisi planda ~15 dk gecikmeli
+export const MD_DELAY_MS = 15 * 60000;   // MarketData hisse verisi planda ~15 dk gecikmeli (yalnız etiket; tolerans değil)
 export const MIN_TOL_MS = 2 * 60000;     // fiyat kaynakları için en az tolerans
 export const NEWS_TOL_MS = 15 * 60000;   // haber için geniş tolerans
 export const DEFAULT_INTERVAL_MS = 60000;
@@ -86,8 +86,8 @@ const used = (r: SourceRec | undefined): r is SourceRec => !!r && (r.okAt != nul
 
 /**
  * Bir kaynağın durumu. Öncelik: kullanılmıyor → seans kapalı → kapalı → son deneme hata → hata
- * → yaşa göre güncel / gecikmeli. MarketData hisse verisi (quotes + provider marketdata) 15 dk ek tolerans alır ve
- * sarı/kırmızı yalnız hatadan kaynaklanır ya da 15 dk tolerans da aşılırsa gecikmeli olur.
+ * → yaşa göre (son başarılı çekimden bu yana) güncel / gecikmeli. MarketData hisse verisi (quotes + provider marketdata)
+ * planda ~15 dk gecikmelidir: bu yüzden kırmızıya çekilmez, "gecikmeli (15 dk)" notu (delayNote) taşır; çekim taze ise yeşildir.
  */
 export function assess(source: Source, rec: SourceRec | undefined, now: number, sessionOpen: boolean): Assessment {
   const r = rec ?? emptyRec();
@@ -102,7 +102,10 @@ export function assess(source: Source, rec: SourceRec | undefined, now: number, 
   if (fail || r.okAt == null) return mk('hata');
   const mdQuote = source === 'quotes' && r.provider === 'marketdata';
   const tol = Math.max(2 * interval, source === 'news' ? NEWS_TOL_MS : MIN_TOL_MS);
-  const limit = interval + tol + (mdQuote ? MD_DELAY_MS : 0);
+  // Yaş, verinin kendi zaman damgası değil SON BAŞARILI ÇEKİM zamanıdır. MarketData hisse verisinin 15 dk gecikmesi
+  // veriye aittir, çekimin tazeliğine değil: ek tolerans verilmez (verilirse duran besleme 15 dk boyunca yeşil kalırdı);
+  // yalnız "gecikmeli (15 dk)" etiketi gösterilir.
+  const limit = interval + tol;
   const age = now - r.okAt;
   const delayNote = mdQuote;
   if (age <= limit) return mk('guncel', { delayNote });
