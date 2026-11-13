@@ -18,7 +18,11 @@ Commit öneki kullanıcı isteğiyle `[grok]`; işi yapan Claude. **Durum: kod t
 **Nasıl doğrulandı:**
 - `npm run check` yeşil: `test/coach.test.ts` (alt testler: zaman/pencere, DTE, stop/hedef, mum analitiği, doğrulama, görüntü denetimi, hız sınırı, Anthropic gövdesi), typecheck, lint, bt:selftest, flow:selftest.
 - Sunucu öz-testinde **sahte** Anthropic ve Yahoo ile uçtan uca koç: 2 çağrı, anahtar başlıkta, token toplamı SQLite'ta, karne kaydı, 429/400/404/503 yolları, yedek model (işaretli) ve yedeksiz model reddi (açık hata), anahtar yanıtta/logda yok. **Gerçek API çağrısı YAPILMADI.**
-- Canlı test: aşağıda (deploy notu).
+- Canlı test: aşağıda (dağıtım ve canlı test).
+
+**Dağıtım ve canlı test (2026-11-13 gecesi, UTC):**
+- `server/deploy.sh` ile dağıtıldı; `optioncalc-flow` **active**. İlk deneme **başarısız**: `anthropic_key` `LoadCredential` kaynağı yoktu → systemd servisi başlatmadı (`status=243/CREDENTIALS`), akış sunucusu ~2 dk düştü. Düzeltme: boş, root 600 yer tutucu (`deploy.sh` artık idempotent oluşturur; commit `[grok] infra: …`).
+- Canlı uç nokta (droplet, localhost, sentetik 640×360 PNG — Midas benzeri fiş, metinsiz): anahtarsız → **401**; koç → **503** (anahtar yok, Haiku çağrılmadı, ücret 0); GIF → **400**; `GET /coach?day=2026-11-13` → **200**. Anahtar hiçbir yanıtta/logda yok. Haiku ile uçtan uca canlı test **yapılmadı** (anahtar yok) → token kullanımı: 0.
 
 **Açık sorular / engeller:**
 - **Anahtar:** yerel ortamda `ANTHROPIC_API_KEY` tanımlı değil → droplet'e kopyalanmadı. Kopyalama komutu `server/README.md` "Koç" bölümünde; ardından `systemctl restart optioncalc-flow`.
