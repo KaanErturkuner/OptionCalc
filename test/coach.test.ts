@@ -25,11 +25,11 @@ ok('dteOf: aynı gün 0', dteOf('2026-11-13', '2026-11-13') === 0);
 ok('dteOf: +3 gün = 3', dteOf('2026-11-16', '2026-11-13') === 3);
 ok('dteOf: geçmiş vade → null', dteOf('2026-11-12', '2026-11-13') === null);
 
-// ───── 2) Kurallar (prim stop −%40, hedef 1:5 / 1:4) ─────
-ok('stop: giriş 1,00 → 0,60 (−%40)', stopPriceOf(1) === 0.6, String(stopPriceOf(1)));
-ok('hedef 1:5: 1,00 → 3,00', targetPriceOf(1, 5) === 3, String(targetPriceOf(1, 5)));
-ok('hedef 1:4: 1,00 → 2,60', targetPriceOf(1, 4) === 2.6, String(targetPriceOf(1, 4)));
-ok('Kaan örneği 3,00: stop 1,80 · 1:5 9,00 · 1:4 7,80', stopPriceOf(3) === 1.8 && targetPriceOf(3, 5) === 9 && targetPriceOf(3, 4) === 7.8, `${stopPriceOf(3)} ${targetPriceOf(3, 5)} ${targetPriceOf(3, 4)}`);
+// ───── 2) Kurallar (prim stop −%50, hedef 1:5 / 1:4 / 1:3) ─────
+ok('stop: giriş 1,00 → 0,50 (−%50)', stopPriceOf(1) === 0.5, String(stopPriceOf(1)));
+ok('hedef 1:5: 1,00 → 3,50', targetPriceOf(1, 5) === 3.5, String(targetPriceOf(1, 5)));
+ok('hedef 1:4: 1,00 → 3,00', targetPriceOf(1, 4) === 3, String(targetPriceOf(1, 4)));
+ok('Kaan örneği 3,00: stop 1,50 · 1:5 10,50 · 1:4 9,00', stopPriceOf(3) === 1.5 && targetPriceOf(3, 5) === 10.5 && targetPriceOf(3, 4) === 9, `${stopPriceOf(3)} ${targetPriceOf(3, 5)} ${targetPriceOf(3, 4)}`);
 ok('prim değişimi: 1,00 → 0,50 = −50%', premiumPct(1, 0.5) === -50);
 
 const T: ExtractedTrade = { ticker: 'QQQ', side: 'CALL', strike: 600, expiry: '2026-11-13', qty: 2, entryTime: '2026-11-13T18:00', entryPrice: 1, exitTime: '2026-11-13T18:40', exitPrice: 4.4, status: 'kapali', confidence: 'yuksek' };

@@ -7,7 +7,8 @@
  * güç = min(5, |puan|). Yön yoksa "Bekle"; güç yine de gösterilir (zayıf/çelişkili okuma).
  */
 import { sizePosition } from '../paper/sizing.ts';
-import { RR_MAIN, RR_FALLBACK, stopPremOf, targetPremOf } from '../paper/rules.ts';
+import { RR_MAIN, RR_FALLBACK, RR_MIN, stopPremOf, targetPremOf } from '../paper/rules.ts';
+import { entryFill } from '../paper/costs.ts';
 import type { Kademe } from '../paper/types.ts';
 import type { Band, Dir, RegimeKind } from '../market/regime.ts';
 
@@ -152,13 +153,13 @@ export function pickRuleStrike(quotes: QuoteLite[], S: number, dir: 'call' | 'pu
   return best;
 }
 
-/** Prim seviyeleri (Kaan 2026-11-14): giriş = mid; stop = giriş × 0,60 (−%40); risk = giriş − stop; hedef = giriş + N × risk, N = 5 ya da 4 */
-export function levelsFor(entry: number): { entry: number; stop: number; t5: number; t4: number; riskPerContract: number } | null {
+/** Prim seviyeleri (Kaan 2026-11-14): giriş = DOLUM (ask + kayma, paper ile aynı); stop = giriş × 0,50 (−%50); 1R = giriş − stop; hedef = giriş + N × 1R, N = 5 / 4 / 3 */
+export function levelsFor(entry: number): { entry: number; stop: number; t5: number; t4: number; t3: number; riskPerContract: number } | null {
   if (!(entry >= 0.05) || !Number.isFinite(entry)) return null;
   const e = Math.round(entry * 100) / 100;
   const stop = stopPremOf(e);
   const risk = e - stop;
-  return { entry: e, stop, t5: targetPremOf(e, RR_MAIN), t4: targetPremOf(e, RR_FALLBACK), riskPerContract: Math.round(risk * 10000) / 100 };
+  return { entry: e, stop, t5: targetPremOf(e, RR_MAIN), t4: targetPremOf(e, RR_FALLBACK), t3: targetPremOf(e, RR_MIN), riskPerContract: Math.round(risk * 10000) / 100 };
 }
 
 export const TIER_LABEL = '%50 / %40 / %30 kademe';
@@ -170,7 +171,7 @@ export interface VerdictCard {
   regime: string | null;                                   // rejim notu (konsolidasyon / onaylı dönüş); yoksa null
   expiry: string | null; dte: number | null;
   strike: number | null; bid: number | null; ask: number | null; mid: number | null;
-  entry: number | null; stop: number | null; t5: number | null; t4: number | null; riskPerContract: number | null;
+  entry: number | null; stop: number | null; t5: number | null; t4: number | null; t3: number | null; riskPerContract: number | null;
   tierPct: number | null; contracts: number | null;   // kademe ve (hesap varsa) adet
   rationale: string; note: string;
 }
@@ -196,14 +197,14 @@ export function buildVerdict(b: BuildInput): VerdictCard {
     fired: t.fired.map(c => c.text), levels, regime: rg.note, tierPct: b.kademe != null ? Math.round(b.kademe * 100) : null, contracts: null, note: CARD_NOTE };
   const exp = pickExpiry(b.expiries, b.nowMs);
   const none = (why: string): VerdictCard => ({ ...base, expiry: exp?.date ?? null, dte: exp?.dte ?? null, strike: null, bid: null, ask: null, mid: null,
-    entry: null, stop: null, t5: null, t4: null, riskPerContract: null, rationale: why });
+    entry: null, stop: null, t5: null, t4: null, t3: null, riskPerContract: null, rationale: why });
   const bekleWhy = rg.note ?? `Bekle: yön yok (net puan ${t.sum}; eşik ±${MIN_SUM})`;
   if (!exp) return none(t.dir === 'bekle' ? bekleWhy : 'Uygun vade yok (0–3 DTE)');
   const quotes = b.quotesFor(exp.date);
   const d = b.dOf(exp.date);
   const dirSide: 'call' | 'put' = t.dir === 'put' ? 'put' : 'call';
   const pick = quotes && d != null && d > 0 ? pickRuleStrike(quotes, b.inputs.S, dirSide, d) : null;
-  const lv = pick ? levelsFor(pick.mid) : null;
+  const lv = pick ? levelsFor(entryFill(pick.ask)) : null;
   if (t.dir === 'bekle') return none(bekleWhy);
   const label = t.dir === 'call' ? 'CALL' : 'PUT';
   const why = t.fired.slice(0, 3).map(c => c.text).join(', ') || 'gösterge yok';
@@ -212,7 +213,7 @@ export function buildVerdict(b: BuildInput): VerdictCard {
   return {
     ...base, contracts,
     expiry: exp.date, dte: exp.dte, strike: pick.strike, bid: pick.bid, ask: pick.ask, mid: pick.mid,
-    entry: lv.entry, stop: lv.stop, t5: lv.t5, t4: lv.t4, riskPerContract: lv.riskPerContract,
+    entry: lv.entry, stop: lv.stop, t5: lv.t5, t4: lv.t4, t3: lv.t3, riskPerContract: lv.riskPerContract,
     rationale: `${label}, ${strengthLabel(t.strength)} (${t.strength}/5): ${why}; giriş ${trNum(lv.entry)} stop ${trNum(lv.stop)} hedef ${trNum(lv.t5)}`,
   };
 }

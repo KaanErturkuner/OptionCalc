@@ -62,6 +62,7 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
   }, [active, day, load]);
 
   const upload = async () => {
+    if (busy) return;                                  // çift dokunma ikinci yüklemeyi başlatmasın
     tap();
     let key = '';
     try {

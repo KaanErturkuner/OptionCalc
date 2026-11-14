@@ -33,7 +33,10 @@ async function collect(t: string): Promise<Collected | null> {
     const Y = await loadSymbol(t, 'yahoo', {});
     const exp = Y.expirations[0]; if (!exp) return null;
     let chainRaw: Chain | null = null, chainSrc = 'MarketData', chainDelay = 0;
-    if (mdKey) chainRaw = await loadChain('marketdata', t, exp, { marketdata: mdKey }, 40, { mdMode: 'cached', mdMaxAge: '2min' }).catch(() => null);
+    if (mdKey) {
+      const m = await loadChain('marketdata', t, exp, { marketdata: mdKey }, 40, { mdMode: 'cached', mdMaxAge: '2min' }).catch(() => null);
+      if (m && m.calls.length + m.puts.length > 0) chainRaw = m;   // boş zincir (204) veri değildir → CBOE yedeği
+    }
     if (!chainRaw) { chainRaw = await loadChain('cboe', t, exp, {}, 40).catch(() => null); chainSrc = 'CBOE'; chainDelay = 15; }
     if (!chainRaw) return null;
     const B = await loadBars(t);
@@ -106,11 +109,12 @@ function fillOutcomes(got: Collected[], now: number) {
   for (const a of radar.get().alerts) {
     const bars = barsBy.get(a.ticker); if (!bars?.length || !a.spot) continue;
     const o = a.outcome, patch: Alert['outcome'] = {};
-    if (!('m30' in o) && now >= a.at + H30) patch.m30 = priceAt(bars, a.at + H30);
-    if (!('h2' in o) && now >= a.at + H2) patch.h2 = priceAt(bars, a.at + H2);
-    if (!('eod' in o) && now >= eodOf(a.at)) patch.eod = priceAt(bars, eodOf(a.at), 10 * 60000);
-    if (!('next' in o) && etDate(now) > etDate(a.at)) patch.next = nextSessionOpen(bars, a.at);
-    if (!('bar' in o) && now >= a.at + H2) patch.bar = barrierOf(a.direction, a.spot, bars, a.at, a.emPct);
+    // Yalnız dolu değer yazılır: boş (null) sonuç kalıcı işaretlenmez, sonraki turda yeniden denenir
+    if (!('m30' in o) && now >= a.at + H30) { const v = priceAt(bars, a.at + H30); if (v != null) patch.m30 = v; }
+    if (!('h2' in o) && now >= a.at + H2) { const v = priceAt(bars, a.at + H2); if (v != null) patch.h2 = v; }
+    if (!('eod' in o) && now >= eodOf(a.at)) { const v = priceAt(bars, eodOf(a.at), 10 * 60000); if (v != null) patch.eod = v; }
+    if (!('next' in o) && etDate(now) > etDate(a.at)) { const v = nextSessionOpen(bars, a.at); if (v != null) patch.next = v; }
+    if (!('bar' in o) && now >= a.at + H2) { const v = barrierOf(a.direction, a.spot, bars, a.at, a.emPct); if (v != null) patch.bar = v; }
     if (Object.keys(patch).length) radar.patchOutcome(a.id, patch);
   }
 }

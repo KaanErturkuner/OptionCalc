@@ -107,7 +107,7 @@ export function normalizeVerdict(raw: unknown): VerdictCard | null {
     regime: str(raw.regime),
     expiry: str(raw.expiry), dte: num(raw.dte),
     strike: num(raw.strike), bid: num(raw.bid), ask: num(raw.ask), mid: num(raw.mid),
-    entry: num(raw.entry), stop: num(raw.stop), t5: num(raw.t5), t4: num(raw.t4), riskPerContract: num(raw.riskPerContract),
+    entry: num(raw.entry), stop: num(raw.stop), t5: num(raw.t5), t4: num(raw.t4), t3: num(raw.t3), riskPerContract: num(raw.riskPerContract),
     tierPct: num(raw.tierPct), contracts: num(raw.contracts),
     rationale: str(raw.rationale) ?? '', note: str(raw.note) ?? '',
   };

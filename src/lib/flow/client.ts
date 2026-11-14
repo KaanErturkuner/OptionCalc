@@ -6,9 +6,8 @@ import { getJSON } from '../market/types.ts';
 export interface FlowFeed { events: FlowEvent[]; serverTime: number; creditsToday: number | null; polling: boolean; days: number | null; fromDay: string | null }
 
 /** EAS/derleme zamanı anahtarı (isteğe bağlı; tercih edilen yol uygulama içi ayar). Expo bunu derleme sırasında gömer. */
-export const ENV_FLOW_KEY = (process.env.EXPO_PUBLIC_FLOW_API_KEY ?? '').trim();
 /** Uygulama içi anahtar yoksa derleme zamanı anahtarı */
-export const flowKeyOf = (stored?: string | null): string => (stored ?? '').trim() || ENV_FLOW_KEY;
+export const flowKeyOf = (stored?: string | null): string => (stored ?? '').trim();   // anahtar yalnız cihazda (Hesapla › Ayarlar); paket içine gömülmez
 
 function hdr(key: string) { return { [APP_KEY_HEADER]: key, Accept: 'application/json' }; }
 

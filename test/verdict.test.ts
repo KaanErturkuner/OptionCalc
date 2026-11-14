@@ -79,15 +79,16 @@ const sumOf = (i: V.VerdictInputs) => V.tally(V.criteria(i));
   ok('put: hedef S−d=575 → 575P', pp?.strike === 575, JSON.stringify(pp));
 }
 
-// ───── 6) Prim seviyeleri (−%40 stop, 1:5 ve 1:4) ─────
+// ───── 6) Prim seviyeleri (−%50 stop, 1:5 / 1:4 / 1:3) ─────
 {
   const L = V.levelsFor(1.20)!;
-  ok('giriş 1,20 → stop 0,72 (0,60×)', L.stop === 0.72, String(L.stop));
-  ok('hedef 1:5 = 3,60', L.t5 === 3.6, String(L.t5));
-  ok('yedek 1:4 = 3,12', L.t4 === 3.12, String(L.t4));
-  ok('kontrat riski $48', L.riskPerContract === 48, String(L.riskPerContract));
+  ok('giriş 1,20 → stop 0,60 (0,50×)', L.stop === 0.6, String(L.stop));
+  ok('hedef 1:5 = 4,20', L.t5 === 4.2, String(L.t5));
+  ok('yedek 1:4 = 3,60', L.t4 === 3.6, String(L.t4));
+  ok('1:3 = 3,00', L.t3 === 3, String(L.t3));
+  ok('kontrat riski $60', L.riskPerContract === 60, String(L.riskPerContract));
   const K = V.levelsFor(3.00)!;
-  ok('Kaan örneği 3,00 → stop 1,80, hedef 9,00, yedek 7,80, risk $120', K.stop === 1.8 && K.t5 === 9 && K.t4 === 7.8 && K.riskPerContract === 120, JSON.stringify(K));
+  ok('Kaan örneği 3,00 → stop 1,50, hedef 10,50, yedek 9,00, 1:3 7,50, risk $150', K.stop === 1.5 && K.t5 === 10.5 && K.t4 === 9 && K.t3 === 7.5 && K.riskPerContract === 150, JSON.stringify(K));
   ok('çok ucuz prim (<0,05) → null', V.levelsFor(0.04) === null);
 }
 
@@ -99,10 +100,10 @@ const sumOf = (i: V.VerdictInputs) => V.tally(V.criteria(i));
   const card = V.buildVerdict({ inputs, expiries: [{ date: '2026-11-16', dte: 0 }], nowMs: inWin,
     quotesFor: () => quotes, dOf: () => 5, kademe: 0.5, capital: 300 });
   ok('kart: CALL, güçlü (4/5)', card.dir === 'call' && card.strength === 4, `${card.dir} ${card.strength}`);
-  ok('kart gerekçesi: örnek biçim', card.rationale.startsWith('CALL, güçlü (4/5): ') && card.rationale.endsWith('giriş 1,20 stop 0,72 hedef 3,60'), card.rationale);
+  ok('kart gerekçesi: örnek biçim (giriş = dolum 1,26)', card.rationale.startsWith('CALL, güçlü (4/5): ') && card.rationale.endsWith('giriş 1,26 stop 0,63 hedef 4,41'), card.rationale);
   ok('kart: strike 585, 0DTE', card.strike === 585 && card.dte === 0, JSON.stringify([card.strike, card.dte]));
-  ok('kart: kademe %50 × 300 $ → 1 kontrat (1,20×100+1,50 = 121,5; bütçe 150)', card.contracts === 1 && card.tierPct === 50, JSON.stringify([card.contracts, card.tierPct]));
-  ok('kart: hedef ve stop seviyeleri dolu (stop 0,72, 1:5 3,60, 1:4 3,12)', card.t5 === 3.6 && card.stop === 0.72 && card.t4 === 3.12);
+  ok('kart: kademe %50 × 300 $ → 1 kontrat (dolum 1,26×100+1,50 = 127,5; bütçe 150)', card.contracts === 1 && card.tierPct === 50, JSON.stringify([card.contracts, card.tierPct]));
+  ok('kart: hedef ve stop seviyeleri dolu (stop 0,63, 1:5 4,41, 1:4 3,78)', card.t5 === 4.41 && card.stop === 0.63 && card.t4 === 3.78);
   const bek = V.buildVerdict({ inputs: BASE, expiries: [{ date: '2026-11-16', dte: 0 }], nowMs: inWin, quotesFor: () => quotes, dOf: () => 5 });
   ok('Bekle: rasyonel metin, giriş yok', bek.dir === 'bekle' && bek.entry === null && bek.rationale.startsWith('Bekle: yön yok'), bek.rationale);
   const noChain = V.buildVerdict({ inputs, expiries: [{ date: '2026-11-16', dte: 0 }], nowMs: inWin, quotesFor: () => null, dOf: () => 5 });

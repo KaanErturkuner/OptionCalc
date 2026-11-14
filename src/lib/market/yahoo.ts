@@ -69,7 +69,9 @@ export const yahoo: Provider = {
     return cached(`c:${symbol}:${expiry}`, async () => {
       const unix = Date.parse(expiry + 'T00:00:00Z') / 1000;
       const v = parseYahooOptions(await yget(`/v7/finance/options/${encodeURIComponent(symbol)}?date=${unix}`, o?.signal));
-      if (!v.chain) throw new Error('Bu vade için veri yok'); return v.chain;
+      if (!v.chain) throw new Error('Bu vade için veri yok');
+      if (v.chain.expiry !== expiry) throw new Error('Yahoo istenen vade yerine başka vade döndürdü'); // yanlış vade önbelleğe girmez
+      return v.chain;
     });
   },
 };

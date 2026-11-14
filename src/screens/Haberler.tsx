@@ -41,7 +41,7 @@ export default function Haberler({ active, onBack }: { active: boolean; onBack?:
 
   return (
     <ScrollView style={{ flex: 1 }}
-      contentContainerStyle={{ paddingTop: onBack ? 8 : insets.top + 12, paddingHorizontal: 14, paddingBottom: 30, gap: 10 }}
+      contentContainerStyle={{ paddingTop: insets.top + (onBack ? 8 : 12), paddingHorizontal: 14, paddingBottom: 30, gap: 10 }}
       refreshControl={<RefreshControl refreshing={busy} onRefresh={() => { tap(); load(); }} tintColor={C.muted} />}>
       {onBack ? <Btn label="‹ Menü" onPress={() => { tap(); onBack(); }} style={{ alignSelf: 'flex-start', minHeight: 36 }} /> : null}
       <Text style={{ color: C.text, fontSize: 22, fontWeight: '800' }}>Haberler</Text>

@@ -751,6 +751,34 @@ Kaan'ın talebiyle (`docs/tasks/FLOW.md`). Commit'ler: `95f2b71` (sunucu + saf a
 
 **Sonraki:** Başkan (Grok) inceleme. Veri zip'i gelince adım 9–11 (ayrıca TASKS #26).
 
+## 2026-11-14 — Claude — [claude] kurul düzeltmeleri + Kaan kararları (tur 2)
+
+**Kaan kararları (uygulandı):**
+1. **RR brüt:** komisyon RR'ye girmez; yalnız net K/Z'de düşülür (`signals/rr.ts`).
+2. **1R sabit, stop −%50:** `PREMIUM_STOP_DROP = 0.50` (`paper/rules.ts`). 1R = giriş × 0,50, dayanak stopu 1R'yi değiştirmez. Hedef 1:5 → 1:4 → 1:3 (yeni `AGRESIF_3`; `RR_MIN = 3`). Örnek: giriş 3,00 → stop 1,50 · 1:5 10,50 · 1:4 9,00 · 1:3 7,50.
+3. **Fırsat → Geçmiş:** onaylanan kâğıt pozisyon `journal`a düşer (`fromSignal`), kapanınca çıkış fiyatı ve nedeni yazılır.
+4. **Uygulama anahtarı:** `EXPO_PUBLIC_FLOW_API_KEY` yedeği kaldırıldı (`flow/client.ts`). Anahtar paketin içine girmez; yalnız cihazda (Hesapla › Ayarlar).
+5. **Koç:** çift yükleme engellendi (`Koc.tsx`). Düzeltme `claude/new-session-73a54r` dalında; `master`'a PR açılmadı (açıkça istenmedi).
+
+**Kritik / yüksek düzeltmeler:**
+- 0DTE 15:45 zorunlu çıkış: kontrat veya bid yoksa son bilinen bid ile çalışır; veri yoksa veya erken kapanış günüyse de çıkar (`ui/signalScan.ts` tickPaper).
+- Sermaye NaN/0 → işlem açılmaz, NaN adet üretilmez (`paper/sizing.ts`).
+- Erken kapanış günleri (13:00 ET) seans süresi doğru (`signals/session.ts`).
+- Kart girişi = dolum (ask + 0,01); kart ve pozisyon adet/hedef uyumlu (`signals/verdict.ts`).
+- `mid()`: alıcı ve son fiyat yoksa ask/2 uydurulmaz (`market/types.ts`).
+- Radar: MarketData boş zinciri (204) CBOE yedeğini tetikler; isabet sonucu boşsa yeniden denenir (`ui/radarScan.ts`).
+- Yahoo: istenen vade dışında dönen zincir önbelleğe girmez (`market/yahoo.ts`).
+- Takip, Journal, Fırsat, Radar depoları: yükleme bitmeden üstüne yazmaz (`ui/*Store.ts`).
+- Haberler: üst boşluk güvenli alan kadar (`screens/Haberler.tsx`).
+
+**Yenilik (Ürün kurulu, kabul edilenler):** P1 onay öncesi kontrol satırı (bilgi); P5 "DURDU'ya kalan kayıp" sayacı.
+
+**Açık (yapılmadı):** P2 olay şeridi (takvim "bilinmiyor" gösterimi), P3 Hesapla kademe önizlemesi, P4 Radar+Akış tekilleştirme. Koç zaman aşımı (150 sn, doğrulanmadı), Radar zincir yaşı denetimi, Radar bildirim dokunuşu. Strateji (S1–S4) ve veri (D1–D4) önerileri veri ve lisans gerektirir; uygulanmadı.
+
+**Açık soru:** Güvenli modlar (1:2 / 1:1,5) hâlâ eski hedefte; 1:3–1:5 kuralı yalnız agresif modda mı uygulansın?
+
+**Doğrulama:** `npm run check` yeşil (test, typecheck, lint). Test beklentileri yeni kurala göre güncellendi; `paper.test.ts` §7.2 örnekleri tarihsel (−%40) olarak işaretlendi.
+
 ## 2026-11-14 — Claude — [claude] time: kullanıcıya görünen saatler İstanbul (UTC+3)
 
 **Ne:** Kullanıcıya gösterilen tüm ET saatleri İstanbul saatine (UTC+3, yaz saati yok) çevrildi. Dönüşüm ABD yaz saatine göre dinamik (`etToIst`, `istHM` — `src/lib/usmarket.ts`). Örnek: 15:45 ET = kışın 23:45 TR, yazın 22:45 TR. İç mantık (piyasa saatleri, kural kontrolleri) ET'de kalır; yalnız gösterim değişti.

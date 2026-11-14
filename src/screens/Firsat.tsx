@@ -11,7 +11,7 @@ import { firsat, useFirsat, type Card as OppCard } from '@/ui/firsatStore';
 import { approveCard, passCard, resetAccount, updatePaperSettings, runSignalScan } from '@/ui/signalScan';
 import { trNum } from '@/lib/signals/opp';
 import { calibration, bucketOf, type SignalLog } from '@/lib/signals/log';
-import { summarize } from '@/lib/paper/account';
+import { summarize, SAFE_LOSS_DURDU } from '@/lib/paper/account';
 import { BROKER_COMMISSION } from '@/lib/paper/costs';
 import { KADEMELER } from '@/lib/paper/sizing';
 import type { PaperMode } from '@/lib/paper/types';
@@ -31,9 +31,9 @@ const Q_EXIT_ROWS: [keyof QSettings, string][] = [
 ];
 
 const MODE_TXT: Record<PaperMode, string> = {
-  AGRESIF: 'Agresif 1:5', AGRESIF_4: 'Yedek 1:4', GUVENLI_KAR: 'Güvenli (gün yeterli)', GUVENLI_ZARAR: 'Güvenli (zarar molası)', DURDU: 'Bugünlük bitti',
+  AGRESIF: 'Agresif 1:5', AGRESIF_4: 'Yedek 1:4', AGRESIF_3: 'Yedek 1:3', GUVENLI_KAR: 'Güvenli (gün yeterli)', GUVENLI_ZARAR: 'Güvenli (zarar molası)', DURDU: 'Bugünlük bitti',
 };
-const MODE_COL: Record<PaperMode, string> = { AGRESIF: C.blue, AGRESIF_4: C.blue, GUVENLI_KAR: C.pos, GUVENLI_ZARAR: C.warn, DURDU: C.neg };
+const MODE_COL: Record<PaperMode, string> = { AGRESIF: C.blue, AGRESIF_4: C.blue, AGRESIF_3: C.blue, GUVENLI_KAR: C.pos, GUVENLI_ZARAR: C.warn, DURDU: C.neg };
 const usd = (x: number, d = 0) => `${trNum(x, d)} $`;
 const signed = (x: number) => `${x >= 0 ? '+' : '−'}${trNum(Math.abs(x), 0)} $`;
 const istHM = (ms: number) => new Date(ms + 3 * 3600000).toISOString().slice(11, 16);   // İstanbul (UTC+3)
@@ -74,6 +74,10 @@ function OpportunityCard({ c, now, open, toggle, n, locked }: { c: OppCard; now:
       </Text>
       <Text style={{ color: c.overnightOk ? C.blue : C.muted, fontSize: 12 }}>
         {c.overnightOk ? `Gece taşınabilir (${etToIst(15, 45)} TR kararı, 1–3 DTE)` : `0DTE: ${etToIst(15, 45)} TR kapanış`}
+      </Text>
+      {/* Onay öncesi kontrol (bilgi, engel değil) */}
+      <Text style={{ color: C.muted, fontSize: 12 }}>
+        {`Kontrol (bilgi): skor ${c.score} · RR ${c.rr.toFixed(2)} · ${c.sizing ? `${c.sizing.contracts} kontrat, ${c.sizing.cost.toFixed(0)} $` : 'sermaye yetmez'} · ${c.vetoes.length ? `${c.vetoes.length} veto` : 'veto yok'}`}
       </Text>
       {pending ? <Countdown card={c} now={now} /> : (
         <Text style={{ color: C.muted, fontSize: 12 }}>{STATE_TXT[c.state]}{c.note ? ` · ${c.note}` : ''}{c.decidedAt ? ` · ${istHM(c.decidedAt)}` : ''}</Text>
@@ -146,6 +150,7 @@ export default function Firsat() {
           <Stat k="Mod" v={modeTxt} color={p ? MODE_COL[p.mode] : undefined} />
           <Stat k="Kademe" v={p ? `%${Math.round(p.kademe * 100)}` : '—'} sub="azami %50" />
           <Stat k="Seri" v={streak} />
+          <Stat k="DURDU'ya kalan" v={p && p.settings.durduEnabled ? String(Math.max(0, SAFE_LOSS_DURDU - p.safeLossStreak)) : '—'} sub={p && p.mode === 'GUVENLI_ZARAR' ? 'bir kayıp daha → bugünlük biter' : 'güvenli zarardan sonra'} />
         </View>
         {p && p.mode === 'DURDU' ? <Text style={{ color: C.neg, fontSize: 12, marginTop: 6 }}>Başkan, bugünlük bu kadar. Yeni işlem yok.</Text> : null}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
