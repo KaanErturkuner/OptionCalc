@@ -31,7 +31,7 @@ Spec: [`docs/tasks/FLOW.md`](../docs/tasks/FLOW.md). Uygulama tarafı: `src/lib/
 | GET | `/flow/summary` | ✓ | Bugünkü teyitli olaylarda ticker bazında call/put prim toplamı |
 | POST | `/push/register` `{"token":"ExponentPushToken[…]"}` | ✓ | Expo push tokenı kaydı (en çok 50 token) |
 | POST | `/push/unregister` `{"token":…}` | ✓ | Tokenı sil |
-| GET | `/reports?limit=` | ✓ | Son raporlar (yeni → eski, tam metin; en çok 50, varsayılan 10) |
+| GET | `/reports?limit=` | ✓ | Son raporlar (yeni → eski; `body` düz metin, `sections` yapılandırılmış bölümler — eski satırlarda `null`; en çok 50, varsayılan 10) |
 | GET | `/reports/<id>` | ✓ | Tek rapor |
 | GET | `/api/md/<MarketData yolu>?<sorgu>` | ✓ | MarketData proxy'si (yanıt MarketData ile aynı; `X-Flow-Cache`, `X-Api-Ratelimit-Consumed` başlıkları) |
 | POST | `/coach` `{"image":"<base64>","mime":"image/png","day":"YYYY-MM-DD"?}` | ✓ | Koç: ekran görüntüsü → dolum çıkarma, eşleştirme, koçluk (Haiku). Bkz. "Koç" |
@@ -239,6 +239,7 @@ hız sınırı (gap/daily) → karne → anahtar sızıntısı yok. Saf eşleşt
 - Zamanlar ABD açılış/kapanışına çapalıdır (ET, DST dâhil): ABD tatilinde rapor yok; erken kapanış (13:00 ET) günlerinde gün sonu kapanışa göre kayar.
 - **Veri:** duvarlar poller'ın önbelleğe aldığı zincirlerden (MarketData'ya EK kredi yok). Yahoo chart (anahtarsız, seri, 350 ms aralık). Finnhub (haber, bilanço) — anahtar `/etc/optioncalc-flow/finnhub_key` (root 600), systemd `LoadCredential`; **anahtar URL'de değil, `X-Finnhub-Token` başlığında gider**.
 - Kaynak hatası → metinde “veri alınamadı” satırı; rapor yine üretilir. Saklama 30 gün (`reports` tablosu). Her rapor sonunda kısa Expo push (kayıtlı tokenlara).
+- **Yapılandırılmış bölümler** (`reports.sections` JSON, `src/lib/reports/sections.ts`): özet (CALL/PUT/BEKLE, ana seviyeler, tek cümle plan), metrikler, duvarlar (merdiven uygulamada bu seviyelerden çizilir), takvim (ET + İst, etki), haberler (etki etiketi), akış yığını, gün sonu incelemesi (beklenti–gerçek, duvar kayması okları, yarın planı). Push metni yine kısa düz metindir. Şema: `ReportSections` (`src/lib/reports/types.ts`).
 - Kapatma: `REPORTS=off` (ortam). Finnhub anahtarı yoksa haber/bilanço “veri alınamadı” olur.
 - **Kuru çalıştırma** (ağ YOK, DB YOK, push YOK; sentetik fixture):
   ```bash

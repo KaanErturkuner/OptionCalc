@@ -2,8 +2,10 @@
 import { FLOW_BASE_URL } from '../flow/model.ts';
 import { APP_KEY_HEADER } from '../flow/proxy.ts';
 import { getJSON } from '../market/types.ts';
+import type { ReportSections } from './types.ts';
 
-export interface ReportItem { id: number; kind: string; day: string; ts: number; title: string; body: string; example?: boolean }
+/** Sunucu rapor satırı. sections: yapılandırılmış bölümler; eski satırlarda null → düz metin (body) gösterilir. */
+export interface ReportItem { id: number; kind: string; day: string; ts: number; title: string; body: string; example?: boolean; sections?: ReportSections | null }
 
 const hdr = (key: string) => ({ [APP_KEY_HEADER]: key, Accept: 'application/json' });
 function errText(e: unknown): Error {

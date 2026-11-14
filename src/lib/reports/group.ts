@@ -3,10 +3,11 @@
  * Kutu saati slotun kendi saatidir (üretim anı değil); kutu sırası: piyasa öncesi → açılış +30 dk … → gün sonu.
  */
 import { istHm, KIND_LABEL, REPORT_KINDS, slotsFor } from './schedule.ts';
+import type { ReportSections } from './types.ts';
 
 const WEEKDAYS = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
 
-export interface GroupableReport { id: number; kind: string; day: string; ts: number; title: string; body: string; example?: boolean }
+export interface GroupableReport { id: number; kind: string; day: string; ts: number; title: string; body: string; example?: boolean; sections?: ReportSections | null }
 export interface ReportBox extends GroupableReport { example: boolean; boxTitle: string }
 export interface DayFolder { day: string; label: string; count: number; examples: number; items: ReportBox[] }
 

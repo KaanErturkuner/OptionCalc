@@ -14,13 +14,14 @@
 import { loadConfig } from './config.ts';
 import { Store } from './store.ts';
 import { YahooClient, FinnhubClient } from './sources.ts';
-import { ASIA, EUROPE, FUTURES, nextTradingDay } from './reporter.ts';
+import { ASIA, EUROPE, FUTURES, VIX, nextTradingDay } from './reporter.ts';
 import { errText } from './poller.ts';
 import { buildReport } from '../../src/lib/reports/text.ts';
 import { slotsFor, istHm, type Slot } from '../../src/lib/reports/schedule.ts';
 import { pctOf, sma } from '../../src/lib/reports/sources.ts';
 import { dailyDoneBy, exampleReport, MIN_MS, openAndLast, pitPeriods, pitPrice, prevCloseBefore } from '../../src/lib/reports/pit.ts';
-import type { FlowAgg, Move, MacroLite, NewsLite, ReportInput, SmaRow, WallSnap } from '../../src/lib/reports/types.ts';
+import type { Bias, FlowAgg, Move, MacroLite, NewsLite, ReportInput, SmaRow, WallSnap } from '../../src/lib/reports/types.ts';
+import { expectationOf } from '../../src/lib/reports/sections.ts';
 import { eventsOn } from '../../src/lib/calendar/releases.ts';
 import { addDaysStr, exDivMs, isTradingDay, prevTradingDay } from '../../src/lib/usmarket.ts';
 import type { HistSnap } from '../../src/lib/reports/histchain.ts';
@@ -117,6 +118,7 @@ async function gatherPit(slot: Slot, deps: { cfg: ReturnType<typeof loadConfig>;
     for (const [n, s] of EUROPE) base.europe.push(await refMove(n, s, false));
     for (const [n, s] of FUTURES) base.futures.push(await refMove(n, s, false));
     for (const t of watch) base.preMarket.push(await refMove(t, t, true));
+    base.vix = await refMove(VIX[0], VIX[1], false);
     Object.assign(base, await news(cutoff - DAY_MS));
     earningsNote();
     base.macro.tomorrow = macroOn(nextTradingDay(day));
@@ -141,6 +143,7 @@ async function gatherPit(slot: Slot, deps: { cfg: ReturnType<typeof loadConfig>;
       }
     }
     base.sma = smaRows;
+    base.vix = await refMove(VIX[0], VIX[1], false);
     if (useHist) {
       // Duvar kayması: önceki kapanış (12/11) → gün sonu (13/11) zinciri. Gün sonu zinciri yoksa kayma ölçülemez (dürüstlük).
       const rows = watch.map(t => ({ t, o: histOf(prevDay, t), n: histOf(day, t) }));
@@ -148,7 +151,8 @@ async function gatherPit(slot: Slot, deps: { cfg: ReturnType<typeof loadConfig>;
       base.flow = rows.flatMap(({ o }) => o?.flow ?? []);
       base.flowKnown = true;
       base.basis = { wallsHead: `Duvar kayması — önceki kapanış (${dm(prevDay)}) → gün sonu (${dm(day)}) zincirine göre`, openLabel: dm(prevDay),
-        flowHead: `Opsiyon birikimi — önceki kapanış (${dm(prevDay)}) zincirine göre (en büyük açık pozisyon)` };
+        flowHead: `Opsiyon birikimi — önceki kapanış (${dm(prevDay)}) zincirine göre (en büyük açık pozisyon)`,
+        source: `önceki kapanış (${dm(prevDay)}) → gün sonu (${dm(day)}) zincirine göre` };
       if (!rows.some(x => x.n)) fails.push(`${dm(day)} gün sonu zinciri yok: duvar kayması ölçülemez`);
       histMissing(rows.filter(x => !x.o).map(x => x.t));
     } else {
@@ -175,6 +179,7 @@ async function gatherPit(slot: Slot, deps: { cfg: ReturnType<typeof loadConfig>;
       base.moves.push({ name: t, pct: null, price: null });
     }
   }
+  base.vix = await refMove(VIX[0], VIX[1], false);
   if (useHist) {
     // Açılış anı (açılış duvarı) yok: yalnız önceki kapanış zincirinden duvar ve birikim; kayma ölçülemez, spot notu yazılmaz
     const rows = watch.map(t => ({ t, h: histOf(prevDay, t) }));
@@ -182,7 +187,8 @@ async function gatherPit(slot: Slot, deps: { cfg: ReturnType<typeof loadConfig>;
     base.flow = rows.flatMap(({ h }) => h?.flow ?? []);
     base.flowKnown = true;
     base.basis = { wallsHead: `Duvarlar — önceki kapanış (${dm(prevDay)}) zincirine göre (açılış anı yok; kayma ölçülemez)`,
-      flowHead: `Opsiyon birikimi — önceki kapanış (${dm(prevDay)}) zincirine göre (en büyük açık pozisyon)` };
+      flowHead: `Opsiyon birikimi — önceki kapanış (${dm(prevDay)}) zincirine göre (en büyük açık pozisyon)`,
+      source: `önceki kapanış (${dm(prevDay)}) zincirine göre` };
     histMissing(rows.filter(x => !x.h).map(x => x.t));
   } else {
     base.walls = walls();
@@ -201,20 +207,27 @@ async function main(): Promise<void> {
   const store = new Store(cfg.dbPath);
   const deps = { cfg, store, yahoo: new YahooClient(), finnhub: cfg.finnhubKey ? new FinnhubClient(cfg.finnhubKey) : null };
   log(`örnek raporlar ${day}: ${DRY ? 'KURU (DB yazılmaz)' : 'DB’ye yazılır'}; MarketData çağrısı: 0; push: yok`);
+  let morning: Bias | null = null;          // aynı günün piyasa öncesi beklentisi (gün sonu incelemesi için)
   for (const slot of slotsFor(day)) {
     const key = `ornek:${slot.day}:${slot.kind}`;
     if (!DRY && store.hasReport(key)) {
-      if (!FORCE) { log(`  atlandı (zaten var): ${key}`); continue; }
+      if (!FORCE) {
+        log(`  atlandı (zaten var): ${key}`);
+        if (slot.kind === 'premarket') morning = store.reportByKey(key)?.sections ? expectationOf(store.reportByKey(key)!.sections!) : null;
+        continue;
+      }
       store.deleteExampleReport(key);
     }
     const input = await gatherPit(slot, deps);
+    if (slot.kind === 'eod') input.morningBias = morning;
     const rep = exampleReport(buildReport(input));
+    if (slot.kind === 'premarket') morning = expectationOf(rep.sections);
     if (DRY) {
       log(`\n— ${rep.title}  [${key}]`);
       log(rep.body);
       continue;
     }
-    const id = store.insertReport({ key, kind: slot.kind, day, ts: slot.atMs, title: rep.title, body: rep.body, pushTitle: rep.pushTitle, pushBody: rep.pushBody, example: true });
+    const id = store.insertReport({ key, kind: slot.kind, day, ts: slot.atMs, title: rep.title, body: rep.body, pushTitle: rep.pushTitle, pushBody: rep.pushBody, example: true, sections: rep.sections });
     log(`  yazıldı: ${rep.title} (id ${id}, veri sorunu ${input.failures.length})`);
   }
   store.close();

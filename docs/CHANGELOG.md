@@ -1,5 +1,44 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — [grok] reports: yapılandırılmış rapor bölümleri, yeni Raporlar görünümü, 13/11 örnekleri yeniden kuruldu
+
+**Neden:** Kaan: "raporlar çok basit, tek düze, renksiz, özensiz". Metin tek sütundu; karar, seviye ve takvim gözle taranamıyordu.
+
+**Ne:**
+- **Veri:** rapor artık `ReportSections` (JSON) taşır: özet (CALL/PUT/BEKLE, `dataOk`, ana seviyeler, tek cümle plan), metrikler,
+  duvarlar (ticker başına spot/call/put/flip/max pain, önceki değer ve kaynak etiketi), takvim (ET + İst, etki, açıklandı/bekleniyor),
+  haberler (etki etiketi), akış yığını (call/put prim payı), gün sonu incelemesi (sabah beklentisi → gerçek, İSABET/IŞKA, duvar
+  kayması okları, yarın planı), veri sorunları. Düz metin (`body`) ve push metni aynen kalır.
+- **Karar kuralı** (`src/lib/reports/rules.ts`, tek kaynak): piyasa öncesi = vadeli %70 + Asya/Avrupa %30; intra/gün sonu = izleme
+  listesi ortalaması. Eşik ±0,25: üstü CALL, altı PUT, arası BEKLE. Veri yoksa BEKLE + `dataOk=false` (gün sonu "veri yok").
+- **Yeni saf modüller:** `sections.ts` (bölüm üretimi, kayma okları, haber etkisi, metrik kartları, plan cümlesi), `ladder.ts`
+  (kompakt duvar merdiveni yerleşimi, etiket çakışmasını önler). Eski `text.ts` kuralları `rules.ts`'e taşındı (dışa aktarımlar korundu).
+- **VIX:** `^VIX` Yahoo'dan (MarketData değil) tüm raporlara eklendi; nokta-zamanlı backfill'de de aynı şekilde.
+- **DB migrasyonu:** `reports.sections TEXT` (NULL = eski satır → uygulama düz metne düşer). Bozuk JSON → null, liste düşmez.
+  Gün sonu raporu, aynı günün piyasa öncesi beklentisini DB'den okur (`reportByKey`).
+- **Uygulama:** `src/ui/ReportParts.tsx` (rozet, özet kartı, metrik ızgarası, duvar kartı + kompakt merdiven (SVG), takvim
+  zaman çizelgesi, haber listesi, akış yığını, gün sonu kartı, veri sorunları). `Raporlar.tsx`: gün ekranının üstünde son durum
+  kartı; her kutunun başlığında tür, saat ve karar rozeti; açılınca yapılandırılmış görünüm, bölümü olmayanlarda düz metin.
+- **Örnekler (13/11):** 5 örnek satır `--force` ile yeniden yazıldı (yalnız `example=1` satırları silindi). Kaynaklar: `hist_chain`
+  (12/11 zinciri, saklı, MarketData çağrısı yok), Yahoo, Finnhub (akış/geçmiş backfill kuralları aynı). 13/11 gün sonu zinciri yok →
+  gün sonu duvar kayması "veri alınamadı" (dürüst). Sonuç: sabah BEKLE (skor +0,11) → gün sonu PUT → IŞKA.
+
+**Dosyalar:** `src/lib/reports/{rules,sections,ladder}.ts` (yeni), `types.ts`, `text.ts`, `client.ts`, `group.ts`;
+`src/ui/ReportParts.tsx` (yeni), `src/screens/Raporlar.tsx`; `server/app/{store,reporter,backfill,selftest}.ts`;
+`test/reports-sections.test.ts` (yeni, npm test zincirine eklendi), `test/reports-pit.test.ts`, `test/reports-hist.test.ts`
+(fixture güncellemesi); `server/README.md`.
+
+**Doğrulama:** `npm run check` geçti (test, typecheck, lint, bt:selftest, flow:selftest). Yeni birim testleri: 70+ kontrol.
+DB yedeği: `/var/lib/optioncalc-flow/flow.db.bak-pre-sections-20261114T005857Z` (VACUUM INTO, sahip ocflow, mod 600; 5 rapor, 7 zincir).
+Dağıtım: `server/deploy.sh` → `active`. Kuru çalıştırma ve gerçek yeniden yazım servis kullanıcısıyla (`systemd-run`, aynı
+LoadCredential). Sonradan şema ve satırlar okunarak doğrulandı.
+
+**Açık / devir:**
+- Uygulama ekranı Expo Go'da henüz görsel olarak denenmedi (yalnız tip denetimi ve lint); Kaan cihazda bakmalı.
+- Merdiven yalnız seviye işaretlerini çizer (strike-düzeyi OI saklanmıyor); radar merdiveninin çubukları yok.
+- Gün sonu "yarın planı" 13/11 için seviye verisi olmadığından "seviye verisi yok" der; canlı günlerde kapanış zinciri varsa düzelir.
+- Yayın yok (Expo'ya dokunulmadı), push yok, yeni MarketData çağrısı yok.
+
 ## 2026-11-14 — Claude — [grok] reports: 13/11 örnek raporlar önceki kapanış (12/11) zinciriyle duvar ve birikim
 
 **Neden:** 13/11'de sunucu çalışmadığı için akış/duvar kaydı yoktu; örnek raporlarda duvarlar ve opsiyon birikimi "veri alınamadı" çıkıyordu.

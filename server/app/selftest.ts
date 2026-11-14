@@ -262,6 +262,21 @@ async function coachSelftest() {
   store.close();
 }
 
+// ───── Rapor bölümleri (JSON sütunu): kayıt/okuma, eski satır (NULL) → düz metne düşüş, bozuk JSON ─────
+{
+  const st = new Store(':memory:');
+  const DAYS = '2026-11-16';
+  const sec = { v: 1, summary: { bias: 'CALL', dataOk: true, keyLevels: [], plan: 'p' }, metrics: [], walls: [], calendar: [], news: [], flow: { known: true, callPremium: 0, putPremium: 0, callShare: null, source: 's', top: [] }, eod: null, failures: [] };
+  st.insertReport({ key: DAYS + ':premarket', kind: 'premarket', day: DAYS, ts: 10, title: 't', body: 'b', pushTitle: 'p', pushBody: 'b', sections: sec as never });
+  st.insertReport({ key: DAYS + ':intra1', kind: 'intra1', day: DAYS, ts: 20, title: 't2', body: 'b2', pushTitle: 'p', pushBody: 'b' });
+  const got = st.reportByKey(DAYS + ':premarket');
+  ok('bölüm: JSON olarak geri okunur (bias CALL)', got?.sections?.summary.bias === 'CALL' && got?.sections?.v === 1);
+  ok('bölüm: eski satır (sections yok) → null, rapor listelenir', st.reportByKey(DAYS + ':intra1')?.sections === null && st.listReports(10).length === 2);
+  st.db.exec("UPDATE reports SET sections = '{bozuk' WHERE key = '" + DAYS + ":intra1'");
+  ok('bölüm: bozuk JSON → null (liste düşmez)', st.reportByKey(DAYS + ':intra1')?.sections === null && st.listReports(10).length === 2);
+  st.close();
+}
+
 // ───── Örnek rapor: example bayrağı, yalnız örnek silme, nokta-zamanlı akış sorgusu ─────
 {
   const st = new Store(':memory:');

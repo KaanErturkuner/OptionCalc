@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { Baseline, ChainRow } from '../../src/lib/flow/detect.ts';
 import type { FlowEvent } from '../../src/lib/flow/model.ts';
 import { FLOW_DAYS_MAX, oldestTradingDay } from '../../src/lib/flow/days.ts';
+import type { ReportSections } from '../../src/lib/reports/types.ts';
 
 /** Olay saklama: son N işlem günü (akış penceresi en çok FLOW_DAYS_MAX; bir fazlası tampon) */
 export const RETAIN_TRADING_DAYS = FLOW_DAYS_MAX;
@@ -53,6 +54,8 @@ export class Store {
     // Geçmiş sürüm migrasyonu: örnek rapor bayrağı (eski satırlar 0 = gerçek rapor)
     const rcols = (this.db.prepare('PRAGMA table_info(reports)').all() as { name: string }[]).map(c => c.name);
     if (!rcols.includes('example')) this.db.exec('ALTER TABLE reports ADD COLUMN example INTEGER NOT NULL DEFAULT 0');
+    // Yapılandırılmış bölümler (JSON). Eski satırlar NULL kalır → uygulama düz metne düşer.
+    if (!rcols.includes('sections')) this.db.exec('ALTER TABLE reports ADD COLUMN sections TEXT');
   }
 
   // ── kredi sayacı (gün = MarketData kredi günü, 09:30 ET'de döner; bkz. server/README) ──
@@ -177,9 +180,9 @@ export class Store {
   hasReport(key: string): boolean {
     return !!this.db.prepare('SELECT 1 FROM reports WHERE key = ?').get(key);
   }
-  insertReport(r: { key: string; kind: string; day: string; ts: number; title: string; body: string; pushTitle: string; pushBody: string; example?: boolean }): number {
-    const x = this.db.prepare(`INSERT OR IGNORE INTO reports (key, kind, day, ts, title, body, push_title, push_body, example) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(r.key, r.kind, r.day, r.ts, r.title, r.body, r.pushTitle, r.pushBody, r.example ? 1 : 0);
+  insertReport(r: { key: string; kind: string; day: string; ts: number; title: string; body: string; pushTitle: string; pushBody: string; example?: boolean; sections?: ReportSections | null }): number {
+    const x = this.db.prepare(`INSERT OR IGNORE INTO reports (key, kind, day, ts, title, body, push_title, push_body, example, sections) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(r.key, r.kind, r.day, r.ts, r.title, r.body, r.pushTitle, r.pushBody, r.example ? 1 : 0, r.sections ? JSON.stringify(r.sections) : null);
     return Number(x.lastInsertRowid);
   }
   /** Yalnız örnek (backfill) raporu siler; gerçek raporlara dokunmaz (`example = 1` koşulu) */
@@ -187,10 +190,15 @@ export class Store {
     return Number(this.db.prepare('DELETE FROM reports WHERE key = ? AND example = 1').run(key).changes);
   }
   listReports(limit: number): ReportRow[] {
-    return (this.db.prepare('SELECT id, kind, day, ts, title, body, example FROM reports ORDER BY ts DESC, id DESC LIMIT ?').all(Math.min(50, Math.max(1, limit))) as unknown as RawReportRow[]).map(toReportRow);
+    return (this.db.prepare(`${REPORT_COLS} ORDER BY ts DESC, id DESC LIMIT ?`).all(Math.min(50, Math.max(1, limit))) as unknown as RawReportRow[]).map(toReportRow);
   }
   getReport(id: number): ReportRow | null {
-    const r = this.db.prepare('SELECT id, kind, day, ts, title, body, example FROM reports WHERE id = ?').get(id) as unknown as RawReportRow | undefined;
+    const r = this.db.prepare(`${REPORT_COLS} WHERE id = ?`).get(id) as unknown as RawReportRow | undefined;
+    return r ? toReportRow(r) : null;
+  }
+  /** Anahtarla tek rapor (örn. gün sonu, sabah beklentisi için piyasa öncesi raporu) */
+  reportByKey(key: string): ReportRow | null {
+    const r = this.db.prepare(`${REPORT_COLS} WHERE key = ?`).get(key) as unknown as RawReportRow | undefined;
     return r ? toReportRow(r) : null;
   }
   /** Saklama: ts'si cutoffMs'den eski raporlar silinir */
@@ -300,6 +308,12 @@ function parseReport(r: RawReport): CoachReportRow {
   return { sig: r.sig, day: r.day, ts: Number(r.ts), model: r.model, trade: JSON.parse(r.trade), rules: JSON.parse(r.rules), feedback: JSON.parse(r.feedback), context: r.context == null ? null : JSON.parse(r.context) };
 }
 
-export interface ReportRow { id: number; kind: string; day: string; ts: number; title: string; body: string; example: boolean }
-type RawReportRow = Omit<ReportRow, 'example'> & { example: number };
-const toReportRow = (r: RawReportRow): ReportRow => ({ ...r, example: Number(r.example) === 1 });
+export interface ReportRow { id: number; kind: string; day: string; ts: number; title: string; body: string; example: boolean; sections: ReportSections | null }
+type RawReportRow = Omit<ReportRow, 'example' | 'sections'> & { example: number; sections: string | null };
+const REPORT_COLS = 'SELECT id, kind, day, ts, title, body, example, sections FROM reports';
+/** Eski satırlarda sections NULL → null (düz metne düşülür). Bozuk JSON da null sayılır (rapor yine listelenir). */
+const toReportRow = (r: RawReportRow): ReportRow => {
+  let sections: ReportSections | null = null;
+  if (r.sections) { try { sections = JSON.parse(r.sections) as ReportSections; } catch { sections = null; } }
+  return { id: r.id, kind: r.kind, day: r.day, ts: Number(r.ts), title: r.title, body: r.body, example: Number(r.example) === 1, sections };
+};

@@ -8,33 +8,12 @@ import { closeMs } from '../usmarket.ts';
 import { istHm, KIND_LABEL, type ReportKind } from './schedule.ts';
 import { etMs, istHmOf, type MacroLite } from '../calendar/releases.ts';
 import type { FlowAgg, Move, NewsLite, Report, ReportInput, WallSnap } from './types.ts';
-
-const NA = 'veri alınamadı';
-export const pctTr = (x: number | null | undefined): string =>
-  x == null || !Number.isFinite(x) ? NA : `${x >= 0 ? '+' : '−'}${fmt(Math.abs(x), 2)}%`;
+import { NA, intraDirection, openBias, pctTr } from './rules.ts';
+import { buildSections } from './sections.ts';
+export { BIAS_BAND, intraDirection, openBias, pctTr } from './rules.ts';
 const levelTr = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : fmt(x, x % 1 ? 2 : 0));
 const dayTr = (day: string) => { const [y, m, d] = day.split('-'); return `${d}.${m}.${y}`; };
 const sign = (x: number) => (x >= 0 ? '+' : '');
-
-/** Eğilim eşiği (%): bunun altındaki hareket "yatay" sayılır */
-export const BIAS_BAND = 0.25;
-
-/** Açılış eğilimi (kural): vadeliler ağırlıklı (%70), Asya/Avrupa ortalaması (%30). Veri yoksa null. */
-export function openBias(futures: Move[], asiaEu: Move[]): { label: string; score: number } | null {
-  const avg = (ms: Move[]) => { const xs = ms.map(m => m.pct).filter((x): x is number => x != null); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
-  const f = avg(futures), a = avg(asiaEu);
-  if (f == null && a == null) return null;
-  const score = f != null && a != null ? 0.7 * f + 0.3 * a : (f ?? a)!;
-  return { score: +score.toFixed(2), label: score >= BIAS_BAND ? 'yukarı açılış eğilimi' : score <= -BIAS_BAND ? 'aşağı açılış eğilimi' : 'yatay / karışık açılış' };
-}
-
-/** Seans içi yön (SPY/QQQ açılıştan beri ortalaması) */
-export function intraDirection(moves: Move[]): { label: string; avg: number | null } {
-  const xs = moves.map(m => m.pct).filter((x): x is number => x != null);
-  if (!xs.length) return { label: NA, avg: null };
-  const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
-  return { avg: +avg.toFixed(2), label: avg >= BIAS_BAND ? 'yukarı' : avg <= -BIAS_BAND ? 'aşağı' : 'yatay' };
-}
 
 /** Duvar kayması satırı: "QQQ · call duvarı 585 (açılış 580, ↑5) · put duvarı 570 (=) · flip 578 · max pain 580" */
 export function wallLine(ticker: string, open: WallSnap | null, now: WallSnap | null, openLabel = 'açılış'): string {
@@ -92,15 +71,15 @@ const earningsLine = (e: ReportInput['earnings'], watch: string[]) => {
   return rows.length ? rows.map(x => `  ${x.ticker}: ${dayTr(x.date!)}`).join('\n') : '  İzleme listesinde yakın bilanço yok';
 };
 
+/** Rapor: düz metin (eski satırlar ve push için yedek) + yapılandırılmış bölümler (uygulama kartları) */
 export function buildReport(input: ReportInput): Report {
   const ts = input.nowMs;
   const fails = input.failures.length ? ['Veri sorunları:', ...input.failures.map(f => `  • ${f}`)] : [];
-  if (input.kind === 'premarket') return premarket(input, ts, fails);
-  if (input.kind === 'eod') return eod(input, ts, fails);
-  return intra(input, ts, fails);
+  const rep = input.kind === 'premarket' ? premarket(input, ts, fails) : input.kind === 'eod' ? eod(input, ts, fails) : intra(input, ts, fails);
+  return { ...rep, sections: buildSections(input) };
 }
 
-function premarket(input: ReportInput, ts: number, fails: string[]): Report {
+function premarket(input: ReportInput, ts: number, fails: string[]): Omit<Report, 'sections'> {
   const bias = openBias(input.futures, [...input.asia, ...input.europe]);
   const todayMacro = input.macro.today.map(m => macroToday(m, ts));
   const lines = [
@@ -124,7 +103,7 @@ function premarket(input: ReportInput, ts: number, fails: string[]): Report {
     pushTitle: `Piyasa öncesi raporu hazır`, pushBody: pushLine };
 }
 
-function intra(input: ReportInput, ts: number, fails: string[]): Report {
+function intra(input: ReportInput, ts: number, fails: string[]): Omit<Report, 'sections'> {
   const dir = intraDirection(input.moves);
   const wallRows = input.walls.length ? input.walls.map(w => '  ' + wallLine(w.ticker, w.open, w.now, input.basis?.openLabel)) : [`  ${NA}`];
   // Önceki kapanış temelli raporda spot önceki kapanıştır: gamma flip/duvar yakınlığı notu yazılmaz
@@ -152,7 +131,7 @@ function intra(input: ReportInput, ts: number, fails: string[]): Report {
     pushBody: `SPY ${pctTr(spy?.pct ?? null)} · QQQ ${pctTr(qqq?.pct ?? null)}${fl[0] ? ' · ' + fl[0].split(' · ')[0] : ''}` };
 }
 
-function eod(input: ReportInput, ts: number, fails: string[]): Report {
+function eod(input: ReportInput, ts: number, fails: string[]): Omit<Report, 'sections'> {
   const smaLines = input.sma.length ? input.sma.map(s => {
     const pos = (v: number | null | undefined) => v == null || s.price == null ? '—' : s.price >= v ? 'üstünde' : 'altında';
     return `  ${s.ticker} ${levelTr(s.price)} · SMA20 ${levelTr(s.sma20)} (${pos(s.sma20)}) · SMA50 ${levelTr(s.sma50)} (${pos(s.sma50)}) · SMA200 ${levelTr(s.sma200)} (${pos(s.sma200)})`;

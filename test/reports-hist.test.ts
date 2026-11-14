@@ -54,7 +54,7 @@ const base = (kind: 'intra1' | 'eod'): ReportInput => ({
   const intra = base('intra1');
   intra.walls = [{ ticker: 'QQQ', open: null, now: w(585) }];
   intra.flow = snap.flow;
-  intra.basis = { wallsHead: 'Duvarlar — önceki kapanış (12/11) zincirine göre (açılış anı yok; kayma ölçülemez)', flowHead: 'Opsiyon birikimi — önceki kapanış (12/11) zincirine göre (en büyük açık pozisyon)' };
+  intra.basis = { wallsHead: 'Duvarlar — önceki kapanış (12/11) zincirine göre (açılış anı yok; kayma ölçülemez)', flowHead: 'Opsiyon birikimi — önceki kapanış (12/11) zincirine göre (en büyük açık pozisyon)', source: 'önceki kapanış (12/11) zincirine göre' };
   const body = buildReport(intra).body;
   ok('intra(basis): duvar başlığı 12/11 etiketli', body.includes('önceki kapanış (12/11) zincirine göre (açılış anı yok'), body);
   ok('intra(basis): birikim başlığı 12/11 etiketli', body.includes('Opsiyon birikimi — önceki kapanış (12/11)'));
@@ -74,12 +74,12 @@ const base = (kind: 'intra1' | 'eod'): ReportInput => ({
   // EOD: 12/11 → 13/11 kayma; 13/11 zinciri yoksa "veri alınamadı" + dürüst not
   const eodFull = base('eod');
   eodFull.walls = [{ ticker: 'QQQ', open: w(580), now: w(585) }];
-  eodFull.basis = { wallsHead: 'Duvar kayması — önceki kapanış (12/11) → gün sonu (13/11) zincirine göre', openLabel: '12/11', flowHead: 'Opsiyon birikimi — önceki kapanış (12/11) zincirine göre (en büyük açık pozisyon)' };
+  eodFull.basis = { wallsHead: 'Duvar kayması — önceki kapanış (12/11) → gün sonu (13/11) zincirine göre', openLabel: '12/11', flowHead: 'Opsiyon birikimi — önceki kapanış (12/11) zincirine göre (en büyük açık pozisyon)', source: 'önceki kapanış (12/11) zincirine göre' };
   const b1 = buildReport(eodFull).body;
   ok('eod(basis): kayma etiketi "12/11" ve ↑5', b1.includes('[12/11 580 (↑5)]') || b1.includes('[12/11 580 ↑5]'), b1);
   const eodNone = base('eod');
   eodNone.walls = [{ ticker: 'QQQ', open: w(580), now: null }];
-  eodNone.basis = { wallsHead: 'Duvar kayması — önceki kapanış (12/11) → gün sonu (13/11) zincirine göre', openLabel: '12/11', flowHead: 'x' };
+  eodNone.basis = { wallsHead: 'Duvar kayması — önceki kapanış (12/11) → gün sonu (13/11) zincirine göre', openLabel: '12/11', flowHead: 'x', source: 'önceki kapanış (12/11) zincirine göre' };
   eodNone.failures = ['13/11 gün sonu zinciri yok: duvar kayması ölçülemez'];
   const b2 = buildReport(eodNone).body;
   ok('eod(basis, 13/11 yok): duvar satırı "veri alınamadı"', b2.includes('QQQ: veri alınamadı'), b2);

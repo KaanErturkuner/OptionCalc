@@ -104,7 +104,7 @@ ok('New York 23:00 önceki gün', P.localDate(ms('2026-11-13T03:00:00Z'), P.NY_T
 // ───── 9) Örnek etiketi: başlık öneki + gövde notu; girdi değişmez ─────
 {
   const cut = ms('2026-11-13T15:00:00Z');   // 18:00 İst
-  const rep = { kind: 'intra1' as const, day: '2026-11-13', ts: cut, title: 'Açılış +30 dk · 18:00 İst', body: 'GÖVDE', pushTitle: 'p', pushBody: 'b' };
+  const rep = { kind: 'intra1' as const, day: '2026-11-13', ts: cut, title: 'Açılış +30 dk · 18:00 İst', body: 'GÖVDE', pushTitle: 'p', pushBody: 'b', sections: null as never };
   const ex = P.exampleReport(rep);
   ok('örnek: başlık "Örnek · " öneki', ex.title === 'Örnek · Açılış +30 dk · 18:00 İst', ex.title);
   ok('örnek: gövde notu ve özgün metin', ex.body.startsWith('ÖRNEK RAPOR') && ex.body.includes('18:00 İst') && ex.body.endsWith('GÖVDE'));

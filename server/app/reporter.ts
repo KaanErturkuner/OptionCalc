@@ -4,6 +4,7 @@
  * Anahtarlar (Finnhub) yalnız başlıkta gider; hata metinleri maskelenir (poller errText).
  */
 import { buildReport } from '../../src/lib/reports/text.ts';
+import { expectationOf } from '../../src/lib/reports/sections.ts';
 import { dueSlots, type ReportKind } from '../../src/lib/reports/schedule.ts';
 import { pctOf, sma } from '../../src/lib/reports/sources.ts';
 import { wallSnapFromRows } from '../../src/lib/reports/walls.ts';
@@ -21,6 +22,7 @@ import { errText } from './poller.ts';
 export const ASIA: [string, string][] = [['Nikkei 225', '^N225'], ['Hang Seng', '^HSI']];
 export const EUROPE: [string, string][] = [['FTSE 100', '^FTSE'], ['DAX', '^GDAXI']];
 export const FUTURES: [string, string][] = [['ES (S&P vadeli)', 'ES=F'], ['NQ (Nasdaq vadeli)', 'NQ=F']];
+export const VIX: [string, string] = ['VIX', '^VIX'];
 const DAY_MS = 86400000;
 const RETAIN_MS = 30 * DAY_MS;
 
@@ -74,7 +76,7 @@ export class Reporter {
     const rep = buildReport(input);
     if (opts.dryRun) return rep;
     const key = `${day}:${kind}`;
-    const id = this.d.store.insertReport({ key, kind, day, ts: nowMs, title: rep.title, body: rep.body, pushTitle: rep.pushTitle, pushBody: rep.pushBody });
+    const id = this.d.store.insertReport({ key, kind, day, ts: nowMs, title: rep.title, body: rep.body, pushTitle: rep.pushTitle, pushBody: rep.pushBody, sections: rep.sections });
     this.d.store.pruneReports(nowMs - RETAIN_MS);
     this.d.store.snapPrune(addDaysStr(day, -14));
     let sent = 0;
@@ -132,6 +134,7 @@ export class Reporter {
       for (const [n, s] of EUROPE) base.europe.push(await quote(n, s, '1d', '5m'));
       for (const [n, s] of FUTURES) base.futures.push(await quote(n, s, '1d', '5m'));
       for (const t of watch) base.preMarket.push(await quote(t, t, '1d', '1m', true));
+      base.vix = await quote(VIX[0], VIX[1], '1d', '5m');
       Object.assign(base, await news(nowMs - DAY_MS));
       if (finnhub) {
         try { base.earnings = await finnhub.earnings(day, addDaysStr(day, 14), watch); }
@@ -161,6 +164,10 @@ export class Reporter {
       base.sma = smaRows;
       base.walls = walls();
       base.flow = store.flowAgg(day) as FlowAgg[];
+      base.vix = await quote(VIX[0], VIX[1], '1d', '5m');
+      // Sabah beklentisi: aynı günün piyasa öncesi raporu (yoksa / veri yoksa null → "veri yok")
+      const morning = store.reportByKey(`${day}:premarket`)?.sections;
+      base.morningBias = morning ? expectationOf(morning) : null;
       Object.assign(base, await news(nowMs - DAY_MS));
       const tomorrow = nextTradingDay(day);
       base.macro.tomorrow = macroOn(tomorrow);
@@ -177,6 +184,7 @@ export class Reporter {
       return { name: t, pct: o?.spot && n?.spot ? pctOf(n.spot, o.spot) : null, price: n?.spot ?? null };
     });
     if (!store.snapGet(day, watch[0] ?? '', 'last')) fails.push('Zincir anlık görüntüsü yok (akış tarayıcısı açık değil ya da seans başlamadı)');
+    base.vix = await quote(VIX[0], VIX[1], '1d', '5m');
     base.walls = walls();
     base.flow = store.flowAgg(day) as FlowAgg[];
     Object.assign(base, await news(nowMs - 3 * 3600000));
