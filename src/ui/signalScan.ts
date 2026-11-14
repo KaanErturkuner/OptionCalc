@@ -7,6 +7,7 @@ import { trimChain } from '@/lib/odte/scan';
 import { sessionBars, unusual, vwap, type Bar } from '@/lib/odte/analytics';
 import { spotPrice } from '@/lib/signals/spot';
 import { buildVerdict, pickExpiry, type QuoteLite, type VerdictCard } from '@/lib/signals/verdict';
+import { regimeSummary } from '@/lib/market/regime';
 import { openRange } from '@/lib/odte/strategies/util';
 import { buildSnapshot } from '@/lib/radar/snapshot';
 import { profileFor, auxSymbols } from '@/lib/signals/profiles';
@@ -204,7 +205,7 @@ async function scanOne(t: string, now: number, acct: Acct): Promise<Scan> {
     inputs: { S: price, vwap: vw, orHigh: or ? or.high : null, orLow: or ? or.low : null, flip: snap.flip ?? null,
       callWall: snap.callWall ?? null, putWall: snap.putWall ?? null, emMove: Number.isFinite(em) ? em : null, pcVol: snap.pcVol ?? null,
       unusualCall: uns.filter(u => u.type === 'call').reduce((a, u) => a + u.vol, 0), unusualPut: uns.filter(u => u.type === 'put').reduce((a, u) => a + u.vol, 0),
-      momentum: bullN >= 2 ? 1 : bearN >= 2 ? -1 : 0 },
+      momentum: bullN >= 2 ? 1 : bearN >= 2 ? -1 : 0, regime: regimeSummary(data.bars, now) },
     expiries: vOpts, nowMs: now, quotesFor: e => (vPick && e === vPick.date ? vQuotes : null),
     dOf: () => (Number.isFinite(em) ? otmDistance(ak.k, em) : null), kademe: acct.kademe, capital: acct.capital });
   const status: TickerStatus = {

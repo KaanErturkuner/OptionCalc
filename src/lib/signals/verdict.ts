@@ -8,6 +8,10 @@
  */
 import { sizePosition } from '../paper/sizing.ts';
 import type { Kademe } from '../paper/types.ts';
+import type { Band, Dir, RegimeKind } from '../market/regime.ts';
+
+/** Seans rejimi (src/lib/market/regime.ts) — Sonuç kartını yönetir: konsolidasyonda bant kırılımı, onaylı dönüşte eski yön yok */
+export interface VerdictRegime { kind: RegimeKind; dir: Dir | null; band: Band | null }
 
 export type VerdictDir = 'call' | 'put' | 'bekle';
 export type CritId = 'vwap' | 'orb' | 'flip' | 'wall' | 'pc' | 'unusual' | 'momentum';
@@ -24,6 +28,7 @@ export interface VerdictInputs {
   pcVol: number | null;                           // put/call hacim oranı
   unusualCall: number; unusualPut: number;        // sıra dışı hacim toplamları (kontrat)
   momentum: -1 | 0 | 1 | null;                    // fiyat momentumu (EMA/ çoklu zaman dilimi)
+  regime?: VerdictRegime | null;                  // seans rejimi (yoksa etkisiz)
 }
 
 /** Yön eşiği: |puan| bu değerin altındaysa Bekle */
@@ -70,6 +75,24 @@ export function criteria(i: VerdictInputs): Crit[] {
 }
 
 export interface Tally { dir: VerdictDir; strength: number; sum: number; crits: Crit[]; fired: Crit[] }
+
+const px = (x: number) => (Number.isFinite(x) ? (x % 1 ? x.toFixed(2).replace('.', ',') : String(x)) : '—');
+/**
+ * Rejim kuralı (saf): konsolidasyonda yön yok → 'Bekle – bant kırılımı' (bant seviyeleri kartta). Onaylı dönüşte ters yönlü
+ * eski puan geçersiz → Bekle. Diğer durumlarda puan olduğu gibi kalır. note: kartta gösterilecek Türkçe açıklama.
+ */
+export function applyRegime(t: Tally, rg: VerdictRegime | null | undefined): { t: Tally; note: string | null } {
+  if (!rg) return { t, note: null };
+  if (rg.kind === 'konsolidasyon') {
+    const note = rg.band ? `Bekle – bant kırılımı: bant üstü ${px(rg.band.high)} → CALL, bant altı ${px(rg.band.low)} → PUT` : 'Bekle – konsolidasyon, bant kırılımı bekleniyor';
+    return { t: { ...t, dir: 'bekle' }, note };
+  }
+  if ((rg.kind === 'donus_up' && t.dir === 'put') || (rg.kind === 'donus_down' && t.dir === 'call')) {
+    const up = rg.kind === 'donus_up';
+    return { t: { ...t, dir: 'bekle' }, note: `Bekle – onaylı ${up ? 'yukarı' : 'aşağı'} dönüş: eski ${up ? 'düşüş' : 'yükseliş'} yönü geçersiz` };
+  }
+  return { t, note: null };
+}
 
 /** Puanlama: yön, güç, yöne uyan kriterler */
 export function tally(crits: Crit[]): Tally {
@@ -139,10 +162,11 @@ export function levelsFor(entry: number): { entry: number; stop: number; t5: num
 
 export const TIER_LABEL = '%50 / %40 / %30 kademe';
 
-export interface VerdictLevels { S: number; vwap: number | null; orHigh: number | null; orLow: number | null; flip: number | null }
+export interface VerdictLevels { S: number; vwap: number | null; orHigh: number | null; orLow: number | null; flip: number | null; band: Band | null }
 export interface VerdictCard {
   dir: VerdictDir; strength: number; strengthText: string; sum: number;
   crits: Crit[]; fired: string[]; levels: VerdictLevels;   // levels: tetikleyici metni için (bekle kartı)
+  regime: string | null;                                   // rejim notu (konsolidasyon / onaylı dönüş); yoksa null
   expiry: string | null; dte: number | null;
   strike: number | null; bid: number | null; ask: number | null; mid: number | null;
   entry: number | null; stop: number | null; t5: number | null; t4: number | null; riskPerContract: number | null;
@@ -163,21 +187,23 @@ const trNum = (x: number, d = 2) => (Number.isFinite(x) ? x.toFixed(d).replace('
 
 /** Tam sonuç: yön + vade/strike/prim + gerekçe. Yön Bekle ise strike/prim yine de önerilir (gösterim için) ama giriş açılmaz. */
 export function buildVerdict(b: BuildInput): VerdictCard {
-  const t = tally(criteria(b.inputs));
   const I = b.inputs;
-  const levels: VerdictLevels = { S: I.S, vwap: I.vwap, orHigh: I.orHigh, orLow: I.orLow, flip: I.flip };
+  const rg = applyRegime(tally(criteria(I)), I.regime);
+  const t = rg.t;
+  const levels: VerdictLevels = { S: I.S, vwap: I.vwap, orHigh: I.orHigh, orLow: I.orLow, flip: I.flip, band: I.regime?.band ?? null };
   const base = { dir: t.dir, strength: t.strength, strengthText: strengthLabel(t.strength), sum: t.sum, crits: t.crits,
-    fired: t.fired.map(c => c.text), levels, tierPct: b.kademe != null ? Math.round(b.kademe * 100) : null, contracts: null, note: CARD_NOTE };
+    fired: t.fired.map(c => c.text), levels, regime: rg.note, tierPct: b.kademe != null ? Math.round(b.kademe * 100) : null, contracts: null, note: CARD_NOTE };
   const exp = pickExpiry(b.expiries, b.nowMs);
   const none = (why: string): VerdictCard => ({ ...base, expiry: exp?.date ?? null, dte: exp?.dte ?? null, strike: null, bid: null, ask: null, mid: null,
     entry: null, stop: null, t5: null, t4: null, riskPerContract: null, rationale: why });
-  if (!exp) return none(t.dir === 'bekle' ? `Bekle: yön yok (net puan ${t.sum})` : 'Uygun vade yok (0–3 DTE)');
+  const bekleWhy = rg.note ?? `Bekle: yön yok (net puan ${t.sum}; eşik ±${MIN_SUM})`;
+  if (!exp) return none(t.dir === 'bekle' ? bekleWhy : 'Uygun vade yok (0–3 DTE)');
   const quotes = b.quotesFor(exp.date);
   const d = b.dOf(exp.date);
   const dirSide: 'call' | 'put' = t.dir === 'put' ? 'put' : 'call';
   const pick = quotes && d != null && d > 0 ? pickRuleStrike(quotes, b.inputs.S, dirSide, d) : null;
   const lv = pick ? levelsFor(pick.mid) : null;
-  if (t.dir === 'bekle') return none(`Bekle: yön yok (net puan ${t.sum}; eşik ±${MIN_SUM})`);
+  if (t.dir === 'bekle') return none(bekleWhy);
   const label = t.dir === 'call' ? 'CALL' : 'PUT';
   const why = t.fired.slice(0, 3).map(c => c.text).join(', ') || 'gösterge yok';
   if (!pick || !lv) return none(`${label}, ${strengthLabel(t.strength)} (${t.strength}/5): ${why}; uygun strike/prim yok`);

@@ -112,6 +112,9 @@ export function tradeOf(e: BoardEntry, nowMs: number, acct: TradeAccount | null)
  * ve gerekli puanı tamamlayan en küçük kümeyi yazar. Örnek: "QQQ 690 üstü + VWAP 688 üstü → CALL".
  */
 export function triggerText(ticker: string, v: VerdictCard): string {
+  if (v.levels.band && v.regime?.startsWith('Bekle – bant')) {
+    return `${ticker} bant üstü ${px(v.levels.band.high)} → CALL · bant altı ${px(v.levels.band.low)} → PUT`;
+  }
   const call = v.sum >= 0;
   const need = call ? MIN_SUM - v.sum : v.sum + MIN_SUM;      // eşiğe kalan puan
   const want = call ? 1 : -1, L = v.levels, side = call ? 'üstü' : 'altı';

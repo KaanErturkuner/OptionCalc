@@ -7,6 +7,7 @@ import { decide, DEFAULT_OPTS, features, type EngineOpts, type Result, type Feat
 import type { Bar } from './analytics.ts';
 import { autoK, type OtmRule } from '../signals/otm.ts';
 import { buildVerdict, type VerdictCard, type VerdictInputs, type QuoteLite } from '../signals/verdict.ts';
+import { regimeSummary } from '../market/regime.ts';
 
 /** 0DTE uzaklık kuralı (oynaklığa göre k; geçmiş yetersizse başlangıç değeri). Kaan'ın kuralı: k × beklenen hareket. */
 export const ODTE_OTM_RULE: OtmRule = { mode: 'oto', k0: 0.5, kMin: 0.3, kMax: 0.9 };
@@ -47,7 +48,7 @@ export async function scanOne(ticker: string, keys: Keys, opts: EngineOpts = DEF
     const dte = Math.max(0, Math.round((Date.parse(exp) - Date.parse(today)) / 86400000));
     const em = F.em?.move ?? null, kk = autoK({ rule: ODTE_OTM_RULE, ratios: [], ivRank: null }).k;
     const quotes: QuoteLite[] = [...ch.calls, ...ch.puts].map(q => ({ type: q.type, strike: q.strike, bid: q.bid, ask: q.ask, volume: q.volume, oi: q.oi }));
-    const verdict = buildVerdict({ inputs: verdictInputsOf(F, S), expiries: [{ date: exp, dte }], nowMs: now,
+    const verdict = buildVerdict({ inputs: { ...verdictInputsOf(F, S), regime: regimeSummary(B.bars, now) }, expiries: [{ date: exp, dte }], nowMs: now,
       quotesFor: e => e === exp ? quotes : null, dOf: () => (em != null ? kk * em : null) });
     return { ticker, ok: true, result, price: S, changePct: L.quote.changePct, expiry: exp, dte, source: L.quote.source, barsSource: B.source,
       delayedMin: L.quote.delayedMin, credits: (L.quote.credits ?? 0) + (chRaw.credits ?? 0) + B.credits, time: now, bars: B.bars, note: L.note, verdict };
