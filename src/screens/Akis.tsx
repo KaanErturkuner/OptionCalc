@@ -31,7 +31,7 @@ export default function Akis({ active }: { active: boolean }) {
       const key = flowKeyOf(st?.flowKey);
       setNoKey(!key);
       if (!key) { setErr(null); setFeed(null); return; }
-      const f = await fetchFlow(key, { limit: 500, days: FLOW_DAYS_DEFAULT });
+      const f = await fetchFlow(key, { limit: 2000, days: FLOW_DAYS_DEFAULT });
       setFeed(f); setErr(null);
       setPush(await registerFlowPush(key));
     } catch (e) {
@@ -91,7 +91,7 @@ export default function Akis({ active }: { active: boolean }) {
           </Text>
           {g.items.some(e => e.reconstructed) ? (
             <Text style={{ color: C.warn, fontSize: 11, lineHeight: 16, marginLeft: 4, marginBottom: 2 }}>
-              Bu gün canlı taranmadı. Olaylar kapanış zincirinden {RECONSTRUCTED_LABEL.toLowerCase()}. Saat, bilinmiyorsa kapanıştır (16:00 ET); uydurma gün içi an yok.
+              Bu gün canlı taranmadı. Olaylar kapanış zincirindeki gün içi toplam hacimden {RECONSTRUCTED_LABEL.toLowerCase()} (2 dk tarama değil). Saat kapanıştır (16:00 ET); gün içi an uydurulmadı.
             </Text>
           ) : null}
           {g.items.map(e => (

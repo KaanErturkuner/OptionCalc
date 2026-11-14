@@ -116,12 +116,14 @@ export class Store {
   markPushed(id: number): void { this.db.prepare('UPDATE events SET pushed = 1 WHERE id = ?').run(id); }
   /** Olaylar yeni → eski. day: tek gün; fromDay: bu günden (dâhil) itibaren (ET, YYYY-MM-DD ile karşılaştırılır) */
   listEvents(opts: { sinceId?: number; limit?: number; day?: string; fromDay?: string }): FlowEvent[] {
-    const lim = Math.min(500, Math.max(1, opts.limit ?? 100));
+    const lim = Math.min(2000, Math.max(1, opts.limit ?? 100));
+    // Yeni → eski; aynı anda (EOD yeniden kurma) yüksek prim önce. Böylece limit kesince en önemli olaylar kalır.
+    const ord = 'ORDER BY ts DESC, prem DESC, id DESC';
     const rows = opts.day
-      ? this.db.prepare('SELECT * FROM events WHERE day = ? AND id > ? ORDER BY id DESC LIMIT ?').all(opts.day, opts.sinceId ?? 0, lim)
+      ? this.db.prepare(`SELECT * FROM events WHERE day = ? AND id > ? ${ord} LIMIT ?`).all(opts.day, opts.sinceId ?? 0, lim)
       : opts.fromDay
-        ? this.db.prepare('SELECT * FROM events WHERE day >= ? AND id > ? ORDER BY id DESC LIMIT ?').all(opts.fromDay, opts.sinceId ?? 0, lim)
-        : this.db.prepare('SELECT * FROM events WHERE id > ? ORDER BY id DESC LIMIT ?').all(opts.sinceId ?? 0, lim);
+        ? this.db.prepare(`SELECT * FROM events WHERE day >= ? AND id > ? ${ord} LIMIT ?`).all(opts.fromDay, opts.sinceId ?? 0, lim)
+        : this.db.prepare(`SELECT * FROM events WHERE id > ? ${ord} LIMIT ?`).all(opts.sinceId ?? 0, lim);
     return (rows as Record<string, unknown>[]).map(toEvent);
   }
   summary(day: string): { ticker: string; callPrem: number; putPrem: number; events: number }[] {

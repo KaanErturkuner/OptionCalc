@@ -106,7 +106,7 @@ ok('mid kuralı: bid/ask yoksa last', D.midOf(0, 0, 2) === 2 && D.midOf(1, 1.2, 
   ok('reddedilir: geçersiz tarih', !okReq('/stocks/candles/1/SPY/', { from: '13.11.2026' }));
   ok('reddedilir: geçersiz maxage', !okReq('/options/chain/SPY/', { maxage: 'abc' }));
   ok('URL: taban sondaki / atılır', X.mdProxyUrl('https://h.example/', '/stocks/quotes/SPY/') === 'https://h.example/api/md/stocks/quotes/SPY/');
-  ok('events URL: limit üst sınırı 500', X.flowEventsUrl('https://h', { limit: 9999 }) === 'https://h/flow?limit=500');
+  ok('events URL: limit üst sınırı 2000', X.flowEventsUrl('https://h', { limit: 9999 }) === 'https://h/flow?limit=2000');
   ok('push token biçimi', X.isExpoPushToken('ExponentPushToken[abcDEF123_-xyz]') && !X.isExpoPushToken('token; drop'));
 }
 

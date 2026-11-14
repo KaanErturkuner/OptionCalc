@@ -47,7 +47,7 @@ export function flowEventsUrl(base: string, opts: { sinceId?: number; limit?: nu
   const p = new URLSearchParams();
   if (opts.days != null) p.set('days', String(Math.min(5, Math.max(1, Math.floor(opts.days)))));
   if (opts.sinceId != null) p.set('sinceId', String(Math.max(0, Math.floor(opts.sinceId))));
-  if (opts.limit != null) p.set('limit', String(Math.min(500, Math.max(1, Math.floor(opts.limit)))));
+  if (opts.limit != null) p.set('limit', String(Math.min(2000, Math.max(1, Math.floor(opts.limit)))));
   const qs = p.toString();
   return `${base.replace(/\/+$/, '')}/flow${qs ? '?' + qs : ''}`;
 }
