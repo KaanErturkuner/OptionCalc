@@ -273,5 +273,16 @@ ok('contractLabel', M.contractLabel({ ticker: 'QQQ', expiry: '2026-11-20', strik
   ok('URL: flowYorumUrl (ticker+day sorguda, sondaki / temizlenir)', X.flowYorumUrl('https://h/', 'QQQ', '2026-11-13') === 'https://h/flow/yorum?ticker=QQQ&day=2026-11-13');
 }
 
+// Aylık opex filtresi (3. Cuma) ve 2 ay penceresi
+{
+  const now = Date.parse('2026-11-14T15:00:00Z');
+  ok('aylık opex: 2026-11-20 (3. Cuma) pencerede', FL.isMonthlyWindow('2026-11-20', now) === true);
+  ok('aylık opex: 2026-11-13 haftalık, aylık değil', FL.isMonthlyWindow('2026-11-13', now) === false);
+  ok('aylık opex: 2027-03-19 pencere (2 ay) dışında', FL.isMonthlyWindow('2027-03-19', now) === false);
+  ok('aylık opex: 2027-01-15 (3. Cuma Oca) pencere dışı (2 ay = 14 Oca)', FL.isMonthlyWindow('2027-01-15', now) === false);
+  const ev = (expiry: string, day: string) => ({ id: expiry + day, ticker: 'MU', side: 'call', expiry, day, prem: 1e6, ts: 0 }) as unknown as M.FlowEvent;
+  const out = FL.applyFlowFilters([ev('2026-11-20', '2026-11-14'), ev('2026-11-13', '2026-11-13')], { ...FL.DEFAULT_FILTERS, expiry: 'monthly', day: 'uc' }, now);
+  ok('filtre: yalnız aylık opex vadesi kalır', out.length === 1 && out[0].expiry === '2026-11-20', String(out.length));
+}
 console.log(fail ? `\n${fail} FLOW TESTİ BAŞARISIZ` : '\nFLOW testleri geçti');
 process.exit(fail ? 1 : 0);

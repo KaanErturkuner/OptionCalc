@@ -789,6 +789,20 @@ Kaan'ın talebiyle (`docs/tasks/FLOW.md`). Commit'ler: `95f2b71` (sunucu + saf a
 
 **Sonraki:** Başkan (Grok) inceleme. Veri zip'i gelince adım 9–11 (ayrıca TASKS #26).
 
+## 2026-11-14 — Claude — [claude] haber çeşitliliği + çeviri, bilanço takvimi, Akış arama ve aylık opex
+
+**Haber:** Kaynaklar: Yahoo Finance (hisse), Google News (4'erli sorgular), CNBC (üst haberler); Radar haber havuzuna da eklendi (`src/lib/news/feeds.ts`, `index.ts`). Tekrarlar URL ve başlık anahtarıyla elenir. Başlıklar otomatik Türkçeye çevrilir (`src/lib/news/translate.ts`); orijinal başlık altta. Haberler ekranında kaynak durumu (kaç kaynak çalıştı) gösterilir.
+- Çeviri için anahtarsız Google gtx uç noktası kullanıldı. Resmî API değildir; kullanım koşulu ve hız sınırı değişebilir. Güvenilir üretim için resmî çeviri anahtarı önerilir.
+
+**Bilanço takvimi (Menü kartı):** İşlem günü şeridi; gün için piyasa öncesi / sonrası / saat belirtilmemiş gruplar. Şirkete dokununca detay: EPS beklentisi ve analist sayısı, 14 gün bilanço haberleri, en yakın vade CBOE zinciri özeti (OI, hacim, en yoğun strike'lar), son 5 gün Akış olayları (`src/lib/earnings/*`, `src/screens/Bilanco.tsx`, `BilancoDetay.tsx`).
+- Takvim kaynağı Nasdaq halka açık uç noktası (anahtarsız, resmî değil). Yanıt biçimi değişirse ayrıştırıcı boş liste döner.
+
+**Akış:** Hisse arama kutusu (yazdıkça liste daralır). Vade filtresine "Aylık opex (2 ay)" eklendi: 3. Cuma vadeleri, bugünden en çok 2 ay ileri (`src/lib/flow/filter.ts`, `src/ui/AkisFiltre.tsx`).
+
+**Doğrulama:** `npm run check` yeşil. Ağ çağrıları (Google News, çeviri, Nasdaq takvimi, CNBC) bu ortamdan denenemedi; telefonda doğrulanmalı.
+
+**Açık:** Radar haber havuzunda çeviri yok (yalnız liste ekranı çevirir). Bilanço takvimi için geçmiş arama ve otomatik bildirim yok.
+
 ## 2026-11-14 — Claude — [claude] kurul düzeltmeleri + Kaan kararları (tur 2)
 
 **Kaan kararları (uygulandı):**
