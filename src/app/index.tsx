@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AppState, Pressable, Text, View } from 'react-native';
+import { AppState, Platform, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Calc from '@/screens/Calc';
 import Odte from '@/screens/Odte';
@@ -20,6 +20,7 @@ import { nextRefresh, setExpected } from '@/lib/freshness';
 type Tab = 'calc' | 'radar' | 'firsat' | 'odte' | 'akis' | 'menu';
 const TABS: [Tab, string, string][] = [['calc', '∑', 'Hesapla'], ['radar', '◎', 'Radar'], ['firsat', '◆', 'Fırsat'], ['odte', '⚡', '0DTE'], ['akis', '≋', 'Akış'], ['menu', '☰', 'Menü']];
 const RADAR_EVERY_MS = 5 * 60000;
+const WEB_MAX = 1100;
 
 export default function Home() {
   const insets = useSafeAreaInsets();
@@ -88,8 +89,10 @@ export default function Home() {
     tap(); setTab(t); setSeen(p => p[t] ? p : { ...p, [t]: true });
     if (t === 'radar' && marketOpen() && radar.get().settings.auto && (!radar.get().lastScan || Date.now() - (radar.get().lastScan ?? 0) > RADAR_EVERY_MS)) runRadarScan().catch(() => {});
   };
+  // Web: masaüstü tarayıcıda içerik ortada, en çok WEB_MAX genişlikte (telefonda değişmez)
+  const webFrame = Platform.OS === 'web' ? { width: '100%' as const, maxWidth: WEB_MAX, alignSelf: 'center' as const } : null;
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
+    <View style={{ flex: 1, backgroundColor: C.bg, ...webFrame }}>
       {/* Ekranlar bir kez açıldıktan sonra bağlı kalır (durum korunur) */}
       <View style={{ flex: 1, display: tab === 'calc' ? 'flex' : 'none' }}><Calc key={calcKey} /></View>
       {seen.radar ? <View style={{ flex: 1, display: tab === 'radar' ? 'flex' : 'none' }}><Radar onOpenCalc={() => { setCalcKey(k => k + 1); go('calc'); }} /></View> : null}
