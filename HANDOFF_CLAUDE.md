@@ -649,3 +649,42 @@ Sonra Expo Go tamamen kapatılıp açılır.
 ---
 
 *Son doğrulama: 14 Kasım 2026, yaklaşık 12:11 Europe/Istanbul. Sunucu sağlık ve `flow.db` kredi/rapor sayıları o anda okundu; sır değerleri okunmadı.*
+
+## 15. Expo'ya yayınlama (OTA)
+
+Claude uygulamayı Expo'ya kendisi yayınlayabilir. Yalnız **Expo Go + OTA güncellemesi**. Native build, TestFlight, `eas build` YOK.
+
+**Kanal bilgisi**
+- Branch: `production`
+- Runtime version: `exposdk:58.0.0` (Expo SDK 58; SDK değişmedikçe aynı kalır, native değişiklik gerektiren paket ekleme)
+
+**Ön koşullar (değerleri ASLA commit etme, loglama, ekrana yazma)**
+1. `EXPO_TOKEN` ortam değişkeni: Kaan expo.dev → Account settings → Access tokens'tan oluşturur, Claude ortamına gizli değişken (secret) olarak verir.
+2. Repo kökünde git'e girmeyen (`.gitignore`'da) `.env` dosyası, içinde tek satır: `EXPO_PUBLIC_FLOW_API_KEY=<değer>`. Değer Kaan'dan ya da sunucudaki `/etc/optioncalc-flow/app_key`'den gelir. Asla commit etme. `.env` yoksa YAYINLAMA.
+   - Bu anahtar olmadan yayınlanırsa Koç ve Akış ekranları kullanıcıdan anahtar ister (bir kez oldu).
+3. `src/lib/flow/client.ts` içindeki `ENV_FLOW_KEY` / `flowKeyOf` paket içi anahtar yedeğini SİLME (Kaan kararı: anahtarı elle girmesin).
+
+**Adımlar**
+```bash
+git fetch origin && git merge origin/master          # en güncel master (Başkan'ın commit'leri dahil)
+npx tsc --noEmit
+npm test
+npx eas-cli update --branch production --environment production --message "Kısa Türkçe açıklama" --non-interactive
+# Doğrulama: paketlerde sunucu adresi ve anahtar var mı (anahtarı YAZDIRMA, yalnız say)
+KEY=$(sed -n 's/^EXPO_PUBLIC_FLOW_API_KEY=//p' .env)
+for f in dist/_expo/static/js/*/*.hbc; do echo "$f sslip=$(grep -c sslip.io "$f") key=$(grep -cF "$KEY" "$f")"; done; unset KEY
+# Her iki paket (ios, android) için sslip=1 ve key=1 olmalı; değilse hemen geri al (aşağıda)
+git push origin master
+```
+Çıktıdaki `Update group ID`'yi Kaan'a bildir.
+
+**Geri alma**
+- Önceki iyi güncellemeyi yeniden yayınla: `npx eas-cli update:list --branch production --non-interactive` ile önceki grup kimliğini bul, sonra `npx eas-cli update:republish --group <önceki-group-id> --non-interactive`.
+
+**Sunucu değişiklikleri**
+- `server/` (ve sunucunun kullandığı `src/lib/` kodu) değişiklikleri `server/deploy.sh` + SSH gerektirir; Claude'da SSH yok. Bunlar Başkan'da kalır: commit'le, push'la ve Başkan'a/Kaan'a "sunucu dağıtımı gerekiyor" de.
+
+**Koordinasyon (iki yayıncı birbirini ezmesin)**
+- Yayınlamadan önce Başkan'a/Kaan'a haber ver.
+- Her zaman diğer tarafın commit'lerini içeren master'dan yayınla (önce fetch + merge). Son yayınlanan OTA, master'da olmayan bir değişikliği taşıyorsa onu geri silmiş olursun.
+- Asla force-push yapma.
