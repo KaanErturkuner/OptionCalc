@@ -1,5 +1,13 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — [grok] reports: Duvarlar ve birikim bloğu daraltılabilir
+
+- Raporlar: "Duvarlar ve birikim ▸/▾" başlığı (tek satır özet: `TICK: CW x · PW y`), varsayılan kapalı. İçinde duvar merdiveni/kartları (CW, PW, gamma flip, max pain) ve opsiyon birikimi. Açık/kapalı durumu oturum boyunca bellekte tutulur (global, rapor başına değil).
+- Yer değişikliği: "Opsiyon birikimi" bölümü artık Takvim/Haberler'in üstünde, duvar bloğunun içinde.
+- Dosyalar: `src/screens/Raporlar.tsx`, `src/ui/ReportParts.tsx` (WallsBlock), `src/lib/reports/wallSummary.ts` (saf özet), `test/reports-wallsummary.test.ts` (npm test zincirine eklendi).
+- Doğrulama: `npm run check` geçti. Fırsat ekranına dokunulmadı.
+- Açık nokta: tek satır özet birden çok ticker'da uzun olabilir (numberOfLines=1 ile kırpılır).
+
 ## 2026-11-14 — Claude — [grok] reports: yapılandırılmış rapor bölümleri, yeni Raporlar görünümü, 13/11 örnekleri yeniden kuruldu
 
 **Neden:** Kaan: "raporlar çok basit, tek düze, renksiz, özensiz". Metin tek sütundu; karar, seviye ve takvim gözle taranamıyordu.

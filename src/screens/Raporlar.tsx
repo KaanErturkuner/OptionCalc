@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Btn, Card, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import {
-  BiasBadge, CalendarTimeline, EodCard, Failures, FlowStack, MetricGrid, NewsList, SectionTitle, SummaryCard, WallCard,
+  BiasBadge, CalendarTimeline, EodCard, Failures, MetricGrid, NewsList, SectionTitle, SummaryCard, WallsBlock,
 } from '@/ui/ReportParts';
 import { loadState } from '@/lib/state';
 import { flowKeyOf } from '@/lib/flow/client';
@@ -17,10 +17,11 @@ import type { ReportSections } from '@/lib/reports/types';
 
 const REFRESH_MS = 60000;
 const SUMMARY_TITLE: Record<string, string> = { premarket: 'Bugün için', intra1: 'Şu an', intra2: 'Şu an', intra3: 'Şu an', eod: 'Yarın için' };
-const NA = 'veri alınamadı';
+/** Duvarlar ve birikim bloğunun açık/kapalı durumu: oturum boyunca (uygulama açık kaldığı sürece) hatırlanır; varsayılan kapalı */
+let wallsOpenSession = false;
 
 /** Bir raporun yapılandırılmış görünümü; bölüm yoksa düz metin */
-function ReportContent({ r }: { r: ReportBox }) {
+function ReportContent({ r, wallsOpen, onToggleWalls }: { r: ReportBox; wallsOpen: boolean; onToggleWalls: () => void }) {
   const s: ReportSections | null | undefined = r.sections;
   if (!s) {
     return (
@@ -35,14 +36,11 @@ function ReportContent({ r }: { r: ReportBox }) {
       <SummaryCard s={s.summary} title={SUMMARY_TITLE[r.kind] ?? 'Özet'} />
       <SectionTitle>Ölçüler</SectionTitle>
       <MetricGrid chips={s.metrics} />
-      <SectionTitle>Duvarlar</SectionTitle>
-      {s.walls.length ? s.walls.map(w => <WallCard key={w.ticker} w={w} />) : <Text style={{ color: C.muted, fontSize: 13 }}>{NA}</Text>}
+      <WallsBlock walls={s.walls} flow={s.flow} open={wallsOpen} onToggle={onToggleWalls} />
       <SectionTitle>Takvim</SectionTitle>
       <CalendarTimeline items={s.calendar} />
       <SectionTitle>Haberler</SectionTitle>
       <NewsList items={s.news} ok={s.newsOk} />
-      <SectionTitle>Opsiyon birikimi</SectionTitle>
-      <FlowStack flow={s.flow} />
       {s.eod ? (
         <>
           <SectionTitle>Gün sonu incelemesi</SectionTitle>
@@ -59,6 +57,8 @@ export default function Raporlar({ active, onBack }: { active: boolean; onBack?:
   const [items, setItems] = useState<ReportItem[]>([]);
   const [day, setDay] = useState<string | null>(null);
   const [openIds, setOpenIds] = useState<Set<number>>(new Set());
+  const [wallsOpen, setWallsOpen] = useState(wallsOpenSession);
+  const toggleWalls = () => { tap(); wallsOpenSession = !wallsOpenSession; setWallsOpen(wallsOpenSession); };
   const [err, setErr] = useState<string | null>(null);
   const [noKey, setNoKey] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -127,7 +127,7 @@ export default function Raporlar({ active, onBack }: { active: boolean; onBack?:
                 </View>
                 <Text style={{ color: C.muted, fontSize: 14 }}>{isOpen ? '▾' : '▸'}</Text>
               </Pressable>
-              {isOpen ? <View style={{ marginTop: 12 }}><ReportContent r={r} /></View> : null}
+              {isOpen ? <View style={{ marginTop: 12 }}><ReportContent r={r} wallsOpen={wallsOpen} onToggleWalls={toggleWalls} /></View> : null}
             </Card>
           );
         })}

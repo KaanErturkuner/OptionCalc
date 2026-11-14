@@ -1,12 +1,13 @@
 /* Rapor görünüm parçaları (Raporlar ekranı): karar rozeti, özet kartı, metrik kartları, kompakt duvar merdiveni,
  * takvim zaman çizelgesi, haber listesi, akış yığını ve gün sonu incelemesi. Veri ve geometri: src/lib/reports/*.
  * Renkler src/ui/theme.ts; metinler Türkçe; "veri alınamadı" durumları her parçada açıkça yazılır. */
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import Svg, { G, Line, Text as SvgText } from 'react-native-svg';
 import { fmt } from '@/lib/format';
 import { fmtUsdShort } from '@/lib/flow/model';
 import { ladderLayout, MARK_LABEL, type MarkKey } from '@/lib/reports/ladder';
 import { levelText, shiftArrow } from '@/lib/reports/sections';
+import { wallSummaryLine } from '@/lib/reports/wallSummary';
 import type { Bias, CalItem, Chip, EodReview, FlowSection, Impact, KeyLevel, NewsCard, ReportSections, Tone, WallRow } from '@/lib/reports/types';
 import { C } from './theme';
 
@@ -258,6 +259,31 @@ export function EodCard({ eod }: { eod: EodReview }) {
         <SectionTitle>Yarın planı</SectionTitle>
         <Text style={{ color: C.text, fontSize: 13.5, lineHeight: 19 }}>{eod.plan}</Text>
       </View>
+    </View>
+  );
+}
+
+/** Daraltılabilir "Duvarlar ve birikim" bloğu: başlık (▸/▾) + tek satır özet (CW/PW); açıkken duvar kartları ve opsiyon birikimi */
+export function WallsBlock({ walls, flow, open, onToggle }: { walls: WallRow[]; flow: FlowSection; open: boolean; onToggle: () => void }) {
+  const summary = wallSummaryLine(walls) ?? NA;
+  return (
+    <View style={{ backgroundColor: C.card2, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 10, gap: 10 }}>
+      <Pressable onPress={onToggle} accessibilityRole="button" accessibilityState={{ expanded: open }} style={{ gap: 3 }}>
+        <Text style={{ color: C.text, fontSize: 13.5, fontWeight: '800' }}>Duvarlar ve birikim {open ? '▾' : '▸'}</Text>
+        <Text numberOfLines={1} style={{ color: C.muted, fontSize: 12, fontVariant: ['tabular-nums'] }}>{summary}</Text>
+      </Pressable>
+      {open ? (
+        <View style={{ gap: 12 }}>
+          <View style={{ gap: 8 }}>
+            <SectionTitle>Duvarlar</SectionTitle>
+            {walls.length ? walls.map(w => <WallCard key={w.ticker} w={w} />) : <Text style={{ color: C.muted, fontSize: 13 }}>{NA}</Text>}
+          </View>
+          <View style={{ gap: 8 }}>
+            <SectionTitle>Opsiyon birikimi</SectionTitle>
+            <FlowStack flow={flow} />
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
