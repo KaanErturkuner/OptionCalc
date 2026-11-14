@@ -104,3 +104,69 @@ guclu en çok 3, tekrarlayanHata en çok 3 madde. Veri azsa bunu özet'te söyle
 export function karneUserText(day: string, items: unknown[]): string {
   return `İşlem günü: ${day}. Günün koçluk sonuçları (net P/L ve puanlar kodda hesaplandı):\n${JSON.stringify(items)}`;
 }
+
+/** Komut (serbest Türkçe düzeltme): metin → işlem önerisi listesi. Yalnız ÖNERİ üretir; sunucu doğrular, kullanıcı onaylar. */
+export const KOMUT_SYSTEM = `${BASE}
+
+GÖREV: Kaan'ın işlem kayıtları hakkında yazdığı kısa Türkçe komutu YAPILACAK DEĞİŞİKLİK listesine çevir: ekle, düzelt veya sil.
+Yalnız ÖNERİ üretirsin; kayıtları sistem, Kaan onaylayınca değiştirir.
+Bağlam: gunDolumlari (o günün dolumları: id, t, tk, exp, k, cp, q, side, px) ve acikPozisyonlar (girişDolumId ile açık pozisyonlar).
+bugunIst ve suAnIst İstanbul tarih/saatidir.
+Kurallar:
+- Yalnız üç işlem: "add" (yeni dolum, fill alanı tam), "update" (mevcut dolum: id + set, yalnız değişen alanlar), "delete" (id).
+- update ve delete için id YALNIZ bağlamdaki dolum kimliklerinden olsun; kimlik uydurma. Hangi dolum kastedildiği belirsizse
+  (birden çok eşleşme) actions boş bırak ve note'ta sor.
+- "kapattım", "sattım" → side "sell"; "aldım", "aldım" → side "buy". Kapanış için vade açık pozisyondan alınır
+  (aynı tk, k, cp). Açık pozisyon yoksa actions boş bırak ve note'ta yaz.
+- Komutta zaman yoksa t = bugunIst + suAnIst (YYYY-MM-DDTHH:MM). "14:05'teki" gibi saat varsa o günün tarihiyle t yaz.
+- cp: call → "C", put → "P". q: pozitif tam sayı (adet / kontrat). px: opsiyon primi (dolar; hisse fiyatı değil).
+- "X değil Y olmalı" → yalnız ilgili alanı Y yap (ör. px: Y). Komutta adı geçmeyen alanı set'e koyma.
+- "şu işlem yanlış sil" gibi referans, bağlamda net bir dolumla eşleşmiyorsa delete üretme; note'ta sor.
+- Sayı UYDURMA: yalnız komutta ve bağlamda olan değerleri kullan.
+- Anlaşılmıyorsa actions [] ve note: "Anlaşılamadı: ..." (kısa, Türkçe).
+- En çok 10 işlem. Çıktıyı YALNIZ record_komut aracıyla ver.`;
+
+const FILL_PROPS = {
+  t: { type: 'string', description: 'YYYY-MM-DDTHH:MM (İstanbul)' },
+  tk: { type: 'string', description: 'Hisse sembolü, büyük harf, ör. QQQ' },
+  exp: { type: 'string', description: 'Vade YYYY-MM-DD' },
+  k: { type: 'number', description: 'Strike' },
+  cp: { type: 'string', enum: ['C', 'P'] },
+  q: { type: 'integer', minimum: 1, description: 'Adet / kontrat' },
+  side: { type: 'string', enum: ['buy', 'sell'] },
+  px: { type: 'number', description: 'Opsiyon primi (USD)' },
+} as const;
+
+/** Komut için zorunlu araç: model yalnız bu şemada işlem listesi üretir. */
+export const KOMUT_TOOL: ToolDef = {
+  name: 'record_komut',
+  description: 'Kaan\'ın Türkçe komutunu işlem değişikliği önerisine çevir (add / update / delete). Emin değilsen actions boş bırak ve note ile sor.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      actions: {
+        type: 'array', maxItems: 10,
+        items: {
+          type: 'object',
+          properties: {
+            op: { type: 'string', enum: ['add', 'update', 'delete'] },
+            id: { type: 'integer', description: 'update/delete: bağlamdaki dolum kimliği' },
+            fill: { type: 'object', description: 'add için tam dolum', properties: FILL_PROPS, required: ['t', 'tk', 'exp', 'k', 'cp', 'q', 'side', 'px'] },
+            set: { type: 'object', description: 'update için yalnız değişen alanlar', properties: FILL_PROPS },
+          },
+          required: ['op'],
+        },
+      },
+      note: { type: ['string', 'null'], description: 'Belirsizlik veya "Anlaşılamadı: ..." açıklaması (kısa)' },
+    },
+    required: ['actions', 'note'],
+  },
+};
+
+export interface KomutContext {
+  day: string; bugunIst: string; suAnIst: string; text: string;
+  dayFills: unknown[]; open: unknown[];
+}
+export function komutUserText(c: KomutContext): string {
+  return `Komut (Kaan yazdı, işlem kaydı düzeltmesi): ${JSON.stringify(c.text)}\nKayıt günü: ${c.day} · bugunIst ${c.bugunIst} · suAnIst ${c.suAnIst}\nBağlam JSON (kimlikler dolum id'leridir):\n${JSON.stringify({ gunDolumlari: c.dayFills, acikPozisyonlar: c.open })}`;
+}

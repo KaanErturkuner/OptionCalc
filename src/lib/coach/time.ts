@@ -26,6 +26,11 @@ export function istHm(ms: number): string {
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
+/** epoch ms → İstanbul takvim günü (YYYY-MM-DD) */
+export function istDate(ms: number): string {
+  return new Date(ms + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
 /** epoch ms → İstanbul dakika (0–1439) */
 export function istMinutesOf(ms: number): number {
   const d = new Date(ms + IST_OFFSET_MS);

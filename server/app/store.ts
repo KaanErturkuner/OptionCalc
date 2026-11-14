@@ -221,9 +221,9 @@ export class Store {
     this.db.prepare('INSERT INTO coach_calls (ts, day, kind, model, in_tok, out_tok, ok, fallback, ms, err) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(r.ts, r.day, r.kind, r.model, r.inTok, r.outTok, r.ok ? 1 : 0, r.fallback ? 1 : 0, r.ms, r.err);
   }
-  /** Hız sınırı için: son N ms'de 'extract' çağrı sayısı ve son çağrı zamanı */
+  /** Hız sınırı için: son N ms'de çıkarma ('extract') ve komut ('komut') çağrı sayısı ve son çağrı zamanı (ortak havuz) */
   coachRecent(sinceMs: number): { n: number; lastTs: number | null } {
-    const r = this.db.prepare("SELECT COUNT(*) AS n, MAX(ts) AS last FROM coach_calls WHERE kind = 'extract' AND ts >= ?").get(sinceMs) as { n: number; last: number | null };
+    const r = this.db.prepare("SELECT COUNT(*) AS n, MAX(ts) AS last FROM coach_calls WHERE kind IN ('extract', 'komut') AND ts >= ?").get(sinceMs) as { n: number; last: number | null };
     return { n: Number(r.n), lastTs: r.last == null ? null : Number(r.last) };
   }
   /** Bir gün için toplam token kullanımı (kayıtlı çağrılar) */
@@ -254,6 +254,29 @@ export class Store {
   coachFillsSince(fromDay: string): CoachFillRow[] {
     return (this.db.prepare('SELECT id, day, t, tk, exp, k, cp, q, side, px, conf FROM coach_fills WHERE day >= ? ORDER BY id').all(fromDay) as unknown as CoachFillRow[])
       .map(r => ({ ...r, id: Number(r.id), k: Number(r.k), q: Number(r.q), px: Number(r.px) }));
+  }
+  /** Komut uygulaması: tek bir işlem içinde çalıştırılır (hata → geri alınır). */
+  tx<T>(fn: () => T): T {
+    this.db.exec('BEGIN');
+    try { const r = fn(); this.db.exec('COMMIT'); return r; }
+    catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+  /** Dolum güncelle (yalnız verilen alanlar). Dönüş: satır değişti mi. Sütun adları sabit listeden gelir. */
+  coachFillUpdate(id: number, s: Partial<Record<'day' | 't' | 'tk' | 'exp' | 'k' | 'cp' | 'q' | 'side' | 'px', string | number>>): boolean {
+    const COLS = ['day', 't', 'tk', 'exp', 'k', 'cp', 'q', 'side', 'px'] as const;
+    const cols = COLS.filter(c => s[c] !== undefined);
+    if (!cols.length) return false;
+    const sql = `UPDATE coach_fills SET ${cols.map(c => `${c} = ?`).join(', ')} WHERE id = ?`;
+    return Number(this.db.prepare(sql).run(...cols.map(c => s[c] as string | number), id).changes) > 0;
+  }
+  coachFillDelete(id: number): boolean {
+    return Number(this.db.prepare('DELETE FROM coach_fills WHERE id = ?').run(id).changes) > 0;
+  }
+  coachReportDelete(sig: string): boolean {
+    return Number(this.db.prepare('DELETE FROM coach_reports WHERE sig = ?').run(sig).changes) > 0;
+  }
+  coachKarneDelete(day: string): boolean {
+    return Number(this.db.prepare('DELETE FROM coach_karne WHERE day = ?').run(day).changes) > 0;
   }
   coachReportGet(sig: string): CoachReportRow | null {
     const r = this.db.prepare('SELECT sig, day, ts, model, trade, rules, feedback, context FROM coach_reports WHERE sig = ?').get(sig) as RawReport | undefined;

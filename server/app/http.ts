@@ -15,6 +15,8 @@
  *  POST /coach/process?day=      — (anahtar) bekleyen koçlukları işle (en çok 5)
  *  GET  /coach?day=              — (anahtar) günün dolumları, eşleşmiş işlemleri, açık pozisyonlar, karnesi
  *  POST /coach/karne?day=        — (anahtar) günün karnesini üret (Haiku)
+ *  POST /coach/komut {text,day}  — (anahtar) serbest Türkçe komut → değişiklik ÖNERİSİ (Haiku; kayıt DEĞİŞMEZ; en çok 500 karakter)
+ *  POST /coach/komut/uygula {day,actions} — (anahtar) onaylanan öneriyi yeniden doğrular, tek işlemde uygular, {applied, view} döner
  * Anahtar: başlık x-app-key (sabit zamanlı karşılaştırma). Anahtar/token asla loglanmaz.
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -36,6 +38,7 @@ export interface Deps { cfg: Config; store: Store; md: MdClient; poller: Poller;
 
 const MAX_BODY = 4096;
 const MAX_COACH_BODY = 6 * 1024 * 1024;   // base64 (4 MB görüntü ≈ 5,6 MB) + JSON
+const MAX_KOMUT_BODY = 16 * 1024;         // komut metni ≤500 karakter; uygulama listesi ≤10 işlem
 const MAX_PUSH_TOKENS = 50;
 const TICKER_RE = /^[A-Z][A-Z0-9.\-]{0,9}$/;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -200,6 +203,26 @@ export function createHandler(d: Deps) {
         const day = url.searchParams.get('day') ?? undefined;
         if (day != null && !/^\d{4}-\d{2}-\d{2}$/.test(day)) return reply(400, { error: 'day=YYYY-MM-DD gerekli' });
         return reply(200, await d.coach.process(day));
+      }
+      if (method === 'POST' && path === '/coach/komut') {
+        const raw = await readBody(req, MAX_KOMUT_BODY);
+        if (raw == null) return reply(413, { error: 'komut çok büyük' });
+        let body: { text?: unknown; day?: unknown };
+        try { body = JSON.parse(raw); } catch { return reply(400, { error: 'geçersiz JSON' }); }
+        // Komut metni günlüğe yazılmaz (kişisel işlem notu); yalnız uzunluk.
+        info = ` metin=${typeof body?.text === 'string' ? body.text.length : 0}ch`;
+        const out = await d.coach.komutPropose(body ?? {});
+        info += ` gün=${out.day} öneri=${out.actions.length}`;
+        return reply(200, out);
+      }
+      if (method === 'POST' && path === '/coach/komut/uygula') {
+        const raw = await readBody(req, MAX_KOMUT_BODY);
+        if (raw == null) return reply(413, { error: 'istek çok büyük' });
+        let body: { day?: unknown; actions?: unknown };
+        try { body = JSON.parse(raw); } catch { return reply(400, { error: 'geçersiz JSON' }); }
+        const out = d.coach.komutApply(body ?? {});
+        info = ` komut-uygula=${out.applied}`;
+        return reply(200, out);
       }
       if (method === 'POST' && path === '/coach/karne') {
         const day = url.searchParams.get('day') ?? '';

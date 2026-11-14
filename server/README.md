@@ -38,6 +38,8 @@ Spec: [`docs/tasks/FLOW.md`](../docs/tasks/FLOW.md). Uygulama tarafı: `src/lib/
 | POST | `/coach/process?day=YYYY-MM-DD`? | ✓ | Koç: bekleyen koçlukları işle (en çok 5) |
 | GET | `/coach?day=YYYY-MM-DD` | ✓ | Günün dolumları, eşleşmiş işlemleri (rapor dâhil), açık pozisyonları, eşleşmeyen satışları, karnesi |
 | POST | `/coach/karne?day=YYYY-MM-DD` | ✓ | Günün karnesini üret (Haiku) |
+| POST | `/coach/komut` `{"text":"…","day":"YYYY-MM-DD"}` | ✓ | Koç komutu: serbest Türkçe düzeltme → değişiklik ÖNERİSİ (Haiku). Kayıt değişmez. Bkz. "Koç › Komut" |
+| POST | `/coach/komut/uygula` `{"day":"YYYY-MM-DD","actions":[…]}` | ✓ | Onaylanan öneriyi yeniden doğrular ve tek işlemde uygular → `{applied, view}` |
 
 Saklama: olaylar son 5 işlem günü için tutulur (`store.prune`); eski günler silinir.
 
@@ -173,6 +175,19 @@ raporu yazar. Eğitim amaçlıdır; tavsiye değildir. Uygulama: Menü › **Ko�
    aynı işlem tekrar koçlanmaz. Bir yükleme isteğinde en çok 3 koçluk yapılır; kalanı `POST /coach/process` (uygulama, bekleyen kalmayınca
    durur). Başarısız koçluk hata olarak loglanır, yüklemeyi bozmaz; aynı işlem 1 saat içinde yeniden denenmez.
 5. **Karne:** `POST /coach/karne?day=` (elle) veya kapanıştan 20 dk sonra otomatik (`COACH_KARNE_AUTO=off` kapatır).
+6. **Komut** (uygulama: Koç ekranı › Komut kutusu): Kaan işlemleri Türkçe düzeltir ("QQQ 600C 3.20'den kapattım", "şu işlem yanlış sil",
+   "14:05'teki QQQ alışı 2.10 değil 2.40"). İki adım, hiçbiri kendiliğinden yazmaz:
+   - **Öneri** `POST /coach/komut` (metin en çok 500 karakter, gün son 30 gün ve bugüne kadar): Haiku, `record_komut` aracıyla
+     `actions` üretir: `add` (tam dolum), `update` (kimlik + değişen alanlar), `delete` (kimlik). Bağlam: seçili günün dolumları ve
+     açık pozisyonlar (kimlikleriyle); bugünün tarihi ve İstanbul saati. Kimlik bağlam dışındaysa düşürülür (uyarı). Doğrulama:
+     `src/lib/coach/validate.ts` `validateKomut` (en çok 10 işlem, sayılar sonlu ve pozitif, C|P, buy|sell, tk 1–6 büyük harf,
+     saat dilimi kayması aynı denetimle düzeltilir). Önizleme satırları kodda kurulur (`src/lib/coach/komut.ts`).
+     Hız sınırı: çıkarma (`extract`) ile ortak havuz (24 sa, 100; 2 sn aralık).
+   - **Uygulama** `POST /coach/komut/uygula`: aynı doğrulayıcı MEVCUT dolumlara karşı çalışır. Bilinmeyen kimlik, geçersiz alan
+     veya çakışma (aynı dolum zaten var) → `400`/`409`, hiçbiri yazılmaz (tek SQLite işlemi). Yazılınca: değişen işlemlerin
+     raporları silinir (sig dolum kimliğinden türer, fiyattan değil; bu yüzden işlem içeriği karşılaştırılır), etkilenen günlerin
+     karnesi silinir; yeni/değişen işlemler `bekliyor` olur ve uygulama koçluğu üretir. Eklenen dolum `conf=yuksek`, `shot=komut`.
+   Testler: `test/coach-komut.test.ts` (saf) ve `server/app/komut-test.ts` (sahte Anthropic + SQLite `:memory:`, `npm test` içinde).
 
 ### Sınırlar ve kurallar
 
@@ -197,6 +212,9 @@ raporu yazar. Eğitim amaçlıdır; tavsiye değildir. Uygulama: Menü › **Ko�
 - `POST /coach` → `{ day, duplicate, added, fills:[{id,t,tk,exp,k,cp,q,side,px,conf}], note, model, fallback, coached, pending, warnings, usage }`.
   `duplicate: true` ise Haiku çağrılmadı. Hata: `429` (`error`, `kind`, `retryAfterSec`), `422` (satır okunamadı), `400`, `503`, `502`.
 - `POST /coach/process?day=` → `{ processed, pending, errors }`.
+- `POST /coach/komut` → `{ day, actions:[{op:"add",fill:{t,tk,exp,k,cp,q,side,px}} | {op:"update",id,set:{…}} | {op:"delete",id}], lines:[string], note, warnings, model, fallback, usage }`
+  (yalnız öneri). `400` (boş/uzun metin, gün), `422` (model çıktısı doğrulanamadı), `429` (hız sınırı), `503`.
+- `POST /coach/komut/uygula` → `{ applied, view }` (`view` = `GET /coach` yanıtı). `400` (geçersiz ya da bilinmeyen kimlik, boş liste), `409` (çakışma).
 - `GET /coach?day=` → `{ day, fills, trades:[{sig,tk,exp,k,cp,qty,entryT,entryPx,exitT,exitPx,legs,conf,status:"hazir"|"bekliyor",ts,report}],
   open:[{tk,exp,k,cp,qty,entryT,entryPx,closedQty,closedPx}], orphans:[fill], pending, karne, usage }`.
   `report` (TradeReport, `src/lib/coach/types.ts`): başlık (brüt/net P/L, komisyon $1,50/kontrat/yön, kodda), öncesi/sırasında/sonrası,

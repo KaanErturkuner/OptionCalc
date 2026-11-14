@@ -1,14 +1,16 @@
 /* Menü › Koç: Midas ekran görüntüleri (en çok 40, sıralı yükleme) → sunucu (Haiku) → dolumlar, eşleşmiş işlemler + koçluk,
- * açık pozisyonlar, eşleşmeyen satışlar, günün karnesi. Eğitim amaçlıdır; yatırım tavsiyesi DEĞİLDİR.
+ * açık pozisyonlar, eşleşmeyen satışlar, günün karnesi. Komut kutusu: serbest Türkçe düzeltme → öneri → onay → uygulama.
+ * Eğitim amaçlıdır; yatırım tavsiyesi DEĞİLDİR.
  * Görsel seçici kurulu değilse (expo-image-picker) yükleme devre dışı kalır, açıklama gösterilir. */
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Btn, Card, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import { loadState } from '@/lib/state';
 import { flowKeyOf } from '@/lib/flow/client';
-import { fetchCoachDay, makeKarne, processCoach, uploadScreenshot, type CoachDayView, type UploadResult } from '@/lib/coach/client';
+import { applyKomut, fetchCoachDay, makeKarne, processCoach, proposeKomut, uploadScreenshot, type CoachDayView, type UploadResult } from '@/lib/coach/client';
+import type { KomutProposal } from '@/lib/coach/types';
 import { runUploadQueue, type QueueItem, type QueueProgress } from '@/lib/coach/queue';
 import { describeUploadError, majorityDay, type UploadFailure } from '@/lib/coach/uploadError';
 import { addDaysStr, etDate } from '@/lib/usmarket';
@@ -37,6 +39,10 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
   const [noKey, setNoKey] = useState(false);
   const [pickerOk, setPickerOk] = useState(true);
   const [progress, setProgress] = useState<string | null>(null);
+  const [komutText, setKomutText] = useState('');
+  const [komutBusy, setKomutBusy] = useState<'send' | 'apply' | null>(null);
+  const [proposal, setProposal] = useState<KomutProposal | null>(null);   // yalnız öneri; Onayla'ya kadar hiçbir kayıt değişmez
+  const [komutErr, setKomutErr] = useState<string | null>(null);
 
   const load = useCallback(async (d: string) => {
     setBusy('load');
@@ -146,6 +152,51 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
     await load(targetDay);
   };
 
+  /** Komut → öneri (sunucu Haiku ile çözümler; kayıt değişmez). */
+  const komutSend = async () => {
+    const text = komutText.trim();
+    if (!text || komutBusy) return;
+    setKomutBusy('send'); setKomutErr(null); setProposal(null);
+    try {
+      const st = await loadState();
+      setProposal(await proposeKomut(flowKeyOf(st?.flowKey), text, day));
+    } catch (e) {
+      setKomutErr((e as Error).message || 'Komut gönderilemedi');
+    } finally {
+      setKomutBusy(null);
+    }
+  };
+
+  /** Onaylı öneri → sunucu yeniden doğrular ve uygular; sonra dönen görünüm. Yeni/değişen işlemler için koçluk (yükleme gibi, sınırlı tur). */
+  const komutApplyNow = async () => {
+    if (!proposal || !proposal.actions.length || komutBusy) return;
+    const pDay = proposal.day;
+    setKomutBusy('apply'); setKomutErr(null);
+    try {
+      const st = await loadState();
+      const key = flowKeyOf(st?.flowKey);
+      const r = await applyKomut(key, pDay, proposal.actions);
+      setProposal(null); setKomutText('');
+      setNotice(`Komut uygulandı: ${r.applied} değişiklik.${r.view.pending ? ` ${r.view.pending} işlem koçluk bekliyor.` : ''}`);
+      if (pDay === day) setView(r.view);
+      setLoadErr(null);
+      let pendingLeft = r.view.pending;
+      for (let k = 0; k < PROCESS_LOOPS && pendingLeft > 0; k++) {
+        const pr = await processCoach(key, pDay);
+        pendingLeft = pr.pending;
+        if (pr.errors.length) setErr(pr.errors.join(' · '));
+        if (pr.processed === 0 || pr.errors.length) break;
+      }
+      await load(day);
+    } catch (e) {
+      setKomutErr((e as Error).message || 'Uygulanamadı');
+    } finally {
+      setKomutBusy(null);
+    }
+  };
+
+  const komutCancel = () => { setProposal(null); setKomutErr(null); };
+
   const karne = async () => {
     tap();
     setBusy('karne'); setErr(null);
@@ -191,6 +242,36 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
         {pickerOk ? null : <Text style={{ color: C.neg, fontSize: 12, marginBottom: 6 }}>{PICKER_MISSING}</Text>}
         <Btn label={busy === 'upload' ? `Yükleniyor… ${progress ?? ''}` : 'Görüntü seç ve yükle'} onPress={() => { void upload(); }} style={{ alignSelf: 'flex-start' }} />
       </Card>
+
+      <Card title="Komut">
+        <Text style={{ color: C.muted, fontSize: 13, marginBottom: 8 }}>
+          İşlemi Türkçe düzelt, ekle ya da sil. Önce öneri gösterilir; Onayla düğmesine basmadan hiçbir kayıt değişmez.
+        </Text>
+        <TextInput value={komutText} onChangeText={setKomutText} editable={!komutBusy} multiline maxLength={500}
+          placeholder={"ör. QQQ 600C 3.20'den kapattım"} placeholderTextColor="#55617a" keyboardAppearance="dark"
+          style={{ color: C.text, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 10, minHeight: 64, textAlignVertical: 'top', fontSize: 15, marginBottom: 8 }} />
+        <Btn label={komutBusy === 'send' ? 'Gönderiliyor…' : 'Gönder'} onPress={() => { void komutSend(); }}
+          style={{ alignSelf: 'flex-start' }} />
+        {komutErr ? <Text style={{ color: C.neg, fontSize: 13, marginTop: 8 }}>{komutErr}</Text> : null}
+      </Card>
+
+      {proposal ? (
+        <Card title={`Öneri · ${dayLabel(proposal.day)}`}>
+          {proposal.lines.length ? (
+            <View style={{ gap: 6 }}>
+              {proposal.lines.map((l, i) => <Text key={`${i}${l}`} style={{ color: C.text, fontSize: 13 }}>{l}</Text>)}
+            </View>
+          ) : null}
+          {proposal.note ? <Text style={{ color: C.muted, fontSize: 13, marginTop: 8 }}>{proposal.note}</Text> : null}
+          {proposal.warnings.length ? <Text style={{ color: C.warn, fontSize: 12, marginTop: 8 }}>Uyarı: {proposal.warnings.join(' · ')}</Text> : null}
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            {proposal.actions.length ? (
+              <Btn kind="primary" label={komutBusy === 'apply' ? 'Uygulanıyor…' : 'Onayla'} onPress={() => { void komutApplyNow(); }} />
+            ) : null}
+            <Btn label="Vazgeç" onPress={komutCancel} />
+          </View>
+        </Card>
+      ) : null}
 
       {noKey ? <Card title="Anahtar"><Text style={{ color: C.muted }}>Akış anahtarı girilmedi (Hesapla › Ayarlar). Koç aynı anahtarla çalışır.</Text></Card> : null}
       {rows.length ? (

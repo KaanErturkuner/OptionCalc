@@ -121,3 +121,23 @@ export interface CoachDayView {
   karne: { day: string; ts: number; model: string; body: Karne } | null;
   usage: { calls: number; inTok: number; outTok: number };
 }
+
+/** Komut önerisinin tek işlemi (sunucu doğrular; uygulama yalnız onaylanan listeyi geri gönderir). */
+export type KomutFieldKey = 't' | 'tk' | 'exp' | 'k' | 'cp' | 'q' | 'side' | 'px';
+export type KomutFill = Pick<Fill, 't' | 'tk' | 'exp' | 'k' | 'cp' | 'q' | 'side' | 'px'>;
+export type KomutAction =
+  | { op: 'add'; fill: KomutFill }
+  | { op: 'update'; id: number; set: Partial<KomutFill> }
+  | { op: 'delete'; id: number };
+
+/** POST /coach/komut yanıtı: yalnız ÖNERİ; hiçbir kayıt değişmez. */
+export interface KomutProposal {
+  day: string;
+  actions: KomutAction[];
+  lines: string[];           // Türkçe önizleme (kodda kurulur)
+  note: string | null;
+  warnings: string[];
+  model: string;
+  fallback: boolean;
+  usage: { inTok: number; outTok: number };
+}
