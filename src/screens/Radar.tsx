@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import RadarDetail from '@/screens/RadarDetail';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Btn, Card, Chip, Seg, TextField, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import { radar, useRadar } from '@/ui/radarStore';
 import { runRadarScan } from '@/ui/radarScan';
+import { FreshnessPill } from '@/ui/FreshnessPill';
 import { DIR_LABEL, inEntryWindowIst } from '@/lib/radar/text';
 import { summarize, type Scored } from '@/lib/radar/track';
 import type { Alert } from '@/lib/radar/engine';
@@ -36,6 +38,8 @@ export default function Radar({ onOpenCalc }: { onOpenCalc: () => void }) {
   };
   const list = useMemo(() => D.alerts.filter(a =>
     filter === 'all' || (filter === 'news' ? !!a.news : a.direction === filter)).slice(0, 60), [D.alerts, filter]);
+  // Hisse detayı (grafik): açıkken liste yerine detay ekranı gösterilir
+  const [detail, setDetail] = useState<string | null>(null);
   const stats = useMemo(() => summarize(D.alerts.map(a => ({ kinds: a.kinds, direction: a.direction, spot: a.spot, emPct: a.emPct, outcome: { h2: a.outcome.h2 } }) as Scored)), [D.alerts]);
   const off = !marketOpen(now);
 
@@ -51,6 +55,7 @@ export default function Radar({ onOpenCalc }: { onOpenCalc: () => void }) {
     onOpenCalc();
   };
 
+  if (detail) return <RadarDetail ticker={detail} onBack={() => setDetail(null)} />;
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 12, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 40, gap: 10 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -59,20 +64,26 @@ export default function Radar({ onOpenCalc }: { onOpenCalc: () => void }) {
           <Text style={{ color: C.muted, fontSize: 12 }}>
             {D.lastScan ? `Son tarama ${istHM(D.lastScan)} İstanbul` : 'Henüz tarama yok'} · veri gecikmeli olabilir
           </Text>
+          <View style={{ marginTop: 6 }}><FreshnessPill /></View>
         </View>
         <Btn label={busy ? 'Taranıyor…' : 'Şimdi tara'} onPress={scan} kind="primary" />
       </View>
 
       <Card title="Piyasa nabzı">
         {D.pulse.length === 0 ? <Text style={{ color: C.muted }}>Veri yok. Taramayı çalıştır.</Text> : D.pulse.map(p => (
-          <View key={p.ticker} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+          <Pressable key={p.ticker} onPress={() => { tap(); setDetail(p.ticker); }} accessibilityRole="button" accessibilityLabel={`${p.ticker} grafiği`}
+            style={({ pressed }) => ({ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, opacity: pressed ? 0.6 : 1 })}>
             <Text style={{ color: C.text, fontWeight: '700', width: 60 }}>{p.ticker}</Text>
             <Text style={{ color: p.changePct >= 0 ? C.pos : C.neg }}>{pct(p.changePct)}</Text>
             <Text style={{ color: C.muted }}>VWAP {p.vwapSide}</Text>
             <Text style={{ color: C.muted }}>IV rank {p.ivRank ?? '—'}</Text>
             <Text style={{ color: p.mood === 'rehavet' ? C.warn : p.mood === 'panik' ? C.neg : C.muted }}>{p.mood}</Text>
-          </View>
+          </Pressable>
         ))}
+        <Text style={{ color: C.muted, fontSize: 11, marginTop: 6 }}>Hisseye dokun: strike OI/hacim grafiği, duvarlar, gamma flip, max pain.</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+          {D.settings.watch.map(t => <Chip key={t} label={t} onPress={() => { tap(); setDetail(t); }} />)}
+        </View>
       </Card>
 
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>

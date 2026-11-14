@@ -2,11 +2,12 @@
  * Her işlem §7 hesap durum makinesinden (account.ts) geçer: kademe, mod, komisyon, başabaş. Gün bloklu bootstrap:
  * ufuk = işlem günü sayısı; her gün, OOS gün kümesinden rastgele bir günün işlem dizisiyle doldurulur.
  *
- * Varsayılanlar (Başkan incelemesi, 2026-11-13): DURDU AÇIK; hedef tanımı K8 (1:N = çıkış/giriş = N, yani 1:5 → 750 $).
- * Karşılaştırma: eski R tabanlı 1:5 (+5R, çıkış 650 $) ve DURDU kapalı — bilgi amaçlıdır; ürün varsayılanını değiştirmez.
+ * Varsayılanlar (Kaan kararı D12, 2026-11-13): hedef RİSK BAZLI (1:N = giriş + N × risk; 150/50 → 1:5 = 650 $, +5R);
+ * DURDU AÇIK. Karşılaştırma varyantı K8 (çıkış/giriş çarpanı, 1:5 = 750 $) yalnızca bilgi amaçlıdır, Kaan tanımı DEĞİL.
  * Kaan kuralı (%50, kademe 30/40/50) değişmez. */
 import { initAccount, openPosition, closePosition, startDay } from './account.ts';
-import type { PaperAccount, PaperSettings, Kademe } from './types.ts';
+import type { PaperAccount, PaperSettings, PaperMode, Kademe } from './types.ts';
+import { stopPremOf, exitPremForR } from './rules.ts';
 
 /** Mulberry32: tohumlu, tekrarlanabilir PRNG (0..1). */
 export function mulberry32(seed: number): () => number {
@@ -20,24 +21,41 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
-/** Hedef tanımı: K8 = çıkış/giriş = N (1:5 → 5 kat prim → R = 1,5 × (N−1) = 6R). R650 = eski tanım, hedef +5R (N'den bağımsız, 1:5 → 5R). */
-export type TargetConvention = 'K8' | 'R650';
+/**
+ * Hedef tanımı. RISK (Kaan, D12): 1:N = giriş + N × risk → N R (1:5 → 5R, 650 $).
+ * K8 (karşılaştırma, Kaan tanımı DEĞİL): 1:N = çıkış/giriş = N → R = 1,5 × (N−1) (1:5 → 6R, 750 $).
+ */
+export type TargetConvention = 'RISK' | 'K8';
 export function targetR(conv: TargetConvention, N = 5): number {
   return conv === 'K8' ? 1.5 * (N - 1) : N;
 }
 
-/** Bir işlemin sonucu: hedefe ulaştı, stop, ya da (zaman/gün sonu vb.) doğrudan R değeri. */
-export type McOutcome = { kind: 'hedef' } | { kind: 'stop' } | { kind: 'diger'; R: number };
+/**
+ * Bir işlemin sonucu: hedefe ulaştı, stop, (zaman/gün sonu vb.) doğrudan R, ya da `coklu`: aynı sinyalin hedef çarpanı başına
+ * gerçekleşen R'si (backtest her N için ayrı koşar: '5', '4', '2', '1.5'). `coklu` varsa MC hesabın o anki moduna göre seçer.
+ */
+export type McOutcome = { kind: 'hedef' } | { kind: 'stop' } | { kind: 'diger'; R: number } | { kind: 'coklu'; byN: Record<string, number> };
 
-/** Sonuç → R. Hedef: seçilen tanımın R'si. Stop: −1R. Diğer: verilen R. */
+/** Hesap modu → hedef çarpanı (§7.1): AGRESIF 1:5 (targetN), güvenli modlar 1:2 (yoksa 1:1,5). */
+export function modeN(mode: PaperMode, N = 5): number {
+  return mode === 'AGRESIF' ? N : mode === 'AGRESIF_4' ? 4 : 2;
+}
+
+/** Sonuç → R. Hedef: seçilen tanımın R'si. Stop: −1R. Diğer: verilen R. Çoklu: N'nin R'si (yoksa en yakın küçük N). */
 export function outcomeR(o: McOutcome, conv: TargetConvention, N = 5): number {
   if (o.kind === 'hedef') return targetR(conv, N);
   if (o.kind === 'stop') return -1;
+  if (o.kind === 'coklu') {
+    const keys = Object.keys(o.byN).map(Number).filter(Number.isFinite).sort((x, y) => y - x);
+    const k = keys.find(x => x <= N) ?? keys[keys.length - 1];
+    if (k == null) throw new Error('MC: coklu sonuçta N yok');
+    return o.byN[String(k)];
+  }
   return o.R;
 }
 
-/** R cinsinden sonuç → çıkış primi. Giriş = fill, stop = fill/3 → 1R = fill × 2/3: çıkış = fill × (1 + R × 2/3). −1R = stop. */
-export const exitForR = (R: number, fill = 1): number => Math.max(0, fill * (1 + R * (2 / 3)));
+/** R cinsinden sonuç → çıkış primi (−%40 stop): çıkış = fill × (1 + 0,40 × R). −1R = fill × 0,60 = stop. Tek kaynak: paper/rules.ts. */
+export const exitForR = (R: number, fill = 1): number => exitPremForR(R, fill);
 
 export interface McOpts {
   startCapital: number;
@@ -47,8 +65,8 @@ export interface McOpts {
   seed?: number;
   fixedKademe?: Kademe;                // yalnız karşılaştırma: kademe sabitlenir (Kaan kuralı değil, bilgi amaçlı)
   fill?: number;                       // giriş primi ($/hisse); varsayılan 0,80
-  targetConvention?: TargetConvention; // varsayılan K8
-  targetN?: number;                    // hedef çarpanı N (1:N); varsayılan 5
+  targetConvention?: TargetConvention; // varsayılan RISK (D12)
+  targetN?: number;                    // AGRESIF hedef çarpanı N (1:N); varsayılan 5. Güvenli modlarda 1:2 (modeN)
 }
 
 export interface HorizonStats {
@@ -68,7 +86,7 @@ export function runMonteCarlo(days: McOutcome[][], o: McOpts): HorizonStats[] {
   const rnd = mulberry32(o.seed ?? 20261113);
   const start = o.startCapital;
   const fill = o.fill ?? 0.8;
-  const conv = o.targetConvention ?? 'K8', N = o.targetN ?? 5;
+  const conv = o.targetConvention ?? 'RISK', N = o.targetN ?? 5;
   // DURDU varsayılan AÇIK (Başkan incelemesi); ayar ile kapatılabilir.
   const settings: Partial<PaperSettings> = { fractional: true, durduEnabled: true, ...(o.settings ?? {}) };
   const comm = settings.commission ?? 1.5;
@@ -88,12 +106,14 @@ export function runMonteCarlo(days: McOutcome[][], o: McOpts): HorizonStats[] {
         const day = usable[Math.floor(rnd() * usable.length)];
         for (const oc of day) {
           if (acc.mode === 'DURDU') break;
+          // Hedef çarpanı hesabın moduna bağlı (B8): AGRESIF 1:N, güvenli modlarda 1:2 — güvenli modda 5R kazanç sayılmaz.
+          const sigMode = acc.mode as Exclude<PaperMode, 'DURDU'>, n = modeN(sigMode, N);
           const r = openPosition(acc, { id: `mc${p}-${trades}`, ticker: 'MC', setup: 'MC', dir: 'call', expiry: key, dte: 0, strike: 1,
-            fill, stopPrem: fill / 3, targetPrem: fill * 3, targetR: 3, mode: 'AGRESIF', now: d, day: key });
+            fill, stopPrem: stopPremOf(fill), targetPrem: exitForR(targetR(conv, n), fill), targetR: n, mode: sigMode, now: d, day: key });
           if (!r.ok) continue;
-          const c = closePosition(r.acc, exitForR(outcomeR(oc, conv, N), fill), 'manuel', d, key);
+          const c = closePosition(r.acc, exitForR(outcomeR(oc, conv, n), fill), 'manuel', d, key);
           if (!c.ok) continue;
-          acc = c.acc;
+          acc = o.fixedKademe ? { ...c.acc, kademe: o.fixedKademe } : c.acc;   // sabit kademe karşılaştırması gün içinde de sabit
           trades++;
           run = acc.trades[acc.trades.length - 1].result === 'kayip' ? run + 1 : 0;
           longest = Math.max(longest, run);
@@ -123,15 +143,15 @@ export function runMonteCarlo(days: McOutcome[][], o: McOpts): HorizonStats[] {
 export interface McVariant { name: string; targetConvention: TargetConvention; durduEnabled: boolean; stats: HorizonStats[] }
 
 /**
- * Başkan'ın istediği iki karşılaştırma: birincil (K8 + DURDU açık) ve yan varyantlar (650 = R650; DURDU kapalı).
+ * Birincil (RISK + DURDU açık) ve karşılaştırma varyantları (K8 = çıkış/giriş, Kaan tanımı değil; DURDU kapalı).
  * Tüm varyantlar aynı tohum ve aynı gün dizisiyle koşar (kıyas adil).
  */
 export function runMcVariants(days: McOutcome[][], base: Omit<McOpts, 'targetConvention' | 'settings'>): McVariant[] {
   const defs: { name: string; targetConvention: TargetConvention; durduEnabled: boolean }[] = [
-    { name: 'birincil: K8 (1:5 = 750 $), DURDU açık', targetConvention: 'K8', durduEnabled: true },
-    { name: 'karşılaştırma: R650 (1:5 = 650 $), DURDU açık', targetConvention: 'R650', durduEnabled: true },
-    { name: 'karşılaştırma: K8, DURDU kapalı', targetConvention: 'K8', durduEnabled: false },
-    { name: 'karşılaştırma: R650, DURDU kapalı', targetConvention: 'R650', durduEnabled: false },
+    { name: 'birincil: risk bazlı (1:5 = 650 $, +5R), DURDU açık', targetConvention: 'RISK', durduEnabled: true },
+    { name: 'karşılaştırma: risk bazlı, DURDU kapalı', targetConvention: 'RISK', durduEnabled: false },
+    { name: 'karşılaştırma: K8 çıkış/giriş (1:5 = 750 $, Kaan tanımı değil), DURDU açık', targetConvention: 'K8', durduEnabled: true },
+    { name: 'karşılaştırma: K8 çıkış/giriş, DURDU kapalı', targetConvention: 'K8', durduEnabled: false },
   ];
   return defs.map(d => ({
     name: d.name, targetConvention: d.targetConvention, durduEnabled: d.durduEnabled,

@@ -13,7 +13,8 @@ Read this, then `docs/TASKS.md`, before you change anything. User-facing text in
 - Three tabs (`src/app/index.tsx` switches screens):
   - **Hesapla** (`src/screens/Calc.tsx`) — American option pricer (Leisen-Reimer + Richardson, cash dividends), Greeks, P/L chart (pinch-zoom), price × date heatmap, strategies (Long Call/Put + "Diğer").
   - **0DTE** (`src/screens/Odte.tsx`) — scans a watchlist every N minutes, runs the signal engine, local notifications, "✓ Aldım" → position.
-  - **Geçmiş** (`src/screens/Journal.tsx`) — journal of signals/positions (paper by default), exit-time and target/stop alerts.
+  - **Menü** (`src/screens/Menu.tsx`, sekme eskiden Geçmiş) — kart kaydı: **Geçmiş** (`src/screens/Journal.tsx`: signals/positions, paper by default, exit-time and target/stop alerts) and **Takip Listesi** (`src/screens/Watchlist.tsx`: Hesapla'dan eklenen opsiyonların canlı K/Z'si).
+- **Para kuralı (2026-11-14):** prim stopu **−%40** (eskiden %67). Sayılar `src/lib/paper/rules.ts`'te; uyarlanabilir ÇIK yalnız uyarıdır, otomatik çıkış yapmaz (çıkış: −%40 stop, hedef, 15:45 ET / gece kuralı).
 - **No proven edge.** Backtests so far show negative expectancy for the in-app engine. Treat signals as paper-only until `docs/PLAN.md` criteria pass. Never present them as advice.
 
 ## 2. Architecture map
@@ -26,13 +27,18 @@ src/lib/american.ts      American pricer (LR tree + Richardson), dividends, Amer
 src/lib/strategy.ts      multi-leg strategy payoff
 src/lib/usmarket.ts      NYSE calendar/holidays, ET time helpers, closeMs, marketOpen
 src/lib/state.ts         persisted UI state, price step, table rows
+src/lib/watchlist/       takip listesi: model (kalem, OCC, vade), pl (K/Z), refresh, build (bacak→kalem), view; src/ui/watchStore.ts (depo)
 src/lib/journal.ts       journal model;  src/lib/alerts.ts  target/stop/exit alert logic
+src/lib/paper/rules.ts  PARA KURALLARI — TEK KAYNAK: prim stopu −%40 (giriş × 0,60), 1R = giriş × 0,40, hedef 1:5 = giriş + 5R (×3,0), 1:4 = ×2,6. Yeni kural/sayı yalnız burada; 0,33/0,67/%67 literal'i yazılmaz.
 src/lib/market/          providers: cboe.ts (default, keyless), yahoo.ts, tradier.ts, marketdata.ts (token; mdMode live|cached), bars.ts (1-min bars: Yahoo first, MarketData fallback), index.ts (loadSymbol/loadChain), types.ts
 src/lib/odte/analytics.ts  OI walls, max pain, GEX + gamma flip, P/C, unusual volume, expected move, VWAP, ORB, momentum
 src/lib/odte/signal.ts     in-app engine: features() + decide(); DEFAULT_OPTS (v2), V1_OPTS
 src/lib/odte/scan.ts       fetch + analyze one symbol
 src/lib/odte/strategies/   pluggable strategies (pure TS, app-compatible): types.ts, util.ts, orbVwap, gammaRegime, oiWall, emBreach, confluence (wraps signal.ts), index.ts (registry, withTimeFilter)
 backtest/                Node-only .mts scripts (not in tsc / Metro bundle) — see backtest/README.md
+server/                  Akış sunucusu (droplet 162.243.88.42, Node 24, systemd, Caddy HTTPS): TEK MarketData istemcisi + izinli proxy + olağandışı akış + Expo push — server/README.md (tsc/lint dışı; npm run flow:selftest)
+src/lib/flow/            akış saf mantığı: vade (expiry), tespit (detect), plan/kredi (plan), proxy izin listesi (proxy), istemci (client), tipler (model)
+src/screens/Akis.tsx     Akış sekmesi (sunucudan olaylar; bilgi amaçlı)
 test/run.ts              unit tests (Node type stripping; fixtures in test/fixtures)
 docs/PLAN.md             post-API-approval plan (TR);  docs/TASKS.md  task board;  docs/CHANGELOG.md  handoff log
 ```
@@ -61,6 +67,7 @@ Then tell Kaan to fully close and reopen Expo Go (once or twice). Native module 
 ## 5. Secrets — hard rules
 - **Never commit or print tokens.** `EXPO_TOKEN`, `MARKETDATA_TOKEN`, Tradier keys come from environment variables only. `.env*` files stay untracked.
 - The app stores user-entered keys on-device (AsyncStorage) — never hardcode a key in source, fixtures, tests, or docs.
+- **Uygulama MarketData'yı doğrudan çağırmaz** (2026-11-14'ten beri): her çağrı sunucu proxy'sinden (`server/`). Sunucu çalışırken `backtest/` scriptleri (`fetch`, `record`, `probe`, `peers`) MarketData'yı doğrudan çağırır → çalıştırma; önce sunucu durdurulmalı.
 - MarketData **one-device rule**: the same token used from two devices/IPs at once locks the account for 5 minutes. Before running any `backtest/*` script that hits the API (`fetch`, `record`, `probe`), make sure the phone isn't using MarketData. Never run two API scripts at the same time.
 - Respect the credit budget (Trader: 100k/day, resets 09:30 ET). Use `BT_DRYRUN=1` to estimate first; `BT_MAX_CREDITS` / `BT_RESERVE` guard every script.
 

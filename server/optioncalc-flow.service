@@ -1,0 +1,36 @@
+# systemd birimi — /etc/systemd/system/optioncalc-flow.service (server/deploy.sh kurar)
+[Unit]
+Description=OptionCalc akış sunucusu (MarketData proxy + olağandışı akış)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ocflow
+Group=ocflow
+WorkingDirectory=/opt/optioncalc-flow
+# Yapılandırma (sırsız): /etc/optioncalc-flow/env — yoksa varsayılanlar
+EnvironmentFile=-/etc/optioncalc-flow/env
+# Sırlar: root'a ait 600 dosyalardan, systemd okur; ortam değişkeni olarak GÖRÜNMEZ (anthropic_key: koç; boş yer tutucu olabilir → koç 503; dosya YOKSA servis başlamaz, deploy.sh oluşturur)
+LoadCredential=md_token:/etc/optioncalc-flow/md_token
+LoadCredential=app_key:/etc/optioncalc-flow/app_key
+LoadCredential=finnhub_key:/etc/optioncalc-flow/finnhub_key
+LoadCredential=anthropic_key:/etc/optioncalc-flow/anthropic_key
+ExecStart=/usr/bin/node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON /opt/optioncalc-flow/server/app/main.ts
+Restart=always
+RestartSec=10
+StateDirectory=optioncalc-flow
+Environment=FLOW_HOST=127.0.0.1 FLOW_PORT=8787 FLOW_DB=/var/lib/optioncalc-flow/flow.db
+
+# Sertleştirme
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+MemoryMax=400M
+
+[Install]
+WantedBy=multi-user.target

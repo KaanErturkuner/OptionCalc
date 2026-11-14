@@ -5,6 +5,7 @@ import { clearYahooCache, yahoo, yahooQuoteExtras } from './yahoo.ts';
 import { tradier } from './tradier.ts';
 import { clearMdCache, isStale, marketdata } from './marketdata.ts';
 import { mid, type Chain, type OptQuote, type Provider, type ProviderId, type ProvOpts, type Quote } from './types.ts';
+import { registerSecret, reportFail, reportOk } from '../freshness.ts';
 
 export * from './types.ts';
 export const PROVIDERS: Record<ProviderId, Provider> = { cboe, yahoo, tradier, marketdata };
@@ -22,6 +23,7 @@ export interface Loaded { provider: ProviderId; quote: Quote; expirations: strin
 export async function loadSymbol(symbol: string, pref: ProviderPref, keys: Keys = {}, signal?: AbortSignal): Promise<Loaded> {
   const sym = symbol.trim().toUpperCase().replace(/^\$/, '');
   if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(sym)) throw new Error('Geçersiz sembol');
+  Object.values(keys).forEach(registerSecret);
   const order: ProviderId[] = pref === 'auto'
     ? [...(keys.marketdata ? ['marketdata' as const] : []), ...(keys.tradier ? ['tradier' as const] : []), 'cboe', 'yahoo'] : [pref];
   let lastErr: unknown = null, note: string | undefined;
@@ -30,22 +32,38 @@ export async function loadSymbol(symbol: string, pref: ProviderPref, keys: Keys 
     try {
       const r = await PROVIDERS[id].load(sym, { key: keyFor(id, keys), signal });
       const now = Date.now();
-      if (pref === 'auto' && id === 'marketdata' && isStale(r.quote.time, now)) { mdSkipUntil = now + 10 * 60000; note = 'MarketData verisi önceki seansa ait (deneme planı) — CBOE kullanıldı'; continue; }
+      const stale = id === 'marketdata' && isStale(r.quote.time, now);
+      if (stale) reportFail('md-options', 'MarketData verisi önceki seansa ait (deneme planı)', { provider: 'marketdata', at: now });
+      if (pref === 'auto' && stale) { mdSkipUntil = now + 10 * 60000; note = 'MarketData verisi önceki seansa ait (deneme planı) — CBOE kullanıldı'; continue; }
       const expirations = r.expirations.filter(e => closeMs(e) > now).sort();
       if (id !== 'yahoo' && r.quote.divYield == null) {
         const x = await Promise.race([yahooQuoteExtras(sym), new Promise<null>(res => setTimeout(() => res(null), 6000))]);
         if (x) Object.assign(r.quote, { name: r.quote.name || x.name, divYield: x.divYield, divRate: x.divRate });
       }
+      if (id === 'marketdata') reportOk('md-options', { provider: 'marketdata', at: now });
+      reportOk('quotes', { provider: id, at: now });
       return { provider: id, quote: r.quote, expirations, note };
     } catch (e) {
+      if (id === 'marketdata' && !signal?.aborted) reportFail('md-options', e, { provider: 'marketdata' });
       if (id === 'marketdata' && pref === 'auto') note = (e as Error)?.message + ' — yedek kaynak kullanıldı';
       if (!lastErr || !/bulunamadı/.test(String((lastErr as Error).message))) lastErr = e; if (signal?.aborted) throw e;
     }
   }
+  if (!signal?.aborted) reportFail('quotes', lastErr ?? 'Veri alınamadı', { provider: pref });
   throw lastErr instanceof Error ? lastErr : new Error('Veri alınamadı');
 }
-export const loadChain = (p: ProviderId, symbol: string, expiry: string, keys: Keys = {}, strikeLimit?: number, extra?: Pick<ProvOpts, 'mdMode' | 'mdMaxAge' | 'signal'>): Promise<Chain> =>
-  PROVIDERS[p].chain(symbol, expiry, { ...extra, key: keyFor(p, keys), strikeLimit });
+/** Zincir: yalnız MarketData çağrıları tazelik göstergesine bildirilir (diğer sağlayıcılar fiyat kaynağını bildirir) */
+export const loadChain = async (p: ProviderId, symbol: string, expiry: string, keys: Keys = {}, strikeLimit?: number, extra?: Pick<ProvOpts, 'mdMode' | 'mdMaxAge' | 'signal'>): Promise<Chain> => {
+  Object.values(keys).forEach(registerSecret);
+  try {
+    const c = await PROVIDERS[p].chain(symbol, expiry, { ...extra, key: keyFor(p, keys), strikeLimit });
+    if (p === 'marketdata') reportOk('md-options', { provider: 'marketdata' });
+    return c;
+  } catch (e) {
+    if (p === 'marketdata' && !extra?.signal?.aborted) reportFail('md-options', e, { provider: 'marketdata' });
+    throw e;
+  }
+};
 
 export { marketOpen } from '../usmarket.ts';
 /** Seçilen strike'a en yakın kontrat */

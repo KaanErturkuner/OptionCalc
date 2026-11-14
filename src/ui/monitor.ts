@@ -12,6 +12,7 @@ import { mid } from '@/lib/market/types';
 import { marketOpen } from '@/lib/usmarket';
 import { journal } from './journalStore';
 import { notifyAlert } from './notify';
+import { flowKeyOf } from '@/lib/flow/client';
 
 export interface NotifCfg { signals: boolean; positions: boolean; background: boolean }
 const CFG_KEY = 'notif-cfg-v1';
@@ -23,7 +24,7 @@ export async function saveNotifCfg(c: NotifCfg) { await AsyncStorage.setItem(CFG
 
 /** Açık işlemler için canlı fiyat: opsiyon mid (zincirden) + dayanak */
 export async function fetchLive(ts: Trade[]): Promise<Record<string, Live>> {
-  const s0 = await loadState(); const keys = { marketdata: s0?.mdKey || undefined, tradier: s0?.apiKey || undefined };
+  const s0 = await loadState(); const keys = { marketdata: flowKeyOf(s0?.flowKey) || undefined, tradier: s0?.apiKey || undefined };
   const out: Record<string, Live> = {};
   for (const sym of [...new Set(ts.map(t => t.ticker))]) {
     try {

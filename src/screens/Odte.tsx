@@ -8,11 +8,16 @@ import { scanOne, creditsPerRefresh, type ScanItem } from '@/lib/odte/scan';
 import { outcome, signalText, DEFAULT_OPTS, type Signal } from '@/lib/odte/signal';
 import { newId } from '@/lib/journal';
 import { journal, useJournal } from '@/ui/journalStore';
+import { FreshnessPill } from '@/ui/FreshnessPill';
+import { nextRefresh, setExpected } from '@/lib/freshness';
 import { Btn, Card, Chip, NumField, Seg, StepField, s, tap } from '@/ui/controls';
 import { ensurePermission, notifySignal, permissionStatus, scheduleExit, testNotification } from '@/ui/notify';
 import { checkAlerts, DEF_NOTIF, loadNotifCfg, saveNotifCfg, syncBackgroundTask, type NotifCfg } from '@/ui/monitor';
 import { exitAtMs, localHM, MAX_SIGNALS_PER_DAY, signalAllowed } from '@/lib/alerts';
 import { C, plColor } from '@/ui/theme';
+import VerdictBlock from '@/ui/VerdictCard';
+import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { flowKeyOf } from '@/lib/flow/client';
 
 export const DEFAULT_WATCH = ['QQQ', 'MU', 'AXTI', 'AAOI', 'MRVL', 'GLW', 'NBIS', 'CRWV', 'DRAM', 'AMD', 'INTC', 'SPCX', 'NVDA', 'TSLA', 'RKLB'];
 export const EXTRAS = ['SPY', 'IWM', 'GLD', 'SLV'];
@@ -67,7 +72,7 @@ export default function Odte({ active, onJournal }: { active: boolean; onJournal
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true);
     const c = cfgRef.current, list = [...c.watch, ...c.extras.filter(x => !c.watch.includes(x))];
-    const st = await loadState(); const mdKey = st?.mdKey || undefined; setHasMd(!!mdKey);
+    const st = await loadState(); const mdKey = flowKeyOf(st?.flowKey) || undefined; setHasMd(!!mdKey);
     const opts = { ...DEFAULT_OPTS, orMinutes: c.orMin };
     await pool(list, 3, sym => scanOne(sym, { marketdata: mdKey, tradier: st?.apiKey || undefined }, opts, c.strikeLimit), it0 => {
       // Günlük sınır: sembol başına günde en fazla 2 farklı sinyal (kontrat)
@@ -101,9 +106,15 @@ export default function Odte({ active, onJournal }: { active: boolean; onJournal
   useEffect(() => {
     // Bildirim açıksa başka sekmedeyken de tarar (uygulama ön plandayken; arka planda iOS zamanlayıcıları durdurur)
     if (!(active || (nc.signals && booted.current)) || !cfg.auto) return;
-    const id = setInterval(() => { setNow(Date.now()); if (marketOpen()) refresh(); }, cfg.interval * 60000);
+    const id = setInterval(() => { setNow(Date.now()); nextRefresh('quotes', Date.now() + cfg.interval * 60000); if (marketOpen()) refresh(); }, cfg.interval * 60000);
     return () => clearInterval(id);
   }, [active, cfg.auto, cfg.interval, refresh, nc.signals]);
+  // Tazelik göstergesi: bu ekranın beklenen yenileme aralığı (kapalıysa bildirilmez)
+  useEffect(() => {
+    const ms = cfg.auto ? cfg.interval * 60000 : null;
+    setExpected('quotes', ms, 'odte'); setExpected('md-options', ms, 'odte');
+    return () => { setExpected('quotes', null, 'odte'); setExpected('md-options', null, 'odte'); };
+  }, [cfg.auto, cfg.interval]);
 
   const list = [...cfg.watch, ...cfg.extras.filter(x => !cfg.watch.includes(x))];
   const rows = list.map(t => items[t] ?? { ticker: t, ok: false, credits: 0, time: 0 } as ScanItem)
@@ -142,6 +153,7 @@ export default function Odte({ active, onJournal }: { active: boolean; onJournal
           <Text style={{ color: isOpen ? C.pos : C.muted, fontSize: 13, fontWeight: '600' }}>
             {isOpen ? '● Piyasa açık' : '○ Piyasa kapalı'} · {etHM(now)}{last ? ` · son ${etHM(last)}` : ''}
           </Text>
+          <View style={{ marginTop: 6 }}><FreshnessPill /></View>
         </View>
         <Pressable onPress={() => { tap(); refresh(); }} style={({ pressed }) => [st.refresh, pressed && { opacity: .6 }]} accessibilityLabel="Yenile">
           {busy ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontSize: 16, fontWeight: '800' }}>↻ Yenile</Text>}
@@ -267,6 +279,7 @@ function TickerCard({ it, open, toggle, onLog, busy }: { it: ScanItem; open: boo
             : <Text style={{ color: it.error ? C.neg : C.muted, fontSize: 13 }}>{it.error ? 'Hata' : busy ? 'Yükleniyor…' : '—'}</Text>}
         </View>
       </Pressable>
+      {it.ok && it.verdict ? <View style={{ marginTop: 8 }}><ErrorBoundary label="Sonuç"><VerdictBlock ticker={it.ticker} v={it.verdict} /></ErrorBoundary></View> : null}
       {it.ok ? (
         <View style={[s.row, { marginTop: 6 }]}>
           <Text style={{ color: C.muted, fontSize: 12, width: 58 }}>Puan {score > 0 ? '+' : ''}{score.toFixed(1)}</Text>

@@ -7,6 +7,7 @@
 import type { Bar } from '../analytics.ts';
 import type { Chain } from '../../market/types.ts';
 import type { Features } from '../signal.ts';
+import type { DailyBar } from '../../signals/qull/daily.ts';
 
 export type Dir = 'call' | 'put';
 export interface DayInfo {
@@ -14,6 +15,12 @@ export interface DayInfo {
   prevClose: number | null; openPx: number;
   /** Günlük beklenen hareket ($): ilk değerlendirmedeki ATM straddle / √(1+dte) (dte>0 vadeler için kaba ölçek) */
   em0: number | null;
+  /** Önceki günlerin OTM oynaklık oranları (oto k için; yalnız geçmiş günler, sızıntı yok). Yoksa boş. */
+  ratios?: number[];
+  /** Qullamaggie günlük barlar (yalnız önceki günler; backtest'te D < gün süzülür). Yoksa Q setupları üretmez. */
+  daily?: DailyBar[];
+  /** SPY günlük barları (RS için; yoksa RS bileşeni atlanır) */
+  spyDaily?: DailyBar[];
 }
 export interface StratCtx {
   ticker: string; S: number; t: number;

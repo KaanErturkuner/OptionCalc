@@ -40,12 +40,15 @@ ok('Türkçe sayı: 1,25', trNum(1.25, 2) === '1,25');
   const c = buildOpp(base());
   ok('kart: RR = 1:5,2 (çıkış/giriş)', near(c.rr, 5.2));
   ok('kart: giriş = dolum (ask+kayma, RR girişi)', near(c.fill, 1));
-  ok('kart: stop prim ≥ %67 tavanı (0,33)', c.stopPrem >= 0.33 - 1e-9, String(c.stopPrem));
+  ok('kart: stop prim ≥ −%40 tavanı (0,60)', c.stopPrem >= 0.6 - 1e-9, String(c.stopPrem));
   ok('kart: skor 0–100 ve etiket', c.score >= 0 && c.score <= 100 && ['Zayıf', 'Orta', 'İyi', 'Güçlü'].includes(c.label), String(c.score));
   ok('kart: uygun (1:5, skor ≥ 65, kontrat 1 adet)', c.eligible && c.mode === 'AGRESIF', `${c.eligible} ${c.mode} ${c.reason} skor ${c.score} ${c.vetoes}`);
   ok('kart: kademe %50 bütçe 150, 1 kontrat', c.sizing !== null && c.sizing.budget === 150 && c.sizing.contracts === 1, JSON.stringify(c.sizing));
   ok('kart: metin Başkan diliyle ve 1:5,2 yazar', c.text.body.startsWith('Başkan,') && c.text.body.includes('RR 1:5,2'));
   ok('kart: 0DTE gece taşınmaz', c.overnightOk === false);
+  // D12: risk bazlı hedef = giriş + N × risk (1:5 → giriş + 5 × (giriş − stop))
+  ok('kart: hedef = giriş + 5 × risk (risk bazlı 1:5)', near(c.primTarget, c.fill + 5 * (c.fill - c.stopPrem), 1e-9), `${c.primTarget} ${c.fill} ${c.stopPrem}`);
+  ok('kart: 1:4 modunda hedef = giriş + 4 × risk', (() => { const d = buildOpp(base({ pick: pick({ rr: 4.2, primTarget: 4.2 }) })); return near(d.primTarget, d.fill + 4 * (d.fill - d.stopPrem), 1e-9); })());
 }
 // 1:4 (AGRESIF_4)
 {
@@ -79,31 +82,31 @@ const D = '2026-11-13';
 const NOCOST = { commission: 0, slippage: 0, fractional: true };
 function openAt(acc: PaperAccount, over: Partial<OpenInput> = {}): PaperAccount {
   const r = openPosition(acc, { id: 'p1', ticker: 'QQQ', setup: 'S1', dir: 'call', expiry: D, dte: 0, strike: 100, fill: 1,
-    stopPrem: 1 / 3, targetPrem: 3, targetR: 3, mode: 'AGRESIF', now: 0, day: D, und: { entry: 100, stop: 98, target: 104 }, ...over });
+    stopPrem: 0.6, targetPrem: 3, targetR: 3, mode: 'AGRESIF', now: 0, day: D, und: { entry: 100, stop: 98, target: 104 }, ...over });
   if (!r.ok) throw new Error(r.reason);
   return r.acc;
 }
 const tk = (over: Partial<TickIn> = {}): TickIn => ({ day: D, now: 1, etMin: 600, bid: 1, flags: {}, S: 100, ivAtm: 0.2,
-  eventBeforeOpen: false, strongTriggerLast30: false, regimeAligned: true, ...over });
+  calendar: { ok: true, reasons: [] }, strongTriggerLast30: false, regimeAligned: true, ...over });
 
 {
   const r = tickPosition(openAt(initAccount(300, NOCOST, D)), tk({ bid: 3 }));
   ok('pozisyon: hedef bid 3 → kapanır, +300', r.acc.position === null && near(r.acc.capital, 600) && r.events[0]?.kind === 'close', JSON.stringify(r.events.map(e => e.text)));
 }
 {
-  const r = tickPosition(openAt(initAccount(300, NOCOST, D)), tk({ bid: 1 / 3 }));
-  ok('pozisyon: stop (giriş/3 = 0,33) → kapanır, −100', r.acc.position === null && near(r.acc.capital, 200) && r.events[0].trade?.reason === 'stop');
+  const r = tickPosition(openAt(initAccount(300, NOCOST, D)), tk({ bid: 0.6 }));
+  ok('pozisyon: stop (giriş × 0,60 = 0,60, −%40) → kapanır, 1,5 kontrat × −40 = −60', r.acc.position === null && near(r.acc.capital, 240) && r.events[0].trade?.reason === 'stop', String(r.acc.capital));
 }
 {
   const r = tickPosition(openAt(initAccount(300, NOCOST, D)), tk({ bid: null }));
   ok('pozisyon: bid yok → karar yok', r.acc.position !== null && r.events.length === 0);
 }
 {
-  // R 1,5 + güçlü tetik → uyarı; sonra 1,4 + tetik → çıkış
+  // R 1,5 (1R = 0,40) + güçlü tetik → uyarı; sonra 1,4 + tetik → çıkış
   let acc = openAt(initAccount(300, NOCOST, D));
-  const r1 = tickPosition(acc, tk({ bid: 2.0, flags: { T2: true } }));
+  const r1 = tickPosition(acc, tk({ bid: 1.6, flags: { T2: true } }));
   ok('risk: 1,5R + güçlü tetik → uyarı, stop girişe', r1.events[0]?.kind === 'warn' && r1.acc.position!.warned === true && near(r1.acc.position!.stopPrem, 1));
-  const r2 = tickPosition(r1.acc, tk({ bid: 1.9333, flags: { T2: true } }));
+  const r2 = tickPosition(r1.acc, tk({ bid: 1.56, flags: { T2: true } }));
   ok('risk: ikinci tetikte çıkış (risk)', r2.acc.position === null && r2.events[0].trade?.reason === 'risk');
 }
 {
@@ -111,10 +114,11 @@ const tk = (over: Partial<TickIn> = {}): TickIn => ({ day: D, now: 1, etMin: 600
   ok('0DTE: 15:45 ET zorunlu çıkış', r.acc.position === null && r.events[0].trade?.reason === 'zaman');
 }
 {
-  // 2DTE gece kararı: kötü senaryo ≤ 1,5R → taşınır
+  // 2DTE gece kararı: kötü senaryo ≤ 1,5R → taşınır. R artık giriş × 0,40 (−%40 stop); aynı kötü senaryo $ kaybı R'yi daha çok aşar.
+  // openAt 1,5 kontratlık (kesirli) pozisyon açar: 1R = 60 $; kötü senaryo ≈ 150 $ → 2,5R > 1,5R → taşınmaz.
   const acc = openAt(initAccount(300, NOCOST, D), { dte: 2, expiry: '2026-11-18' });
   const r = tickPosition(acc, tk({ etMin: 945, bid: 1.0 }));
-  ok('gece: 2DTE uygun koşullarda taşınır (carry olayı, overnight=true)', r.acc.position?.overnight === true && r.events[0]?.kind === 'carry', JSON.stringify(r.events.map(e => e.text)));
+  ok('gece: 2DTE kötü senaryo 2,5R > 1,5R → taşınmaz (gece-kapanis)', r.acc.position === null && r.acc.trades.at(-1)?.reason === 'gece-kapanis', JSON.stringify(r.events.map(e => e.text)));
   ok('gece: aynı gün ikinci kararda çift işlem yok', tickPosition(r.acc, tk({ etMin: 950, bid: 1.0 })).events.length === 0);
 }
 {
@@ -138,8 +142,8 @@ const tk = (over: Partial<TickIn> = {}): TickIn => ({ day: D, now: 1, etMin: 600
 }
 {
   const acc = openAt(initAccount(300, NOCOST, D), { dte: 2, expiry: '2026-11-18' });
-  const r = tickPosition(acc, tk({ etMin: 945, bid: 1 / 3 }));
-  ok('15:45 2DTE stopta: taşınmaz, stopla kapanır', r.acc.position === null && r.events[0]?.trade?.reason === 'stop', JSON.stringify(r.events.map(e => e.kind + ':' + e.trade?.reason)));
+  const r = tickPosition(acc, tk({ etMin: 945, bid: 0.6 }));
+  ok('15:45 2DTE stopta (0,60, −%40): taşınmaz, stopla kapanır', r.acc.position === null && r.events[0]?.trade?.reason === 'stop', JSON.stringify(r.events.map(e => e.kind + ':' + e.trade?.reason)));
 }
 ok('outcome: hedef → hedef, stop/gap → stop, gece/zaman → zaman', outcomeOf('hedef') === 'hedef' && outcomeOf('gap') === 'stop' && outcomeOf('gece-kapanis') === 'zaman');
 ok('tetik adları Türkçe', TRIGGER_AD.T2 === 'VWAP kaybı');

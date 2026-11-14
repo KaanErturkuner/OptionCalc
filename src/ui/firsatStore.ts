@@ -3,25 +3,29 @@
 import { useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEFAULT_TICKERS } from '@/lib/signals/tickers';
+import type { VerdictCard } from '@/lib/signals/verdict';
+import { DEFAULT_Q, mergeQ, type QSettings } from '@/lib/signals/qull/policy';
 import type { Sent } from '@/lib/signals/gate';
 import type { SignalLog } from '@/lib/signals/log';
 import type { Opp } from '@/lib/signals/opp';
 import type { ApprovalState } from '@/lib/paper/approval';
 import type { PaperAccount, Kademe } from '@/lib/paper/types';
-import { initAccount } from '@/lib/paper/account';
+import { initAccount, migrateSettings, FIRSAT_SCHEMA } from '@/lib/paper/account';
 
 const KEY = 'firsat-v1';
 export interface FirsatSettings {
   tickers: string[];
   intervalMin: 1 | 2 | 5;
   ttlMin: number | null;          // onay süresi ayarı (1–10 dk); null = 0DTE 3 dk, 1–3 DTE 5 dk
+  q: QSettings;                   // Qullamaggie setupları (Qullamaggie uyarlaması — Kaan onayı yok)
 }
-export const DEF_FIRSAT: FirsatSettings = { tickers: DEFAULT_TICKERS, intervalMin: 2, ttlMin: null };
+export const DEF_FIRSAT: FirsatSettings = { tickers: DEFAULT_TICKERS, intervalMin: 2, ttlMin: null, q: DEFAULT_Q };
 
 export interface TickerStatus {
   at: number; spot: number; changePct: number; expiry: string; dte: number; emPct: number; expectedMove: number;
   k: number; kSource: string; kNote: string; vwapSide: 'üstünde' | 'altında' | '—'; frames: string; volRatio: number | null;
   source: string; delayedMin: number; warn: string | null; setups: string[]; error?: string;
+  verdict?: VerdictCard;
 }
 
 /** Onay kartı: aday + onay durumu. */
@@ -35,11 +39,12 @@ export interface Card extends Opp {
 }
 
 /** Açık pozisyonun canlı durumu (son tur). */
-export interface PosLive { bid: number; rMult: number; at: number; triggers: string[]; stop: number }
+export interface PosLive { bid: number; rMult: number; at: number; triggers: string[]; stop: number; adaptive?: string | null }
 
 export interface Archived { at: number; account: PaperAccount }
 
 export interface FirsatData {
+  schema?: number;                // kayıt şema sürümü (account.ts FIRSAT_SCHEMA)
   settings: FirsatSettings;
   status: Record<string, TickerStatus>;
   lastScan: number | null;
@@ -50,7 +55,7 @@ export interface FirsatData {
   posLive: PosLive | null;
   archive: Archived[];
 }
-const EMPTY: FirsatData = { settings: DEF_FIRSAT, status: {}, lastScan: null, sent: [], log: [], paper: null, cards: [], posLive: null, archive: [] };
+const EMPTY: FirsatData = { schema: FIRSAT_SCHEMA, settings: DEF_FIRSAT, status: {}, lastScan: null, sent: [], log: [], paper: null, cards: [], posLive: null, archive: [] };
 let data: FirsatData = EMPTY, loaded = false;
 const subs = new Set<() => void>();
 const emit = () => { subs.forEach(f => f()); AsyncStorage.setItem(KEY, JSON.stringify(data)).catch(() => {}); };
@@ -62,12 +67,14 @@ async function doLoad() {
     const raw = await AsyncStorage.getItem(KEY);
     if (raw) {
       const j = JSON.parse(raw);
-      data = { ...EMPTY, ...j, settings: { ...DEF_FIRSAT, ...(j.settings ?? {}) } };
+      const schema = Number(j.schema ?? 1);
+      data = { ...EMPTY, ...j, schema: FIRSAT_SCHEMA, settings: { ...DEF_FIRSAT, ...(j.settings ?? {}), q: mergeQ(j.settings?.q) } };
       if (j.paper) {
         const start = Number(j.paper.settings?.startCapital ?? j.paper.capital) || 300;
         const base = initAccount(start, {}, typeof j.paper.day === 'string' ? j.paper.day : '');
         const k: Kademe = j.paper.kademe === 0.3 || j.paper.kademe === 0.4 || j.paper.kademe === 0.5 ? j.paper.kademe : 0.5;
-        data.paper = { ...base, ...j.paper, kademe: k, settings: { ...base.settings, ...(j.paper.settings ?? {}) } };
+        const settings = migrateSettings({ ...base.settings, ...(j.paper.settings ?? {}) }, schema);
+        data.paper = { ...base, ...j.paper, kademe: k, settings };
       }
     }
   } catch { /* boş */ }
@@ -83,6 +90,7 @@ export const firsat = {
   },
   setInterval(min: 1 | 2 | 5) { data = { ...data, settings: { ...data.settings, intervalMin: min } }; emit(); },
   setTtl(min: number | null) { data = { ...data, settings: { ...data.settings, ttlMin: min } }; emit(); },
+  setQ(patch: Partial<QSettings>) { data = { ...data, settings: { ...data.settings, q: { ...data.settings.q, ...patch } } }; emit(); },
   setStatus(t: string, s: TickerStatus) { data = { ...data, status: { ...data.status, [t]: s } }; emit(); },
   setLastScan(at: number) { data = { ...data, lastScan: at }; emit(); },
   setSent(sent: Sent[]) { data = { ...data, sent }; emit(); },

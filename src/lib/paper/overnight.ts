@@ -4,6 +4,8 @@ import { americanPrice, FAST_STEPS, type OptType } from '../american.ts';
 import { closeMs, exDivMs, addDaysStr, isTradingDay, YEAR_MS } from '../usmarket.ts';
 import type { OpenPosition } from './types.ts';
 import { RATE } from '../signals/rr.ts';
+import type { CalendarCheck } from '../calendar/events.ts';
+import { releaseWarnings } from '../calendar/releases.ts';
 
 export const GAP_BAD_R_MAX = 1.5;       // kötü senaryo kaybı ≤ 1,5R ise taşınır
 export const NIGHT_SIGMA_MULT = 2;      // kötü senaryo: 2 × σ_gece (pozisyon aleyhine)
@@ -34,7 +36,7 @@ export interface OvernightInput {
   day: string;                  // bugünkü işlem günü (ET)
   S: number;                    // dayanak (kapanış)
   ivAtm: number;                // ATM IV (ondalık)
-  eventBeforeOpen: boolean;     // bilanço veya makro (FOMC/CPI/NFP) açılıştan önce
+  calendar: CalendarCheck;      // bilanço + FOMC/CPI/NFP kapısı (calendarCheck); ok değilse taşınmaz (D12)
   strongTriggerLast30: boolean; // son 30 dk'da güçlü risk tetiği
   regimeAligned: boolean;       // rejim pozisyon yönünde
   pricer?: Pricer;
@@ -46,6 +48,7 @@ export interface OvernightDecision {
   sigma: number;
   badLoss: number;              // kötü senaryo kaybı ($)
   badR: number;                 // kötü senaryo kaybı (R)
+  warnings: string[];           // yalnız UYARI (PPI/PCE/… ; taşımayı ENGELLEMEZ — blokaj kümesi FOMC/CPI/NFP)
 }
 
 /** Gece kararı (15:45 ET). Tüm ön koşullar sağlanırsa taşınır; kötü senaryo ≤ 1,5R şart. */
@@ -55,7 +58,7 @@ export function overnightDecision(i: OvernightInput): OvernightDecision {
   if (p.dte < 1) reasons.push('0DTE gün bitmeden kapanır');
   const next = nextTradingDay(i.day);
   if (p.expiry < next) reasons.push('vade ertesi seanstan önce');
-  if (i.eventBeforeOpen) reasons.push('açılıştan önce bilanço veya makro olay');
+  if (!i.calendar.ok) reasons.push(...i.calendar.reasons);
   if (i.strongTriggerLast30) reasons.push('son 30 dk güçlü risk tetiği');
   if (!i.regimeAligned) reasons.push('rejim pozisyon yönünde değil');
   if (!(i.ivAtm > 0) || !Number.isFinite(i.S)) reasons.push('IV/dayanak verisi yok (gece riski hesaplanamaz)');
@@ -69,7 +72,7 @@ export function overnightDecision(i: OvernightInput): OvernightDecision {
   const badLoss = Math.max(0, p.costBasis - value * 100 * p.contracts);
   const badR = p.rDollars > 0 ? badLoss / p.rDollars : Infinity;
   if (badR > GAP_BAD_R_MAX) reasons.push(`kötü senaryo ${badR.toFixed(1)}R > 1,5R`);
-  return { carry: reasons.length === 0, reasons, sigma, badLoss, badR };
+  return { carry: reasons.length === 0, reasons, sigma, badLoss, badR, warnings: releaseWarnings(i.day, next) };
 }
 
 export interface GapInput {
@@ -85,7 +88,7 @@ export type GapAction = { action: 'gap-close' | 'manage' | 'wait'; reason?: 'gap
 /**
  * Ertesi sabah gap yönetimi (§7.8):
  *  1) açılış dayanak stopunun ötesindeyse → gap çıkışı (ilk alınabilir bid − kayma; kayıp R'yi aşabilir).
- *  2) prim %67 tavanının altında açıldıysa → gap çıkışı.
+ *  2) prim −%40 stop seviyesinin altında açıldıysa → gap çıkışı.
  *  3) 09:30–09:45 arası yalnız stop ve hedef çalışır; T1–T7 09:45'ten sonra (`wait` döner, çağıran stop/hedefi yine kontrol eder).
  *  4) lehte gap → iz süren stop (`manage`).
  */

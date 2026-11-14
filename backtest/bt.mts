@@ -7,11 +7,14 @@ import { americanPrice, FAST_STEPS } from '../src/lib/american.ts';
 import { closeMs, YEAR_MS, isTradingDay, addDaysStr } from '../src/lib/usmarket.ts';
 import type { Chain, OptQuote } from '../src/lib/market/types.ts';
 import type { Bar } from '../src/lib/odte/analytics.ts';
+import type { DailyBar } from '../src/lib/signals/qull/daily.ts';
 
 const NC = !!process.env.BT_NOCOST; // maliyet ayrıştırması: spread/kayma/komisyon sıfır
-export const R = 0.04, FEE = NC ? 0 : 0.65, SLIP = NC ? 0 : 0.01, STEP = +(process.env.BT_STEP || 5);
+export const R = 0.04, FEE = NC ? 0 : 1.5, SLIP = NC ? 0 : 0.01, STEP = +(process.env.BT_STEP || 5);
 export interface Row { type: 'call' | 'put'; K: number; oi: number; iv: number; half: number; vol: number; dMid: number | null; filled?: number }
-export interface Day { ticker: string; D: string; P: string; E: string; dte: number; SP: number; SD: number; TD: number; bars: Bar[]; rows: Row[]; open: number; close: number; pts: Pt[] }
+export interface Day { ticker: string; D: string; P: string; E: string; dte: number; SP: number; SD: number; TD: number; bars: Bar[]; rows: Row[]; open: number; close: number; pts: Pt[];
+  /** Qullamaggie: günlük barlar (tüm seri; strateji D < gün süzer) ve SPY günlük */
+  qDaily?: DailyBar[]; qSpy?: DailyBar[] }
 export interface Pt { m: number; t: number; S: number; F: SG.Features; or30: ReturnType<typeof An.openingRange> }
 export interface P extends SG.EngineOpts { maxPerDay: number; tickers?: string[] }
 export interface Trade { ticker: string; D: string; m: number; dir: 'call' | 'put'; dte: number; K: number; entry: number; exit: number; pnl: number; pct: number; why: 'target' | 'stop' | 'time'; score: number; exitT: number }
@@ -90,7 +93,7 @@ export function fastScore(F: SG.Features, S: number, m: number, W: SG.EngineWeig
 }
 const snapCache = new Map<string, Chain>();
 function snapFor(d: Day, p: Pt, side: 'call' | 'put') {
-  const k = d.ticker + d.D + p.m + side; let c = snapCache.get(k);
+  const k = d.ticker + d.D + d.E + p.m + side; let c = snapCache.get(k);   // E şart: 0DTE ve 1–3 DTE aynı gün/ticker'da farklı zincir
   if (!c) { c = snapshot(d, p.S, p.t, side); if (snapCache.size > 60000) snapCache.clear(); snapCache.set(k, c); }
   return c;
 }

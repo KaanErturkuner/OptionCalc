@@ -1,0 +1,344 @@
+{
+  "_note": "SENTETİK fixture: gerçek piyasa verisi DEĞİL. Yalnız biçim ve metin kontrolü için.",
+  "premarket": {
+    "kind": "premarket",
+    "day": "2026-11-16",
+    "nowMs": 1794837600000,
+    "watch": [
+      "QQQ",
+      "SPY",
+      "NVDA",
+      "GLD",
+      "SLV",
+      "MU",
+      "INTC"
+    ],
+    "asia": [
+      {
+        "name": "Nikkei 225",
+        "pct": 0.42,
+        "price": 50210
+      },
+      {
+        "name": "Hang Seng",
+        "pct": -0.31,
+        "price": 25130
+      }
+    ],
+    "europe": [
+      {
+        "name": "FTSE 100",
+        "pct": 0.12,
+        "price": 8640
+      },
+      {
+        "name": "DAX",
+        "pct": 0.27,
+        "price": 24510
+      }
+    ],
+    "futures": [
+      {
+        "name": "ES (S&P vadeli)",
+        "pct": 0.21,
+        "price": 6812.5
+      },
+      {
+        "name": "NQ (Nasdaq vadeli)",
+        "pct": 0.35,
+        "price": 24410
+      }
+    ],
+    "preMarket": [
+      {
+        "name": "QQQ",
+        "pct": 0.4,
+        "price": 598.1
+      },
+      {
+        "name": "SPY",
+        "pct": 0.2,
+        "price": 681.9
+      },
+      {
+        "name": "NVDA",
+        "pct": -0.6,
+        "price": 181.2
+      },
+      {
+        "name": "GLD",
+        "pct": 0.1,
+        "price": 251
+      },
+      {
+        "name": "SLV",
+        "pct": 0.3,
+        "price": 31.2
+      },
+      {
+        "name": "MU",
+        "pct": 1.1,
+        "price": 138.4
+      },
+      {
+        "name": "INTC",
+        "pct": -0.2,
+        "price": 36.1
+      }
+    ],
+    "moves": [],
+    "walls": [],
+    "flow": [],
+    "news": [
+      {
+        "title": "Örnek: büyük teknoloji şirketinden yeni yapay zeka anlaşması",
+        "source": "Örnek kaynak",
+        "at": 1794831000000,
+        "tickers": [
+          "NVDA"
+        ]
+      }
+    ],
+    "newsOk": true,
+    "macro": {
+      "today": [],
+      "tomorrow": [
+        {
+          "key": "RETAIL",
+          "short": "Perakende satış",
+          "label": "Perakende satışları (aylık)",
+          "tier": "high",
+          "time": "08:30",
+          "src": "https://www.census.gov/economic-indicators/calendar-listview-2026.html",
+          "day": "2026-11-17",
+          "verified": true
+        }
+      ]
+    },
+    "earnings": [
+      {
+        "ticker": "QQQ",
+        "date": null
+      },
+      {
+        "ticker": "SPY",
+        "date": null
+      },
+      {
+        "ticker": "NVDA",
+        "date": "2026-11-19"
+      },
+      {
+        "ticker": "GLD",
+        "date": null
+      },
+      {
+        "ticker": "SLV",
+        "date": null
+      },
+      {
+        "ticker": "MU",
+        "date": null
+      },
+      {
+        "ticker": "INTC",
+        "date": null
+      }
+    ],
+    "sma": [],
+    "failures": [
+      "Örnek: ^HSI alınamadı (sentetik)"
+    ]
+  },
+  "intra1": {
+    "kind": "intra1",
+    "day": "2026-11-16",
+    "nowMs": 1794841200000,
+    "watch": [
+      "QQQ",
+      "SPY",
+      "NVDA",
+      "GLD",
+      "SLV",
+      "MU",
+      "INTC"
+    ],
+    "asia": [],
+    "europe": [],
+    "futures": [],
+    "preMarket": [],
+    "moves": [
+      {
+        "name": "QQQ",
+        "pct": 0.46,
+        "price": 600.2
+      },
+      {
+        "name": "SPY",
+        "pct": 0.31,
+        "price": 683.6
+      },
+      {
+        "name": "NVDA",
+        "pct": -0.2,
+        "price": 181.9
+      }
+    ],
+    "walls": [
+      {
+        "ticker": "QQQ",
+        "open": {
+          "spot": 598,
+          "callWall": 600,
+          "putWall": 580,
+          "flip": 596,
+          "maxPain": 597,
+          "expiry": "2026-11-16",
+          "at": 1794839400000
+        },
+        "now": {
+          "spot": 600.2,
+          "callWall": 605,
+          "putWall": 580,
+          "flip": 599,
+          "maxPain": 600,
+          "expiry": "2026-11-16",
+          "at": 1794841200000
+        }
+      }
+    ],
+    "flow": [
+      {
+        "ticker": "QQQ",
+        "expiry": "2026-11-20",
+        "side": "call",
+        "strike": 520,
+        "contracts": 12400,
+        "premium": 1240000
+      }
+    ],
+    "news": [],
+    "newsOk": true,
+    "macro": {
+      "today": [],
+      "tomorrow": [
+        {
+          "key": "RETAIL",
+          "short": "Perakende satış",
+          "label": "Perakende satışları (aylık)",
+          "tier": "high",
+          "time": "08:30",
+          "src": "https://www.census.gov/economic-indicators/calendar-listview-2026.html",
+          "day": "2026-11-17",
+          "verified": true
+        }
+      ]
+    },
+    "earnings": null,
+    "sma": [],
+    "failures": []
+  },
+  "eod": {
+    "kind": "eod",
+    "day": "2026-11-16",
+    "nowMs": 1794864600000,
+    "watch": [
+      "QQQ",
+      "SPY",
+      "NVDA",
+      "GLD",
+      "SLV",
+      "MU",
+      "INTC"
+    ],
+    "asia": [],
+    "europe": [],
+    "futures": [],
+    "preMarket": [],
+    "moves": [
+      {
+        "name": "QQQ",
+        "pct": 0.8,
+        "price": 604.4
+      },
+      {
+        "name": "SPY",
+        "pct": 0.6,
+        "price": 686
+      }
+    ],
+    "walls": [
+      {
+        "ticker": "QQQ",
+        "open": {
+          "spot": 598,
+          "callWall": 600,
+          "putWall": 580,
+          "flip": 596,
+          "maxPain": 597,
+          "expiry": "2026-11-16",
+          "at": 1794839400000
+        },
+        "now": {
+          "spot": 604.4,
+          "callWall": 610,
+          "putWall": 585,
+          "flip": 601,
+          "maxPain": 602,
+          "expiry": "2026-11-16",
+          "at": 1794864600000
+        }
+      }
+    ],
+    "flow": [
+      {
+        "ticker": "QQQ",
+        "expiry": "2026-11-20",
+        "side": "call",
+        "strike": 520,
+        "contracts": 12400,
+        "premium": 1240000
+      }
+    ],
+    "news": [],
+    "newsOk": true,
+    "macro": {
+      "today": [],
+      "tomorrow": [
+        {
+          "key": "RETAIL",
+          "short": "Perakende satış",
+          "label": "Perakende satışları (aylık)",
+          "tier": "high",
+          "time": "08:30",
+          "src": "https://www.census.gov/economic-indicators/calendar-listview-2026.html",
+          "day": "2026-11-17",
+          "verified": true
+        }
+      ]
+    },
+    "earnings": [
+      {
+        "ticker": "NVDA",
+        "date": "2026-11-19"
+      }
+    ],
+    "sma": [
+      {
+        "ticker": "QQQ",
+        "price": 604.4,
+        "sma20": 590.1,
+        "sma50": 575.3,
+        "sma200": 520.8
+      },
+      {
+        "ticker": "SPY",
+        "price": 686,
+        "sma20": 671,
+        "sma50": 650,
+        "sma200": 601
+      }
+    ],
+    "failures": []
+  }
+}

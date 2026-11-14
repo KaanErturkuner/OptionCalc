@@ -54,6 +54,22 @@ ok('S4/S5/S6: veri yokken hiç giriş üretmez', ['firsat-s4', 'firsat-s5', 'fir
   ok('bağlam: EM yoksa null', setupCtxOf(ctxOf(bars, { em0: null }), 'S1') === null);
   ok('bağlam: izinli setup yalnız kendisi', c0.allowed.length === 1 && c0.allowed[0] === 'S1');
 }
+// B9 (D8/D12): strike oynaklığa göre — QQQ sabit çapa k=0,45; NVDA oto (geçmiş < 20 gün → başlangıç k0 = 1,0). Delta yalnız karşılaştırma.
+{
+  const S = breakoutBars()[29].c;   // 100,6
+  const q = s1.evaluate(ctxOf(breakoutBars(), { ticker: 'QQQ' }), s1.defaults);
+  ok('B9: QQQ strike = S + 0,45 × EM (sabit çapa)', q !== null && q.strike !== undefined && near(q.strike, S + 0.45 * 4, 1e-9), JSON.stringify(q?.strike));
+  const n = s1.evaluate(ctxOf(breakoutBars(), { ticker: 'NVDA' }), s1.defaults);
+  ok('B9: NVDA strike = S + k0 × EM (geçmiş yetersiz → k0 = 1,0)', n !== null && n.strike !== undefined && near(n.strike, S + 1.0 * 4, 1e-9), JSON.stringify(n?.strike));
+  const hist = s1.evaluate(ctxOf(breakoutBars(), { ticker: 'NVDA', day: { ticker: 'NVDA', date: '2026-11-13', dte: 0, prevClose: 99.5, openPx: 100, em0: 4, ratios: Array(25).fill(0.3) } as any }), s1.defaults);
+  // k_ham = 0,9 × 0,3 = 0,27 → kMin (NVDA 0,4) ile kırpılır → strike = S + 0,4 × 4
+  ok('B9: oto k: geçmiş 25 gün (oran 0,3) → k_ham 0,27 → kMin 0,4 ile kırpılır', hist !== null && hist.strike !== undefined && near(hist.strike, S + 0.4 * 4, 1e-9), String(hist?.strike));
+  const dl = byId('firsat-s1');
+  const dEntry = dl.evaluate(ctxOf(breakoutBars(), { ticker: 'NVDA' }), { ...dl.defaults, otmMode: 'delta' });
+  ok('B9: delta modu strike üretmez (targetDelta ile seçilir)', dEntry !== null && dEntry.strike === undefined && dEntry.targetDelta === 0.5);
+  ok('B9: maxHoldMin yok (Kaan kuralı yok)', dEntry !== null && dEntry.maxHoldMin === undefined);
+}
+
 // Kayıt: 6 strateji, kimlikler firsat-s1..s6
 ok('kayıt: firsat-s1..s6 (6 strateji)', firsatStrategies.length === 6 && firsatStrategies.map(s => s.id).join(',') === 'firsat-s1,firsat-s2,firsat-s3,firsat-s4,firsat-s5,firsat-s6');
 

@@ -5,6 +5,8 @@ import { startDay, closePosition } from './account.ts';
 import { exitFill } from './costs.ts';
 import { overnightDecision, gapOpenAction } from './overnight.ts';
 import { evaluatePosition, type TriggerId } from '../signals/riskwatch.ts';
+import type { AdaptiveDecision } from '../signals/adaptive.ts';
+import type { CalendarCheck } from '../calendar/events.ts';
 
 export interface TickIn {
   day: string;                 // bugünkü işlem günü (ET)
@@ -12,12 +14,16 @@ export interface TickIn {
   etMin: number;               // ET dakika
   bid: number | null;          // kontratın alınabilir bid'i; yoksa karar verilmez
   flags: Partial<Record<TriggerId, boolean>>;
+  /** Uyarlanabilir çıkış kararı (adaptive.ts). Tanımsızsa T1–T3 bayrakları kullanılır. */
+  adaptive?: AdaptiveDecision | null;
   S: number;                   // dayanak (son fiyat)
   ivAtm: number;               // ATM IV (gece riski için)
   openUnd?: number; openBid?: number;   // ertesi sabah ilk bar (gap)
-  eventBeforeOpen: boolean;    // bilanço/makro açılıştan önce
+  calendar: CalendarCheck;     // gece kapısı: bilanço + FOMC/CPI/NFP (D12); ok değilse 15:45'te kapanır
   strongTriggerLast30: boolean;
   regimeAligned: boolean;
+  /** Q çıkış uyarlamaları (Qullamaggie uyarlaması — Kaan onayı yok; ayar kapalıysa yok/false) */
+  qExit?: { lod: boolean; ema: boolean };
 }
 
 export interface TickEvent { kind: 'warn' | 'close' | 'carry' | 'info'; text: string; trade?: ClosedTrade }
@@ -60,12 +66,17 @@ export function tickPosition(acc0: PaperAccount, t: TickIn): TickResult {
   }
 
   // 2) Risk izleyici önce (hedef/stop/iz süren/risk/0DTE 15:45). 15:45'te hedef veya stop vurmuşsa gece taşınmaz.
-  const dec = evaluatePosition(p, { bid: t.bid, etMin: t.etMin, mode: acc.mode, flags });
+  const dec = evaluatePosition(p, { bid: t.bid, etMin: t.etMin, mode: acc.mode, flags, adaptive: t.adaptive });
   if (dec.action === 'close') {
     const r = dec.reason ?? 'stop';
     const trig = dec.triggers.length ? ` (${dec.triggers.join(', ')})` : '';
     return close({ ...acc, position: dec.pos }, t.bid, r, `${REASON_TEXT[r]}${r === 'risk' ? trig : ''}`);
   }
+  // ÇIK / DİKKAT geçişinde bir kez bildir (TUT sessiz). Yalnız uyarı: çıkış yok, −%40 stop ve hedef izlenir.
+  if (dec.adaptive?.verdict === 'CIK' && p.adaptive !== 'CIK') events.push({ kind: 'warn', text: `Başkan, ${dec.adaptive.reason}. Uyarı: çıkmıyorum, −%40 stopu ve hedefi izliyorum.` });
+  if (dec.adaptive?.verdict === 'DIKKAT' && p.adaptive !== 'DIKKAT') events.push({ kind: 'info', text: `Başkan, ${dec.adaptive.reason}. Çıkmıyorum, izliyorum.` });
+  if (t.qExit?.lod) return close({ ...acc, position: dec.pos }, t.bid, 'risk', 'LOD/HOD kırıldı, çıkıyorum (Qullamaggie uyarlaması — Kaan onayı yok)');
+  if (t.qExit?.ema) return close({ ...acc, position: dec.pos }, t.bid, 'iz-suren-stop', '5 dk EMA10 kırıldı, çıkıyorum (Qullamaggie uyarlaması — Kaan onayı yok)');
   p = dec.pos;
   if (dec.action === 'warn') {
     events.push({ kind: 'warn', text: `Başkan, ${dec.message ?? 'risk artıyor'}.` });
@@ -74,13 +85,13 @@ export function tickPosition(acc0: PaperAccount, t: TickIn): TickResult {
   // 3) 15:45 ET: hâlâ açıksa 1–3 DTE gece kararı (0DTE yukarıda zorunlu çıkışla kapanır).
   if (p.dte >= 1 && t.etMin >= 945 && p.nightDay !== t.day) {
     const d = overnightDecision({
-      pos: p, day: t.day, S: t.S, ivAtm: t.ivAtm, eventBeforeOpen: t.eventBeforeOpen,
+      pos: p, day: t.day, S: t.S, ivAtm: t.ivAtm, calendar: t.calendar,
       strongTriggerLast30: t.strongTriggerLast30, regimeAligned: t.regimeAligned,
     });
     p = { ...p, nightDay: t.day };
     if (d.carry) {
       p = { ...p, overnight: true };
-      events.push({ kind: 'carry', text: `Başkan, ${p.ticker} ${p.dte}DTE pozisyonu gece taşıyorum. Kötü senaryo −${Math.round(d.badLoss)} $ (${d.badR.toFixed(1)}R). Yarın 09:31'de gap kontrolü yapacağım.` });
+      events.push({ kind: 'carry', text: `Başkan, ${p.ticker} ${p.dte}DTE pozisyonu gece taşıyorum. Kötü senaryo −${Math.round(d.badLoss)} $ (${d.badR.toFixed(1)}R). Yarın 09:31'de gap kontrolü yapacağım.${d.warnings.length ? ' Uyarı (engellemez): ' + d.warnings.join('; ') + '.' : ''}` });
       return { acc: { ...acc, position: p }, events };
     }
     return close({ ...acc, position: p }, t.bid, 'gece-kapanis', `gece taşınamadı (${d.reasons.join(', ')})`);

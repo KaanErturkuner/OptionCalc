@@ -25,6 +25,6 @@ export async function fetchFinnhubNews(ticker: string, key: string, from: string
 }
 export async function fetchFinnhubEarnings(ticker: string, key: string, from: string, to: string, signal?: AbortSignal): Promise<string | null> {
   const r = await fetch(`https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${to}&symbol=${encodeURIComponent(ticker)}&token=${encodeURIComponent(key)}`, { signal });
-  if (!r.ok) return null;
+  if (!r.ok) throw new Error(`Finnhub HTTP ${r.status}`);   // hata ≠ "bilanço yok": çağıran bilinmiyor sayar
   return parseFinnhubEarnings(await r.json(), ticker);
 }

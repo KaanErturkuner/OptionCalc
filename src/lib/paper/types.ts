@@ -41,6 +41,7 @@ export interface OpenPosition {
   warned: boolean;           // 1R–2R arası uyarı verildi mi
   und?: { entry: number; stop: number; target: number };  // dayanak seviyeleri (gap ve gece kararı için)
   nightDay?: string;         // gece kararının verildiği gün (15:45)
+  adaptive?: 'CIK' | 'TUT' | 'DIKKAT' | 'YOK';   // uyarlanabilir çıkış son kararı (DİKKAT geçişinde bildirim için)
 }
 
 /** Kapanmış işlem. */
@@ -70,7 +71,7 @@ export interface PaperSettings {
   fractional: boolean;       // kesirli kontrat simülasyonu (varsayılan kapalı, §11.2 #3)
   commission: number;        // kontrat başına ($), açılış ve kapanışta ayrı (Midas 1,50)
   slippage: number;          // $ (giriş ask + kayma, çıkış bid − kayma)
-  durduEnabled: boolean;     // DURDU kuralları (varsayılan kapalı, Kaan K9)
+  durduEnabled: boolean;     // DURDU kuralı (varsayılan açık, Kaan kararı D12)
 }
 
 /** Hesabın tamamı (durum makinesi girdisi/çıktısı). */
@@ -80,6 +81,7 @@ export interface PaperAccount {
   mode: PaperMode;
   winStreak: number;         // gün içi ardışık kazanç
   lossStreak: number;        // gün içi ardışık kayıp
+  safeLossStreak: number;    // GUVENLI_ZARAR'a girişten sonra ardışık kayıp (2 → DURDU, Kaan D12)
   day: string;               // işlem günü (ET)
   dayStartCapital: number;
   dayPnl: number;
