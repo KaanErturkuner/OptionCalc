@@ -1,5 +1,40 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — [grok] reports: 13/11 örnek raporlar önceki kapanış (12/11) zinciriyle duvar ve birikim
+
+**Neden:** 13/11'de sunucu çalışmadığı için akış/duvar kaydı yoktu; örnek raporlarda duvarlar ve opsiyon birikimi "veri alınamadı" çıkıyordu.
+
+**Ne:**
+- `server/app/histfetch.ts` (yeni, yalnız sunucu, tek MarketData istemcisi): tarihsel zincir (`date=`), ticker × vade başına bir istek
+  (`expiration=`), vade kümesi akışla aynı (0DTE + 3 ay Cuma). Yalnız özet yazılır (duvar + birikim → `hist_chain` tablosu).
+- `src/lib/reports/histchain.ts` (yeni, saf): en yakın vade duvarı; ticker başına en büyük **açık pozisyon (kontrat sayısı)**.
+  İlk sürümde OI×fiyat sıralaması vardı; derin-ITM kontratları öne çıkardığı için değiştirildi (12/11 yeniden çekildi).
+- `server/app/backfill.ts`: canlı kayıt yoksa önceki kapanışla kurar. Başlıklar "önceki kapanış (12/11) zincirine göre" diye
+  etiketli. Intra: açılış anı yok → kayma yazılmaz, "Gözlem" notu yazılmaz. EOD: kayma yalnız gün sonu zinciri varsa.
+  PIT kapısı: zincir zamanı (16:00 ET) < rapor anı. Backfill MarketData'ya çağrı yapmaz.
+- `src/lib/reports/text.ts`: `ReportInput.basis` (opsiyonel); basis yoksa canlı çıktı değişmez.
+- Test: `test/reports-hist.test.ts` (npm test zincirine eklendi).
+
+**Veri durumu:**
+- 12/11 kapanış zinciri: VAR (7 ticker; her biri için duvar ve birikim).
+- 13/11 gün sonu zinciri: YOK. MarketData `date=2026-11-13` için HTTP 400 döndürdü ("Invalid date. The date parameter is used for
+  historical queries only."), kredi tüketilmedi. Gün sonu duvar kayması bu yüzden "veri alınamadı". Bu, 13/11 verisinin henüz
+  tarihsel olarak yayımlanmadığını gösteriyor olabilir; sonra yeniden denenebilir (`histfetch.ts --date 2026-11-13 --report-day 2026-11-13`).
+
+**Kredi (yanıt başlıkları):** yoklama 1 + 12/11 ilk çekim 65 + 12/11 sıralama düzeltmesi yeniden çekimi 65 + 13/11 denemesi 0 = **131**.
+Kalan (başlık): 96.465.
+
+**Örnek raporlar:** 13/11 için 5 örnek yeniden yazıldı (`--force`, yalnız örnek satırları silindi). DB yedeği:
+`flow.db.bak-pre-hist-20261114T004010Z`. Canlı rapor yok.
+
+**Açık konular / devir:**
+- Ön piyasa raporunda duvar/birikim bölümü yok (değişmedi). Bilanço takvimi için geçmiş anlık görüntü hâlâ yok.
+- Birikim, akış (dV) değil; açık pozisyon. Raporda "en büyük açık pozisyon" olarak etiketli.
+- 12/11 zincirinde bazı vadeler yok (ticker başına 9–10 / 14); bunlar atlandı.
+
+**Doğrulama:** `npm run check` geçti (test, typecheck, lint, bt:selftest, flow:selftest). Deploy: `server/deploy.sh`,
+servis `active`. Örnek metinler DB'den okunup kontrol edildi.
+
 ## 2026-11-14 — Claude — [grok] takvim: PPI ve diğer önemli veriler (2026 yayın tabloları)
 
 **Neden "önemli bir şey yok" dedi:** `MACRO_CALENDAR` (events.ts) yalnız FOMC/CPI/NFP içeriyordu; raporlar ve gece kapısı aynı tabloyu kullanıyordu.
