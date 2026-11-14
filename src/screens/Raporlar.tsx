@@ -16,7 +16,7 @@ import { groupByDay, type ReportBox } from '@/lib/reports/group';
 import type { ReportSections } from '@/lib/reports/types';
 
 const REFRESH_MS = 60000;
-const SUMMARY_TITLE: Record<string, string> = { premarket: 'Bugün için', intra1: 'Şu an', intra2: 'Şu an', intra3: 'Şu an', intra4: 'Şu an', eod: 'Yarın için' };
+const SUMMARY_TITLE: Record<string, string> = { premarket: 'Bugün için', intra1: 'Şu an', intra2: 'Şu an', intra3: 'Şu an', intra4: 'Şu an', intra5: 'Şu an', intra6: 'Şu an', eod: 'Yarın için' };
 /** Duvarlar ve birikim bloğunun açık/kapalı durumu: oturum boyunca (uygulama açık kaldığı sürece) hatırlanır; varsayılan kapalı */
 let wallsOpenSession = false;
 

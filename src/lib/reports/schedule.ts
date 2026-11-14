@@ -1,28 +1,26 @@
 /*
- * Rapor zamanlaması (saf). Her rapor ABD açılışına/kapanışına çapalıdır (ET, DST dâhil); İstanbul saati türetilir:
- *   Piyasa öncesi  = açılış − 30 dk   (kış: 17:00 İst, yaz: 16:00 İst)
- *   Açılış +30 dk  = açılış + 30 dk   (kış: 18:00 İst)
- *   Açılış +1,5 sa = açılış + 90 dk
- *   Açılış +2,5 sa = açılış + 150 dk   (kış: 20:00 İst)
- *   Açılış +3,5 sa = açılış + 210 dk   (kış: 21:00 İst; yaz: 20:00 İst)
- *   Gün sonu       = kapanış + 30 dk  (yaz: 23:30 İst; kış: 00:30 İst)
+ * Rapor zamanlaması (saf). Kaan kararı (2026-11-14): SABİT İstanbul saatleri, işlem günlerinde (DST'den bağımsız):
+ *   17:00 Piyasa öncesi · 18:00, 19:00, 20:00, 21:00, 22:00, 23:00 ara raporlar (intra1..intra6) · 23:50 Gün sonu
+ * Erken kapanış (13:00 ET) günlerinde kapanıştan sonraki ara raporlar atlanır, gün sonu kapanış + 30 dk'ya çekilir.
  * Tatil (NYSE) günlerinde rapor yok. Erken kapanış (13:00 ET) günlerinde gün sonu raporu kapanışa göre kaydırılır.
  * Ağ yok; yalnız usmarket.ts takvimi.
  */
 import { addDaysStr, closeMs, etDate, exDivMs, isTradingDay } from '../usmarket.ts';
 
-export type ReportKind = 'premarket' | 'intra1' | 'intra2' | 'intra3' | 'intra4' | 'eod';
-export const REPORT_KINDS: ReportKind[] = ['premarket', 'intra1', 'intra2', 'intra3', 'intra4', 'eod'];
+export type ReportKind = 'premarket' | 'intra1' | 'intra2' | 'intra3' | 'intra4' | 'intra5' | 'intra6' | 'eod';
+export const REPORT_KINDS: ReportKind[] = ['premarket', 'intra1', 'intra2', 'intra3', 'intra4', 'intra5', 'intra6', 'eod'];
 /** Ara rapor türleri (rejim, bant, senaryo bölümleri bunlarda) */
-export const INTRA_KINDS: ReportKind[] = ['intra1', 'intra2', 'intra3', 'intra4'];
+export const INTRA_KINDS: ReportKind[] = ['intra1', 'intra2', 'intra3', 'intra4', 'intra5', 'intra6'];
 export const KIND_LABEL: Record<ReportKind, string> = {
-  premarket: 'Piyasa öncesi', intra1: 'Açılış +30 dk', intra2: 'Açılış +1,5 saat', intra3: 'Açılış +2,5 saat', intra4: 'Açılış +3,5 saat', eod: 'Gün sonu',
+  premarket: 'Piyasa öncesi', intra1: 'Ara rapor 18:00', intra2: 'Ara rapor 19:00', intra3: 'Ara rapor 20:00', intra4: 'Ara rapor 21:00',
+  intra5: 'Ara rapor 22:00', intra6: 'Ara rapor 23:00', eod: 'Gün sonu',
 };
 export interface Slot { key: string; kind: ReportKind; day: string; atMs: number }
 
 const MIN = 60000;
-const DAY_OFFSETS: Record<ReportKind, number> = {   // dakika, açılış (intra/pre) ya da kapanış (eod) referansına göre
-  premarket: -30, intra1: 30, intra2: 90, intra3: 150, intra4: 210, eod: 30,
+/** Sabit İstanbul saatleri (SS:DD, UTC+3) */
+export const IST_TIMES: Record<ReportKind, string> = {
+  premarket: '17:00', intra1: '18:00', intra2: '19:00', intra3: '20:00', intra4: '21:00', intra5: '22:00', intra6: '23:00', eod: '23:50',
 };
 
 /** İkinci Pazar … (ayın n. günü) yardımcı: (y, m 1-12, weekday 0=Paz, n) → YYYY-MM-DD */
@@ -48,12 +46,11 @@ export function isEarlyClose(day: string): boolean {
 /** Bir ET işlem gününün rapor slotları (tatilde boş) */
 export function slotsFor(day: string): Slot[] {
   if (!isTradingDay(day)) return [];
-  const open = exDivMs(day);                                  // 09:30 ET
-  const close = isEarlyClose(day) ? closeMs(day) - 3 * 60 * MIN : closeMs(day);
-  return REPORT_KINDS.map(kind => {
-    const ref = kind === 'eod' ? close : open;
-    return { key: `${day}:${kind}`, kind, day, atMs: ref + DAY_OFFSETS[kind] * MIN };
-  }).filter(s => s.kind !== 'intra4' || s.atMs < close - 60 * MIN);   // erken kapanışta 21:00 (13:00 ET) = kapanış: atlanır
+  const early = isEarlyClose(day);
+  const close = early ? closeMs(day) - 3 * 60 * MIN : closeMs(day);
+  return REPORT_KINDS.map(kind => ({ key: `${day}:${kind}`, kind, day, atMs: Date.parse(`${day}T${IST_TIMES[kind]}:00+03:00`) }))
+    .filter(s => !early || s.kind === 'eod' || s.atMs < close)                       // erken kapanış: kapanıştan sonraki ara raporlar yok
+    .map(s => (early && s.kind === 'eod' ? { ...s, atMs: close + 30 * MIN } : s));
 }
 
 /**

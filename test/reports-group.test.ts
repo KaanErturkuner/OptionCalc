@@ -14,8 +14,8 @@ ok('kış: açılış +30 dk 18:00 Raporu', G.reportBoxTitle('intra1', '2026-11-
 ok('kış: açılış +1,5 sa 19:00 Raporu', G.reportBoxTitle('intra2', '2026-11-13') === '19:00 Raporu');
 ok('kış: açılış +2,5 sa 20:00 Raporu', G.reportBoxTitle('intra3', '2026-11-13') === '20:00 Raporu');
 ok('gün sonu: "Gün Sonu Raporu"', G.reportBoxTitle('eod', '2026-11-13') === 'Gün Sonu Raporu');
-// Yaz (EDT): 16:00 İst başlar — kutu saati slottan gelir, üretim anından değil
-ok('yaz: piyasa öncesi 16:00 Raporu', G.reportBoxTitle('premarket', '2026-07-06') === '16:00 Raporu', G.reportBoxTitle('premarket', '2026-07-06'));
+// Yaz (EDT): saatler sabit İstanbul — yine 17:00
+ok('yaz: piyasa öncesi 17:00 Raporu', G.reportBoxTitle('premarket', '2026-07-06') === '17:00 Raporu', G.reportBoxTitle('premarket', '2026-07-06'));
 
 // Gruplama: gün yeni → eski; gün içi tür sırası; aynı türde gerçek önce, örnek sonra
 {

@@ -16,17 +16,17 @@ const at = (day: string, kind: S.ReportKind) => S.slotsFor(day).find(s => s.kind
 const W = '2026-11-16', SUM = '2026-07-15';   // kış (EST) / yaz (EDT)
 ok('kış: intra3 hâlâ 20:00 İst', ist(at(W, 'intra3')) === '20:00');
 ok('kış: intra4 = açılış + 3,5 sa → 21:00 İst', ist(at(W, 'intra4')) === '21:00', ist(at(W, 'intra4')));
-ok('yaz: intra4 = açılış + 3,5 sa → 20:00 İst (DST kayması)', ist(at(SUM, 'intra4')) === '20:00', ist(at(SUM, 'intra4')));
-ok('yaz: intra1 17:00 İst (açılış 16:30 İst + 30 dk)', ist(at(SUM, 'intra1')) === '17:00', ist(at(SUM, 'intra1')));
-ok('kış: 6 slot (intra4 dâhil)', S.slotsFor(W).length === 6, String(S.slotsFor(W).length));
+ok('yaz: intra4 yine 21:00 İst (sabit saat)', ist(at(SUM, 'intra4')) === '21:00', ist(at(SUM, 'intra4')));
+ok('yaz: intra1 18:00 İst', ist(at(SUM, 'intra1')) === '18:00', ist(at(SUM, 'intra1')));
+ok('kış: 8 slot (intra1..6 dâhil)', S.slotsFor(W).length === 8, String(S.slotsFor(W).length));
 ok('kış: intra4 açılış +210 dk farkı', at(W, 'intra4') - at(W, 'intra3') === 60 * 60000);
 const EARLY = '2026-11-27';   // Şükran ertesi: erken kapanış 13:00 ET
 ok('erken kapanış: intra4 (13:00 ET = kapanış) atlanır', !S.slotsFor(EARLY).some(s => s.kind === 'intra4'));
 ok('erken kapanış: intra3 (12:00 ET) korunur', S.slotsFor(EARLY).some(s => s.kind === 'intra3'));
-ok('etiket: intra4 → "Açılış +3,5 saat"', S.KIND_LABEL.intra4 === 'Açılış +3,5 saat');
+ok('etiket: intra4 → "Ara rapor 21:00"', S.KIND_LABEL.intra4 === 'Ara rapor 21:00');
 ok('kutu başlığı: "21:00 Raporu" (kış)', G.reportBoxTitle('intra4', W) === '21:00 Raporu');
-ok('kutu başlığı: "20:00 Raporu" (yaz intra4)', G.reportBoxTitle('intra4', SUM) === '20:00 Raporu');
-ok('INTRA_KINDS: intra1..intra4', S.INTRA_KINDS.join() === 'intra1,intra2,intra3,intra4');
+ok('kutu başlığı: "21:00 Raporu" (yaz intra4)', G.reportBoxTitle('intra4', SUM) === '21:00 Raporu');
+ok('INTRA_KINDS: intra1..intra6', S.INTRA_KINDS.join() === 'intra1,intra2,intra3,intra4,intra5,intra6');
 ok('sıra: intra4 eod’dan önce', S.REPORT_KINDS.indexOf('intra4') < S.REPORT_KINDS.indexOf('eod'));
 
 // ───── 2) Ara rapor: sentetik QQQ trendi + konsolidasyon ─────

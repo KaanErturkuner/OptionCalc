@@ -13,21 +13,21 @@ const at = (day: string, kind: S.ReportKind) => S.slotsFor(day).find(s => s.kind
 // ───── 1) Zamanlama: normal kış haftası (US EST, İst = UTC+3) ─────
 {
   const d = '2026-11-16';                    // Pazartesi; US EST: açılış 09:30 ET = 17:30 İst
-  ok('kış: 6 slot (piyasa öncesi, 4 ara, gün sonu)', S.slotsFor(d).length === 6);
+  ok('kış: 8 slot (piyasa öncesi, 6 ara, gün sonu)', S.slotsFor(d).length === 8);
   ok('kış: piyasa öncesi 17:00 İst', ist(at(d, 'premarket').atMs) === '17:00', ist(at(d, 'premarket').atMs));
-  ok('kış: açılış +30 dk 18:00 İst', ist(at(d, 'intra1').atMs) === '18:00');
+  ok('kış: ara rapor 18:00 İst', ist(at(d, 'intra1').atMs) === '18:00');
   ok('kış: açılış +1,5 sa 19:00 İst', ist(at(d, 'intra2').atMs) === '19:00');
   ok('kış: açılış +2,5 sa 20:00 İst', ist(at(d, 'intra3').atMs) === '20:00');
-  ok('kış: gün sonu kapanış+30 dk = 00:30 İst (ertesi gün)', ist(at(d, 'eod').atMs) === '00:30', ist(at(d, 'eod').atMs));
+  ok('kış: gün sonu 23:50 İst (sabit)', ist(at(d, 'eod').atMs) === '23:50', ist(at(d, 'eod').atMs));
 }
 // ───── 2) DST uyumsuzluk haftası: US EDT (8 Mar–1 Kas), Istanbul sabit: açılış 16:30 İst ─────
 {
   const d = '2026-03-16';                    // US EDT, Avrupa henüz CET (29 Mart'ta değişir)
-  ok('DST uyumsuz hafta: piyasa öncesi 16:00 İst', ist(at(d, 'premarket').atMs) === '16:00', ist(at(d, 'premarket').atMs));
-  ok('DST uyumsuz hafta: açılış +30 dk 17:00 İst', ist(at(d, 'intra1').atMs) === '17:00');
-  ok('DST uyumsuz hafta: gün sonu 23:30 İst (kapanış 23:00 + 30)', ist(at(d, 'eod').atMs) === '23:30', ist(at(d, 'eod').atMs));
+  ok('yaz: piyasa öncesi yine 17:00 İst (sabit saat)', ist(at(d, 'premarket').atMs) === '17:00', ist(at(d, 'premarket').atMs));
+  ok('yaz: ilk ara rapor 18:00 İst', ist(at(d, 'intra1').atMs) === '18:00');
+  ok('yaz: gün sonu 23:50 İst', ist(at(d, 'eod').atMs) === '23:50', ist(at(d, 'eod').atMs));
   const kis = '2026-11-16';
-  ok('yaz/kış farkı: aynı slot kış ile yazda 1 saat kayar (pre 16:00 vs 17:00)', ist(at(d, 'premarket').atMs) !== ist(at(kis, 'premarket').atMs));
+  ok('yaz/kış: saatler aynı (sabit İstanbul)', ist(at(d, 'premarket').atMs) === ist(at(kis, 'premarket').atMs));
 }
 // ───── 3) Tatil ve hafta sonu ─────
 {
