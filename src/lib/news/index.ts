@@ -2,6 +2,7 @@
 import { fetchYahooNews } from './yahoo.ts';
 import { fetchSecCik, fetchSecFilings } from './sec.ts';
 import { fetchFinnhubNews } from './finnhub.ts';
+import { fetchFeed, googleFeed, googleQueries, CNBC_TOP } from './feeds.ts';
 import type { NewsItem } from './types.ts';
 import { registerSecret, reportFail, reportOk } from '../freshness.ts';
 export type { NewsItem, NewsKind } from './types.ts';
@@ -24,6 +25,9 @@ export class NewsHub {
     registerSecret(s.finnhubKey); registerSecret(s.secUa);
     // Kaynak etiketleri (tazelik göstergesi için): yahoo / sec / finnhub
     const jobs: { p: string; run: Promise<NewsItem[]> }[] = [{ p: 'yahoo', run: fetchYahooNews(tickers, universe, sinceMs, signal) }];
+    // Ek anahtarsız kaynaklar: Google News (4'erli sorgular) ve CNBC üst haberleri (çeşitlilik)
+    for (const q of googleQueries(tickers)) jobs.push({ p: 'google', run: fetchFeed(googleFeed(q), universe, sinceMs, signal) });
+    jobs.push({ p: 'cnbc', run: fetchFeed(CNBC_TOP, universe, sinceMs, signal) });
     if (s.secUa) for (const t of tickers) jobs.push({ p: 'sec', run: (async () => {
       if (!this.cik.has(t)) this.cik.set(t, await fetchSecCik(t, s.secUa!, signal));
       const c = this.cik.get(t); return c ? fetchSecFilings(t, c, s.secUa!, sinceMs, signal) : [];

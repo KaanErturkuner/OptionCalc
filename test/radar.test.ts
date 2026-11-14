@@ -201,8 +201,9 @@ console.log('\n— Haber katmanı —');
   globalThis.fetch = (async () => { calls++; return new Response('<rss></rss>', { status: 200 }); }) as typeof fetch;
   const hub = new NewsHub();
   await hub.poll(['MU'], UNIVERSE, 0, {}, NOW);
+  const afterFirst = calls;
   await hub.poll(['MU'], UNIVERSE, 0, {}, NOW + 60000);
-  ok('haber: 5 dk içinde ikinci çekim yok', calls === 1, `(çağrı ${calls})`);
+  ok('haber: 5 dk içinde ikinci çekim yok (tur kaynakları: Yahoo + Google + CNBC)', afterFirst >= 1 && calls === afterFirst, `(ilk ${afterFirst}, sonra ${calls})`);
   globalThis.fetch = realFetch;
 }
 
