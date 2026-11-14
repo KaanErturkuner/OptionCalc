@@ -123,3 +123,8 @@ export function isSessionOpenNow(now: number): boolean {
   if (close == null) return false;
   return now >= etTime(d, 9, 30) && now < close;
 }
+
+/** İstanbul saati "HH:MM" (UTC+3, yaz saati yok). Kullanıcıya gösterilen tüm saatler bu biçimde. */
+export const istHM = (ms: number): string => { const d = new Date(ms + 3 * 3600000); return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`; };
+/** ms'deki ABD takviminde hh:mm ET anının İstanbul "HH:MM" karşılığı (ABD DST'sine göre kayar). */
+export const etToIst = (hh: number, mm: number, now = Date.now()): string => istHM(etTime(etDate(now), hh, mm));

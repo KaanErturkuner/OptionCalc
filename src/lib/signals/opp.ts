@@ -28,7 +28,7 @@ export function pTouchApprox(need: number, emRemain: number): number {
 /** Hesap moduna göre en düşük RR (skor kapısında veto için). DURDU'da hiçbir şey uygun değil. */
 export function minRrFor(accMode: PaperMode): number {
   if (accMode === 'DURDU') return Infinity;
-  if (accMode === 'AGRESIF') return MODE_RULES.AGRESIF_4.minRR;
+  if (accMode === 'AGRESIF') return MODE_RULES.AGRESIF_3.minRR;
   return MODE_RULES.GUVENLI_ZARAR.minRR;
 }
 

@@ -1,5 +1,6 @@
 /* Güven skoru 0–100 (SINYAL-FIRSAT §5). Açık kurallar, bileşen dökümü, vetolar. Saf.
  * Ağırlıklar tek yerde; değişiklik yalnızca Kaan onayıyla. */
+import { etToIst } from '../usmarket.ts';
 export const WEIGHTS = { A1: 10, A2: 8, A3: 7, B: 10, C: 15, D: 15, E: 10, F: 5, G: 5, H: 15 } as const;
 export type Dir = 'bull' | 'bear';
 export type CompKey = keyof typeof WEIGHTS;
@@ -38,7 +39,7 @@ export function scoreSignal(x: ScoreInput): ConfidenceResult {
   if (x.data.chainAgeSec > 300) vetoes.push('zincir 5 dk’dan eski');
   if (x.liq.spreadPct > x.liq.maxSpreadPct) vetoes.push(`spread > %${x.liq.maxSpreadPct}`);
   if (x.rr.rr < x.rr.minRr) vetoes.push(`RR ${x.rr.rr.toFixed(2)} < alt sınır ${x.rr.minRr}`);
-  if (x.time.dte === 0 && x.time.etMin >= 870) vetoes.push('0DTE 14:30 ET sonrası');
+  if (x.time.dte === 0 && x.time.etMin >= 870) vetoes.push(`0DTE ${etToIst(14, 30)} TR sonrası`);
   if (x.risk.earningsInDte && !x.risk.s5) vetoes.push('bilanço DTE içinde');
   if (x.budget && x.budget.askCost > x.budget.available) vetoes.push('sermaye yetersiz');
 

@@ -35,7 +35,7 @@ export class MdClient {
   checkBudget(src: 'flow' | 'proxy', nowMs: number): void {
     const day = creditDay(nowMs);
     if (!this.token) throw new BudgetError('MarketData tokenı sunucuda tanımlı değil');
-    if (this.lastRemaining != null && this.lastRemaining < this.limits.creditReserve) throw new BudgetError('MarketData kredisi rezerv altında (09:30 ET’de yenilenir)');
+    if (this.lastRemaining != null && this.lastRemaining < this.limits.creditReserve) throw new BudgetError('MarketData kredisi rezerv altında (ABD açılışında, TR 16:30–17:30 arası yenilenir)');
     if (src === 'flow' && this.store.creditsOn(day, 'flow') >= this.limits.flowDailyCap) throw new BudgetError('Akış günlük kredi tavanına ulaştı');
     if (this.store.creditsOn(day) >= this.limits.proxyDailyCap) throw new BudgetError('Günlük kredi tavanına ulaşıldı');
   }

@@ -38,7 +38,7 @@ export type McOutcome = { kind: 'hedef' } | { kind: 'stop' } | { kind: 'diger'; 
 
 /** Hesap modu → hedef çarpanı (§7.1): AGRESIF 1:5 (targetN), güvenli modlar 1:2 (yoksa 1:1,5). */
 export function modeN(mode: PaperMode, N = 5): number {
-  return mode === 'AGRESIF' ? N : mode === 'AGRESIF_4' ? 4 : 2;
+  return mode === 'AGRESIF' ? N : mode === 'AGRESIF_4' ? 4 : mode === 'AGRESIF_3' ? 3 : 2;
 }
 
 /** Sonuç → R. Hedef: seçilen tanımın R'si. Stop: −1R. Diğer: verilen R. Çoklu: N'nin R'si (yoksa en yakın küçük N). */

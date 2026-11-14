@@ -3,8 +3,8 @@ import { Alert, Pressable, RefreshControl, ScrollView, Share, Switch, Text, View
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as J from '@/lib/journal';
 import type { Trade } from '@/lib/journal';
-import { closeMs, defaultExpiry, etDate, etOffset } from '@/lib/usmarket';
-import { etHM, localHM } from '@/lib/alerts';
+import { closeMs, defaultExpiry, etDate, etOffset, etToIst } from '@/lib/usmarket';
+import { trHM, localHM } from '@/lib/alerts';
 import { checkAlerts, fetchLive, syncBackgroundTask } from '@/ui/monitor';
 import { cancelIds, ensurePermission, scheduleExit } from '@/ui/notify';
 import { journal, useJournal } from '@/ui/journalStore';
@@ -111,7 +111,7 @@ export default function Journal({ active }: { active: boolean }) {
             <NumField label="Kâr al $ (isteğe bağlı)" value={f.target} onValue={v => setF(p => ({ ...p, target: v }))} allowEmpty digits={2} />
             <NumField label="Stop $ (isteğe bağlı)" value={f.stop} onValue={v => setF(p => ({ ...p, stop: v }))} allowEmpty digits={2} />
           </View>
-          <Text style={s.hint}>Giriş zamanı: kaydettiğin an (ET). Opsiyon P/L = (fiyat − giriş) × adet × 100. Kâr al/stop girersen fiyat yaklaşınca/ulaşınca bildirim gelir; opsiyonda vade günü 15:30 ET’de çıkış hatırlatması.</Text>
+          <Text style={s.hint}>Giriş zamanı: kaydettiğin an (TR saati). Opsiyon P/L = (fiyat − giriş) × adet × 100. Kâr al/stop girersen fiyat yaklaşınca/ulaşınca bildirim gelir; opsiyonda vade günü {etToIst(15, 30)} TR çıkış hatırlatması.</Text>
           <Btn label="Kaydet" kind="primary" onPress={save} style={{ marginTop: 10, minHeight: 50 }} />
         </Card>
       ) : null}
@@ -135,7 +135,7 @@ export default function Journal({ active }: { active: boolean }) {
               <Pressable onPress={() => { tap(); del(t); }} hitSlop={8}><Text style={{ color: C.muted, fontSize: 18 }}>✕</Text></Pressable>
             </View>
             <Text style={st2.sub}>{t.qty} × giriş ${t.entry.toFixed(2)} · {etStamp(t.entryTime)}{t.fromSignal ? ' · sinyal' : ''}{t.target ? ` · hedef $${t.target.toFixed(2)}` : ''}{t.stop ? ` / stop $${t.stop.toFixed(2)}` : ''}</Text>
-            {t.exitAt ? <Text style={[st2.sub, { color: t.exitAt < nowMs ? C.warn : C.muted }]}>⏰ Çıkış {etHM(t.exitAt)} (telefon {localHM(t.exitAt)}){t.exitAt < nowMs ? ' — süre geçti' : ''}{t.alerts?.length ? ` · gönderilen: ${t.alerts.map(a => ({ nearTarget: 'hedefe yakın', target: 'hedef', nearStop: 'stopa yakın', stop: 'stop' })[a]).join(', ')}` : ''}</Text> : null}
+            {t.exitAt ? <Text style={[st2.sub, { color: t.exitAt < nowMs ? C.warn : C.muted }]}>⏰ Çıkış {trHM(t.exitAt)} (telefon {localHM(t.exitAt)}){t.exitAt < nowMs ? ' — süre geçti' : ''}{t.alerts?.length ? ` · gönderilen: ${t.alerts.map(a => ({ nearTarget: 'hedefe yakın', target: 'hedef', nearStop: 'stopa yakın', stop: 'stop' })[a]).join(', ')}` : ''}</Text> : null}
             <View style={[s.row, { justifyContent: 'space-between', marginTop: 4 }]}>
               <Text style={{ color: C.muted, fontSize: 13 }}>🔔 Hedef/stop/çıkış bildirimi</Text>
               <Switch value={t.watch !== false} onValueChange={v => toggleWatch(t, v)} />

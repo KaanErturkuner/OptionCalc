@@ -30,6 +30,7 @@ export const effectiveStopPrem = (fill: number, dayanakStopPrem: number, pmax = 
 export function modeTargetR(mode: PaperMode, rr: number): number {
   if (mode === 'AGRESIF') return 5;
   if (mode === 'AGRESIF_4') return 4;
+  if (mode === 'AGRESIF_3') return 3;
   return rr >= 2 ? 2 : 1.5;
 }
 

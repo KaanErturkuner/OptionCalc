@@ -1,5 +1,5 @@
 /* Seans zamanı, vadeye kalan işlem dakikası, günlük/kalan EM ve T0 — SINYAL-FIRSAT §6. Saf. */
-import { etOffset, etDate, isTradingDay, addDaysStr } from '../usmarket.ts';
+import { etOffset, etDate, isTradingDay, addDaysStr, isEarlyCloseDay } from '../usmarket.ts';
 import { MIN_PER_YEAR } from './rr.ts';
 
 export const SESSION_MIN = 390;
@@ -14,7 +14,8 @@ export function etMinutes(now: number): number {
 /** Kalan seans dakikası (09:30–16:00 ET). Hafta sonu/tatil veya kapanış sonrası: 0. Açılış öncesi: 390. */
 export function sessionLeftMin(now: number): number {
   if (!isTradingDay(etDate(now))) return 0;
-  return Math.min(SESSION_MIN, Math.max(0, CLOSE_MIN - etMinutes(now)));
+  const close = isEarlyCloseDay(etDate(now)) ? 13 * 60 : CLOSE_MIN;   // NYSE erken kapanış: 13:00 ET
+  return Math.min(SESSION_MIN, Math.max(0, close - etMinutes(now)));
 }
 
 /** (from, to] arası işlem günü sayısı (from hariç, to dahil). */

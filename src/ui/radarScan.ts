@@ -1,5 +1,7 @@
 /* Radar tarama turu: veri (CBOE → Yahoo; MarketData'ya HİÇ gitmez) → anlık görüntü → dedektörler → haber → uyarı → bildirim → isabet. */
 import { loadSymbol, loadChain } from '@/lib/market';
+import { loadState } from '@/lib/state';
+import { flowKeyOf } from '@/lib/flow/client';
 import { loadBars } from '@/lib/market/bars';
 import type { Chain } from '@/lib/market/types';
 import type { Bar } from '@/lib/odte/analytics';
@@ -8,7 +10,7 @@ import { buildSnapshot, oiMap } from '@/lib/radar/snapshot';
 import { buildBaseline, ivRankOf } from '@/lib/radar/baseline';
 import { runDetectors } from '@/lib/radar/detectors';
 import { applyCooldown, buildAlerts, type Alert } from '@/lib/radar/engine';
-import { priceAt, nextSessionOpen, eodOf, H30, H2 } from '@/lib/radar/track';
+import { priceAt, nextSessionOpen, eodOf, barrierOf, H30, H2 } from '@/lib/radar/track';
 import { isEtf, SECTOR } from '@/lib/radar/universe';
 import type { DayRecord, Snapshot, Signal } from '@/lib/radar/types';
 import { NewsHub, type NewsItem } from '@/lib/news';
@@ -22,13 +24,24 @@ let recentNews: NewsItem[] = [];
 const NEWS_KEEP_MS = 24 * 3600000;
 
 interface Collected { ticker: string; price: number; changePct: number; chain: Chain; expiry: string; bars: Bar[]; source: string; delayedMin: number; dataTime: number }
+/** Radar verisi: spot Yahoo kotasyonundan (gecikme alanı kotasyondan), zincir MarketData `cached` (sunucu proxy'si, ~1 sn taze);
+ *  anahtar yoksa ya da MarketData düşerse CBOE zinciri (15 dk gecikmeli) — o durumda gecikme 15 dk olarak işaretlenir. */
 async function collect(t: string): Promise<Collected | null> {
   try {
-    const L = await loadSymbol(t, 'auto', {});
-    const exp = L.expirations[0]; if (!exp) return null;
-    const [chRaw, B] = await Promise.all([loadChain(L.provider, t, exp, {}, 40), loadBars(t)]);
-    return { ticker: t, price: L.quote.price, changePct: L.quote.changePct, chain: trimChain(chRaw, L.quote.price), expiry: exp,
-      bars: B.bars, source: L.quote.source, delayedMin: L.quote.delayedMin, dataTime: L.quote.time };
+    const st = await loadState().catch(() => null);
+    const mdKey = flowKeyOf(st?.flowKey) || undefined;
+    const Y = await loadSymbol(t, 'yahoo', {});
+    const exp = Y.expirations[0]; if (!exp) return null;
+    let chainRaw: Chain | null = null, chainSrc = 'MarketData', chainDelay = 0;
+    if (mdKey) {
+      const m = await loadChain('marketdata', t, exp, { marketdata: mdKey }, 40, { mdMode: 'cached', mdMaxAge: '2min' }).catch(() => null);
+      if (m && m.calls.length + m.puts.length > 0) chainRaw = m;   // boş zincir (204) veri değildir → CBOE yedeği
+    }
+    if (!chainRaw) { chainRaw = await loadChain('cboe', t, exp, {}, 40).catch(() => null); chainSrc = 'CBOE'; chainDelay = 15; }
+    if (!chainRaw) return null;
+    const B = await loadBars(t);
+    return { ticker: t, price: Y.quote.price, changePct: Y.quote.changePct, chain: trimChain(chainRaw, Y.quote.price), expiry: exp,
+      bars: B.bars, source: `Yahoo + ${chainSrc}`, delayedMin: Math.max(Y.quote.delayedMin, chainDelay), dataTime: Y.quote.time };
   } catch { return null; }
 }
 async function pool<T, R>(xs: T[], n: number, f: (x: T) => Promise<R>): Promise<R[]> {
@@ -96,10 +109,12 @@ function fillOutcomes(got: Collected[], now: number) {
   for (const a of radar.get().alerts) {
     const bars = barsBy.get(a.ticker); if (!bars?.length || !a.spot) continue;
     const o = a.outcome, patch: Alert['outcome'] = {};
-    if (!('m30' in o) && now >= a.at + H30) patch.m30 = priceAt(bars, a.at + H30);
-    if (!('h2' in o) && now >= a.at + H2) patch.h2 = priceAt(bars, a.at + H2);
-    if (!('eod' in o) && now >= eodOf(a.at)) patch.eod = priceAt(bars, eodOf(a.at), 10 * 60000);
-    if (!('next' in o) && etDate(now) > etDate(a.at)) patch.next = nextSessionOpen(bars, a.at);
+    // Yalnız dolu değer yazılır: boş (null) sonuç kalıcı işaretlenmez, sonraki turda yeniden denenir
+    if (!('m30' in o) && now >= a.at + H30) { const v = priceAt(bars, a.at + H30); if (v != null) patch.m30 = v; }
+    if (!('h2' in o) && now >= a.at + H2) { const v = priceAt(bars, a.at + H2); if (v != null) patch.h2 = v; }
+    if (!('eod' in o) && now >= eodOf(a.at)) { const v = priceAt(bars, eodOf(a.at), 10 * 60000); if (v != null) patch.eod = v; }
+    if (!('next' in o) && etDate(now) > etDate(a.at)) { const v = nextSessionOpen(bars, a.at); if (v != null) patch.next = v; }
+    if (!('bar' in o) && now >= a.at + H2) { const v = barrierOf(a.direction, a.spot, bars, a.at, a.emPct); if (v != null) patch.bar = v; }
     if (Object.keys(patch).length) radar.patchOutcome(a.id, patch);
   }
 }

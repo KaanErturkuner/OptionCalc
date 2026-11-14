@@ -1,5 +1,5 @@
 /* Pozisyon uyarıları + bildirim metinleri (saf TS; bildirim gönderimi UI tarafında) */
-import { closeMs, etDate, etOffset } from './usmarket.ts';
+import { closeMs, etDate, istHM } from './usmarket.ts';
 import type { Trade } from './journal.ts';
 
 export type AlertKind = 'nearTarget' | 'target' | 'nearStop' | 'stop';
@@ -10,11 +10,7 @@ export function exitAtMs(signalTime: number, dte: number): number {
   return closeMs(etDate(signalTime)) - (dte === 0 ? 30 : 15) * 60000;
 }
 const p2 = (x: number) => String(x).padStart(2, '0');
-/** "15:30 ET" */
-export function etHM(ms: number): string {
-  const d = new Date(ms + etOffset(ms) * 3600000);
-  return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} ET`;
-}
+export function trHM(ms: number): string { return istHM(ms) + ' TR'; }
 /** Bir an için verilen UTC ofsetinde (saat) "SS:DD" — telefon saatini göstermek için */
 export function localHM(ms: number, offsetMin = -new Date(ms).getTimezoneOffset()): string {
   const d = new Date(ms + offsetMin * 60000);
@@ -65,7 +61,7 @@ export function alertText(t: Trade, k: AlertKind, live: Live): { title: string; 
   }
 }
 export function exitText(t: Trade, minutesBefore = 0): { title: string; body: string } {
-  const L = kLabel(t), at = t.exitAt ? etHM(t.exitAt) : '';
+  const L = kLabel(t), at = t.exitAt ? trHM(t.exitAt) : '';
   return minutesBefore > 0
     ? { title: `⏰ ${L}: çıkışa ${minutesBefore} dk`, body: `Plan: en geç ${at} pozisyonu kapat.` }
     : { title: `⏰ ${L}: çıkış zamanı`, body: `${at} — planlanan çıkış. Pozisyonu kapat (0DTE vade sonuna bırakma).` };

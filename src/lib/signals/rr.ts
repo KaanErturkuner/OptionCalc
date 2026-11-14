@@ -6,7 +6,7 @@ export const MIN_PER_YEAR = 252 * 390;   // işlem dakikası
 export const RATE = 0.04;
 export const COMMISSION = 1.5;            // kontrat başına, açılış ve kapanışta ayrı (Kaan 2026-11-13)
 export const SLIPPAGE = 0.01;
-export const PRIM_STOP_MAX = PREMIUM_STOP_DROP;   // Kaan kararı (2026-11-14): prim stopu −%40 (tek kaynak: paper/rules.ts)
+export const PRIM_STOP_MAX = PREMIUM_STOP_DROP;   // Kaan kararı (2026-11-14): prim stopu −%50 (tek kaynak: paper/rules.ts)
 export const TAU_STOP_MIN = 15;
 export const TAU_TARGET_MIN_MIN = 20;
 
@@ -29,7 +29,8 @@ export interface RRResult {
 const defaultPricer: Pricer = (type, S, K, T, r, q, sigma, divs, steps) => americanPrice(type, S, K, T, r, q, sigma, divs, steps);
 
 export function optionRR(i: RRInput, pricer: Pricer = defaultPricer): RRResult {
-  const comm = i.commission ?? COMMISSION, slip = i.slippage ?? SLIPPAGE, pmax = i.primStopMax ?? PRIM_STOP_MAX;
+  // RR brüt: komisyon RR'ye girmez (Kaan kararı 2026-11-14). Komisyon yalnız net K/Z'de düşülür.
+  const slip = i.slippage ?? SLIPPAGE;
   const half = Math.max(0, (i.ask - i.bid) / 2), entry = i.ask + slip;
   const tYears = (min: number) => Math.max(0, min) / MIN_PER_YEAR;
   const valueAt = (S: number, min: number, mult: number) => pricer(i.type, S, i.K, Math.max(1e-6, i.T0 - tYears(min)), RATE, 0, i.sigma * mult, [], FAST_STEPS) - half;
@@ -42,9 +43,9 @@ export function optionRR(i: RRInput, pricer: Pricer = defaultPricer): RRResult {
   const tau2 = Math.min(left, 2 * tau1);
   // Kaan tanımı (D12, 2026-11-13): 1:N RİSK BAZLI. Hedef prim = giriş + N × risk (150 giriş, 50 stop, risk 100 → 1:5 = 650).
   // RR = (model net çıkış primi − net giriş primi) / risk, yani hedefe ulaşıldığında kazanılan R. Komisyon iki uçta da düşülür.
-  const cIn = entry + comm / 100;                        // net giriş (açılış komisyonu dâhil)
-  const risk = entry - Math.max(primStop, entry * (1 - pmax)) + 2 * comm / 100;   // R (kontrat başına, komisyon dâhil)
-  const rrAt = (tau: number) => (valueAt(i.und.target, tau, i.ivTargetMult ?? 1.0) - comm / 100 - cIn) / risk;
+  // 1R SABİT: giriş × PREMIUM_STOP_DROP (dayanak stopu 1R'yi değiştirmez; Kaan kararı 2026-11-14)
+  const risk = entry * PREMIUM_STOP_DROP;
+  const rrAt = (tau: number) => (valueAt(i.und.target, tau, i.ivTargetMult ?? 1.0) - entry) / risk;
   const rrRaw = risk > 0 ? Math.min(rrAt(tau1), rrAt(tau2)) : 0;
   const valid = risk > 0 && rrRaw > 0;
   const primTarget = valueAt(i.und.target, tau1, i.ivTargetMult ?? 1.0);

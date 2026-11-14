@@ -751,6 +751,83 @@ Kaan'ın talebiyle (`docs/tasks/FLOW.md`). Commit'ler: `95f2b71` (sunucu + saf a
 
 **Sonraki:** Başkan (Grok) inceleme. Veri zip'i gelince adım 9–11 (ayrıca TASKS #26).
 
+## 2026-11-14 — Claude — [claude] kurul düzeltmeleri + Kaan kararları (tur 2)
+
+**Kaan kararları (uygulandı):**
+1. **RR brüt:** komisyon RR'ye girmez; yalnız net K/Z'de düşülür (`signals/rr.ts`).
+2. **1R sabit, stop −%50:** `PREMIUM_STOP_DROP = 0.50` (`paper/rules.ts`). 1R = giriş × 0,50, dayanak stopu 1R'yi değiştirmez. Hedef 1:5 → 1:4 → 1:3 (yeni `AGRESIF_3`; `RR_MIN = 3`). Örnek: giriş 3,00 → stop 1,50 · 1:5 10,50 · 1:4 9,00 · 1:3 7,50.
+3. **Fırsat → Geçmiş:** onaylanan kâğıt pozisyon `journal`a düşer (`fromSignal`), kapanınca çıkış fiyatı ve nedeni yazılır.
+4. **Uygulama anahtarı:** `EXPO_PUBLIC_FLOW_API_KEY` yedeği kaldırıldı (`flow/client.ts`). Anahtar paketin içine girmez; yalnız cihazda (Hesapla › Ayarlar).
+5. **Koç:** çift yükleme engellendi (`Koc.tsx`). Düzeltme `claude/new-session-73a54r` dalında; `master`'a PR açılmadı (açıkça istenmedi).
+
+**Kritik / yüksek düzeltmeler:**
+- 0DTE 15:45 zorunlu çıkış: kontrat veya bid yoksa son bilinen bid ile çalışır; veri yoksa veya erken kapanış günüyse de çıkar (`ui/signalScan.ts` tickPaper).
+- Sermaye NaN/0 → işlem açılmaz, NaN adet üretilmez (`paper/sizing.ts`).
+- Erken kapanış günleri (13:00 ET) seans süresi doğru (`signals/session.ts`).
+- Kart girişi = dolum (ask + 0,01); kart ve pozisyon adet/hedef uyumlu (`signals/verdict.ts`).
+- `mid()`: alıcı ve son fiyat yoksa ask/2 uydurulmaz (`market/types.ts`).
+- Radar: MarketData boş zinciri (204) CBOE yedeğini tetikler; isabet sonucu boşsa yeniden denenir (`ui/radarScan.ts`).
+- Yahoo: istenen vade dışında dönen zincir önbelleğe girmez (`market/yahoo.ts`).
+- Takip, Journal, Fırsat, Radar depoları: yükleme bitmeden üstüne yazmaz (`ui/*Store.ts`).
+- Haberler: üst boşluk güvenli alan kadar (`screens/Haberler.tsx`).
+
+**Yenilik (Ürün kurulu, kabul edilenler):** P1 onay öncesi kontrol satırı (bilgi); P5 "DURDU'ya kalan kayıp" sayacı.
+
+**Açık (yapılmadı):** P2 olay şeridi (takvim "bilinmiyor" gösterimi), P3 Hesapla kademe önizlemesi, P4 Radar+Akış tekilleştirme. Koç zaman aşımı (150 sn, doğrulanmadı), Radar zincir yaşı denetimi, Radar bildirim dokunuşu. Strateji (S1–S4) ve veri (D1–D4) önerileri veri ve lisans gerektirir; uygulanmadı.
+
+**Açık soru:** Güvenli modlar (1:2 / 1:1,5) hâlâ eski hedefte; 1:3–1:5 kuralı yalnız agresif modda mı uygulansın?
+
+**Doğrulama:** `npm run check` yeşil (test, typecheck, lint). Test beklentileri yeni kurala göre güncellendi; `paper.test.ts` §7.2 örnekleri tarihsel (−%40) olarak işaretlendi.
+
+## 2026-11-14 — Claude — [claude] time: kullanıcıya görünen saatler İstanbul (UTC+3)
+
+**Ne:** Kullanıcıya gösterilen tüm ET saatleri İstanbul saatine (UTC+3, yaz saati yok) çevrildi. Dönüşüm ABD yaz saatine göre dinamik (`etToIst`, `istHM` — `src/lib/usmarket.ts`). Örnek: 15:45 ET = kışın 23:45 TR, yazın 22:45 TR. İç mantık (piyasa saatleri, kural kontrolleri) ET'de kalır; yalnız gösterim değişti.
+
+**Dosyalar:** `src/lib/usmarket.ts`, `src/lib/alerts.ts` (`etHM` → `trHM`), `src/lib/signals/trade.ts`, `src/lib/signals/confidence.ts`, `src/lib/odte/signal.ts`, `src/lib/market/marketdata.ts`, `server/app/md.ts` (hata metni; sunucu deploy gerektirir), `src/screens/{Calc,Firsat,Journal,Odte}.tsx`, `test/timezone.test.ts` (yeni), `test/run.ts`, `test/signals.test.ts`, `test/trade-card.test.ts`.
+
+**Doğrulama:** `npm run check` yeşil (uyarısız). Kış ve yaz DST testleri eklendi.
+
+**Açık:** `server/app/md.ts` değişikliği için sunucu deploy gerekir. Dokümanlardaki (docs, README) ET saatleri değiştirilmedi.
+
+## 2026-11-14 — Claude — [claude] menu: Haberler kartı
+
+**Ne:** Menü'ye "Haberler" kartı eklendi. Radar izleme listesinin son 48 saat haberleri Yahoo RSS'ten (anahtarsız) listelenir; başlığa dokununca kaynak açılır; aşağı çekerek yenilenir. Chat'teki haber portalının uygulamadaki karşılığı.
+
+**Dosyalar:** `src/screens/Haberler.tsx` (yeni), `src/screens/Menu.tsx`.
+
+**Doğrulama:** `npm run check` yeşil. Yahoo RSS'in telefondan yanıt verdiği ve listenin dolduğu henüz doğrulanmadı. Sınırlar: yalnız Yahoo; SEC ve Finnhub yok; haberler sunucu tarafında saklanmıyor.
+
+## 2026-11-14 — Claude — [claude] radar: veri kaynağı ve bayat veri kapısı
+
+**Ne:** Radar gecikmesi CBOE'den geliyordu (zincir ve spot 15 dk gecikmeli, `delayedMin: 15` sabit). Artık spot Yahoo kotasyonundan, opsiyon zinciri MarketData `cached` modunda sunucu proxy'si üzerinden (tek IP kuralı korunur). Anahtar yoksa ya da MarketData düşerse CBOE yedeği; o durumda gecikme 15 dk olarak işaretlenir. Trend girişi spot verisi 3 dk'dan eskiyse üretilmez.
+
+**Dosyalar:** `src/ui/radarScan.ts`, `src/lib/radar/detectors/trend.ts`, `test/radar.test.ts`.
+
+**Doğrulama:** `npm run check` yeşil. Yahoo'nun gerçek gecikme alanı (`exchangeDataDelayedBy`) ve sunucu proxy'sinin Radar'dan çağrısı telefonda henüz doğrulanmadı. Radar'da "Yahoo + MarketData" yazısı ve veri yaşı kontrol edilmeli.
+
+## 2026-11-14 — Claude — [claude] coach: yükleme gövdesi sunucuyla hizalandı
+
+**Ne:** Koç ekran görüntüsü yüklemesi her görüntüde "Reddedildi (HTTP 400): Görüntü verisi yok" veriyordu. Kök neden: istemci `uploadScreenshot` gövdesini `{base64, mime, day}` gönderiyordu, sunucu `coachImage` ise `{image, mime, day}` bekliyor (`server/app/coach.ts`). Gövde artık `{image, mime, day}`. Bu yüzden karne de "koçluk kaydı yok" (404) veriyordu; dolum kaydolmadığı için.
+
+**Dosyalar:** `src/lib/coach/client.ts`.
+
+**Doğrulama:** `npm run check` yeşil. Gerçek telefon yüklemesi henüz denenmedi; Başkan'ın 22 görüntülük yüklemesiyle doğrulanmalı.
+
+**Not:** Bu dal `origin/master` ile birleştirildi (master'daki Koç kodu bu dala geldi). Yeni paketler (`expo-image-picker`, `expo-image-manipulator`) için `npm ci` gerekti.
+
+## 2026-11-14 — Claude — [claude] radar: giriş ve skor algoritması
+
+**Ne:**
+- **Giriş (`trend`):** tek fiyat–OR kontrolü yerine onaylı kırılım: OR dışına %0,1 tampon, VWAP hold (son 5 bar aynı tarafta), EMA hizası, ET 10:00–15:30 penceresi. Şiddet kırılım mesafesine bağlı (0,55–0,80); sabit 0,6 kaldırıldı.
+- **Skor (`engine.ts`):** aynı kaynaktan gelen sinyaller (akış: P/C, olağan dışı kontrat, OI) bağımsız sayılmıyor; aile başına en güçlü şiddet, aileler arası 1 − Π(1 − max). Bildirim için teyit şart: iki farklı aile, haber, sektör ya da onaylı trend. Tek aileden gelen uyarı listede kalır.
+- **İsabet (`track.ts`, `radarScan.ts`):** yeni `barrierOf` — 2 saat içinde +½·EM hedefi mi önce vuruldu, −½·EM stopu mu (bar high/low yolu, aynı barda ikisi → kayıp). `barrierSummary` win% = win/(win+loss). Eski "2 saat sonra yön" ölçümü duruyor.
+
+**Dosyalar:** `src/lib/radar/detectors/trend.ts`, `src/lib/radar/engine.ts`, `src/lib/radar/track.ts`, `src/ui/radarScan.ts`, `test/radar.test.ts`.
+
+**Doğrulama:** `npm run check` yeşil (test, typecheck, lint, bt:selftest). Radar testlerine yeni 14 kontrol eklendi (giriş kuralları, aile birleşimi, teyit kapısı, bariyer uçları).
+
+**Açık / dürüst not:** Win rate'in gerçekten yükseldiğini bu oturumda ölçemedim: sandbox'ta Yahoo erişimi ve gerçek radar kaydı yok. Tek kanıt birim testleri. Gerçek ölçüm için uygulamada birkaç hafta kayıt + `barrierSummary` çıktısı gerekir; eşikler (OR tamponu, 0,5·EM hedef, 5 bar hold) o veriye göre kalibre edilmeli. Radar UI'ında win% henüz gösterilmiyor. Bilinmiyor: yeni eşiklerle bildirim sayısının düşüp düşmeyeceği.
+
 ## 2026-11-13 — Grok — [grok] Aşama 4–5 incelemesi
 
 **Ne:** Claude'un Aşama 4 (kâğıt hesap) ve Aşama 5 (Fırsat sekmesi + tarama bağlama) kodu doğrulandı. İlk `npm test` / `tsc --noEmit` / lint / `bt:selftest` yeşildi. Kaan'ın sayısal örnekleri (300→150→1:3 çıkış→600; 150→50 kayıp→200→%40=80; ikinci kayıp → %30 + güvenli mod), %50 tavan, kademe 50→40→30 ve 30→40→50, güne taşıma, 4 kazanç / 2 kayıp güvenli mod, 1:5 sonra 1:4, %67 prim stopu, 1,50 $ komisyon, 0DTE 15:45, onay 3/5 dk ve "fiyat kaçtı" testlerde tutuyor. %50 kuralına dokunulmadı.

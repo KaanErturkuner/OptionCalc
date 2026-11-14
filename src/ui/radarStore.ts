@@ -17,12 +17,14 @@ export interface Data {
 const EMPTY: Data = { alerts: [], days: {}, oi: {}, ivOpen: {}, pulse: [], lastScan: null, settings: DEF_SETTINGS };
 let data: Data = EMPTY, loaded = false;
 const subs = new Set<() => void>();
-const emit = () => { subs.forEach(f => f()); AsyncStorage.setItem(KEY, JSON.stringify(data)).catch(() => {}); };
+const emit = () => { subs.forEach(f => f()); if (loaded) AsyncStorage.setItem(KEY, JSON.stringify(data)).catch(() => {}); };
 let loading: Promise<void> | null = null;
 function ensure(): Promise<void> { if (!loading) loading = doLoad(); return loading; }
 async function doLoad() {
-  if (loaded) return; loaded = true;
+  if (loaded) return;
   try { const raw = await AsyncStorage.getItem(KEY); if (raw) data = { ...EMPTY, ...JSON.parse(raw), settings: { ...DEF_SETTINGS, ...(JSON.parse(raw).settings ?? {}) } }; } catch { /* boş */ }
+  loaded = true;
+  AsyncStorage.setItem(KEY, JSON.stringify(data)).catch(() => {});   // yükleme bitti: birleşik veriyi kaydet
   subs.forEach(f => f());
 }
 export const radar = {

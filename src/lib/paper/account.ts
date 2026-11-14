@@ -11,10 +11,11 @@ export const SAFE_LOSS_DURDU = 2;        // GUVENLI_ZARAR'a girdikten sonra üst
 export const BREAKEVEN_PCT = 0.02;       // |net K/Z| < pozisyonun %2'si → başabaş
 export const TRADE_KEEP = 500;
 
-/** Mod kuralları (§7.1). Sinyal seçimi: AGRESIF 1:5 → 1:4 (AGRESIF_4); güvenli modlarda 1:2 → 1:1,5. */
-export const MODE_RULES: Record<'AGRESIF' | 'AGRESIF_4' | 'GUVENLI_KAR' | 'GUVENLI_ZARAR', { minRR: number; minScore: number }> = {
+/** Mod kuralları (§7.1). Sinyal seçimi: AGRESIF 1:5 → 1:4 (AGRESIF_4) → 1:3 (AGRESIF_3); güvenli modlarda 1:2 → 1:1,5. */
+export const MODE_RULES: Record<'AGRESIF' | 'AGRESIF_4' | 'AGRESIF_3' | 'GUVENLI_KAR' | 'GUVENLI_ZARAR', { minRR: number; minScore: number }> = {
   AGRESIF: { minRR: 5, minScore: 65 },
   AGRESIF_4: { minRR: 4, minScore: 65 },
+  AGRESIF_3: { minRR: 3, minScore: 65 },
   GUVENLI_KAR: { minRR: 1.5, minScore: 70 },
   GUVENLI_ZARAR: { minRR: 1.5, minScore: 75 },
 };
@@ -69,6 +70,7 @@ export function signalModeFor(accMode: PaperMode, rr: number): SignalMode | null
   if (accMode === 'AGRESIF') {
     if (rr >= MODE_RULES.AGRESIF.minRR) return 'AGRESIF';
     if (rr >= MODE_RULES.AGRESIF_4.minRR) return 'AGRESIF_4';
+    if (rr >= MODE_RULES.AGRESIF_3.minRR) return 'AGRESIF_3';
     return null;
   }
   return rr >= MODE_RULES[accMode].minRR ? accMode : null;
@@ -87,7 +89,7 @@ export function eligibility(accMode: PaperMode, rr: number, score: number): { ok
 /** Aynı taramadaki adaylardan seç: önce 1:5 (AGRESIF), 1:4, güvenli modda önce 1:2; sonra skor, sonra RR. */
 export function chooseCandidate<T extends { rr: number; score: number }>(accMode: PaperMode, cands: T[]):
   { cand: T; mode: SignalMode } | null {
-  const rank = (m: SignalMode, rr: number) => (m === 'AGRESIF' ? 0 : m === 'AGRESIF_4' ? 1 : rr >= 2 ? 2 : 3);
+  const rank = (m: SignalMode, rr: number) => (m === 'AGRESIF' ? 0 : m === 'AGRESIF_4' ? 1 : m === 'AGRESIF_3' ? 2 : rr >= 2 ? 3 : 4);
   let best: { cand: T; mode: SignalMode } | null = null;
   for (const c of cands) {
     const e = eligibility(accMode, c.rr, c.score);

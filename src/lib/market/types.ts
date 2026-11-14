@@ -32,7 +32,7 @@ export interface ProvOpts {
 }
 export type ProviderId = 'cboe' | 'yahoo' | 'tradier' | 'marketdata';
 
-export const mid = (o: OptQuote) => o.bid > 0 && o.ask > 0 && o.ask >= o.bid ? (o.bid + o.ask) / 2 : o.last > 0 ? o.last : (o.ask > 0 ? o.ask / 2 : 0);
+export const mid = (o: OptQuote) => o.bid > 0 && o.ask > 0 && o.ask >= o.bid ? (o.bid + o.ask) / 2 : o.last > 0 ? o.last : 0;   // alıcı yoksa orta uydurulmaz (sahte stop önlenir)
 export const spreadPct = (o: OptQuote) => o.bid > 0 && o.ask > 0 ? (o.ask - o.bid) / ((o.ask + o.bid) / 2) : Infinity;
 export const num = (x: unknown): number => { const n = typeof x === 'string' ? parseFloat(x) : typeof x === 'number' ? x : NaN; return isFinite(n) ? n : 0; };
 /** OCC sembolü: KÖK + YYMMDD + C/P + strike×1000 (8 hane) */

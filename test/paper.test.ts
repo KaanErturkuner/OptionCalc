@@ -31,7 +31,7 @@ const must = (r: { ok: boolean; reason?: string; acc?: PaperAccount }): PaperAcc
 /** Kaan'ın kapanışı (−%40): "stop" = giriş × 0,60, "hedef" = 1:R (exit = fill + R × 0,40 × fill). */
 const closeAt = (acc: PaperAccount, exit: number, reason: 'stop' | 'hedef' | 'risk', day = D) => must(closePosition(acc, exit, reason, 0, day));
 
-// ============ §7.2 Kaan'ın örnekleri (1–8) ============
+// ============ §7.2 Kaan'ın örnekleri (1–8) — TARİHSEL: 2026-11-14 öncesi −%40 kuralına göre yazıldı; güncel kural (−%50) testleri: coach, firsat, mc, paper-path, setups ============
 // 1) Sermaye 300, kademe %50 → pozisyon 150. Prim stopu −%40 → R = 60 (1,5 kontrat × 0,40). 1:3 çıkış → +180 → sermaye 480 → sıradaki 240.
 {
   let acc = initAccount(300, NOCOST, D);
@@ -44,13 +44,13 @@ const closeAt = (acc: PaperAccount, exit: number, reason: 'stop' | 'hedef' | 'ri
   acc = openKaan(acc, 1, 3);
   ok('ör.1: sıradaki pozisyon 240 (480 × %50)', near(acc.position!.costBasis, 240), String(acc.position!.costBasis));
 }
-// 1b) Kaan örneği (2026-11-14, prim stopu −%40): giriş 3,00 → stop 1,80 → 1R = 1,20 × 100 = 120 $ (1 kontrat, komisyon 0)
+// 1b) Kaan örneği (2026-11-14, prim stopu −%50): giriş 3,00 → stop 1,50 → 1R = 1,50 × 100 = 150 $ (1 kontrat, komisyon 0)
 {
   const fill = 3, stop = effectiveStopPrem(fill, 0, PRIM_STOP_MAX);
-  ok('ör.3,00 (−%40): stop = 1,80', near(stop, 1.8), String(stop));
+  ok('ör.3,00 (−%50): stop = 1,50', near(stop, 1.5), String(stop));
   const acc = must(openPosition(initAccount(1000, NOCOST, D), { id: 'f', ticker: 'QQQ', setup: 'S1', dir: 'call', expiry: D, dte: 0, strike: 100,
     fill, stopPrem: stop, targetPrem: 9, targetR: 5, mode: 'AGRESIF', now: 0, day: D }));
-  ok('ör.3,00 (−%40): R = 120 $ kontrat başına', near(acc.position!.rDollars / acc.position!.contracts, 120), String(acc.position!.rDollars));
+  ok('ör.3,00 (−%50): R = 150 $ kontrat başına', near(acc.position!.rDollars / acc.position!.contracts, 150), String(acc.position!.rDollars));
 }
 // 2) Sermaye 300, pozisyon 150, işlem −%40 stop'ta kapandı (−60) → sermaye 240 → sıradaki kademe %40 → pozisyon 96.
 // D12: gün içi %50 düşüş kuralı kaldırıldı (onaysız ek kuraldı); iki kayıp → GUVENLI_ZARAR, DURDU değil.
@@ -249,7 +249,8 @@ ok('B5: şema 2 → kullanıcı ayarı korunur', migrateSettings({ ...NOCOST, du
 // ============ Sinyal modu ve seçim ============
 ok('1:5 → AGRESIF', signalModeFor('AGRESIF', 5) === 'AGRESIF');
 ok('1:4,2 → AGRESIF_4 (1:5 yoksa)', signalModeFor('AGRESIF', 4.2) === 'AGRESIF_4');
-ok('1:3 → yok (Agresif modda giriş yok)', signalModeFor('AGRESIF', 3) === null);
+ok('1:3 → AGRESIF_3 (1:5 ve 1:4 yoksa en düşük kabul)', signalModeFor('AGRESIF', 3) === 'AGRESIF_3');
+ok('1:2,9 → yok (Agresif modda 1:3 altı kabul edilmez)', signalModeFor('AGRESIF', 2.9) === null);
 ok('güvenli: 1:2 ve 1:1,5 kabul', signalModeFor('GUVENLI_KAR', 1.6) === 'GUVENLI_KAR' && signalModeFor('GUVENLI_ZARAR', 2.1) === 'GUVENLI_ZARAR');
 ok('DURDU: hiçbir sinyal', signalModeFor('DURDU', 9) === null);
 // D12: DURDU varsayılan açık; 2 kayıp güvenli moda girer, DURDU değil.

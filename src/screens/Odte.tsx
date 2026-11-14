@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, Switch
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { loadState } from '@/lib/state';
-import { etOffset, marketOpen } from '@/lib/usmarket';
+import { etToIst, istHM, marketOpen } from '@/lib/usmarket';
 import { scanOne, creditsPerRefresh, type ScanItem } from '@/lib/odte/scan';
 import { outcome, signalText, DEFAULT_OPTS, type Signal } from '@/lib/odte/signal';
 import { newId } from '@/lib/journal';
@@ -24,8 +24,7 @@ export const EXTRAS = ['SPY', 'IWM', 'GLD', 'SLV'];
 const KEY = 'odte-v1';
 interface Cfg { watch: string[]; extras: string[]; auto: boolean; interval: number; orMin: 15 | 30; strikeLimit: number }
 const DEF: Cfg = { watch: DEFAULT_WATCH, extras: [], auto: true, interval: 5, orMin: 15, strikeLimit: 30 };
-const p2 = (x: number) => String(x).padStart(2, '0');
-const etHM = (ms: number) => { const d = new Date(ms + etOffset(ms) * 3600000); return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} ET`; };
+const trHM = (ms: number) => istHM(ms) + ' TR';
 const f2 = (x: number | null | undefined) => x == null || !isFinite(x) ? '—' : x.toFixed(2);
 const dteLabel = (dte?: number) => dte == null ? '' : dte === 0 ? '0DTE' : `${dte}DTE`;
 
@@ -139,7 +138,7 @@ export default function Odte({ active, onJournal }: { active: boolean; onJournal
     const past = exitAt <= Date.now();
     Alert.alert('Aldım — kaydedildi',
       `${sg.ticker} ${sg.strike}${sg.dir === 'call' ? 'C' : 'P'} · ${b.qty} kontrat @ $${b.entry.toFixed(2)}\nKâr al $${b.target.toFixed(2)} · stop $${b.stop.toFixed(2)}\n` +
-      (past ? 'Planlanan çıkış saati geçti.' : `Çıkış: ${etHM(exitAt)} (telefon saatiyle ${localHM(exitAt)}).`) +
+      (past ? 'Planlanan çıkış saati geçti.' : `Çıkış: ${trHM(exitAt)} (telefon saatiyle ${localHM(exitAt)}).`) +
       (okPerm ? (past ? '' : ' Çıkıştan 10 dk önce ve çıkış saatinde bildirim gelecek; hedefe/stopa yaklaşınca da haber vereceğim.') : '\nBildirim izni yok — uyarılar gönderilemez.'),
       [{ text: 'Tamam' }, { text: 'Geçmiş’e git', onPress: onJournal }]);
   };
@@ -151,7 +150,7 @@ export default function Odte({ active, onJournal }: { active: boolean; onJournal
         <View>
           <Text style={{ color: C.text, fontSize: 26, fontWeight: '800' }}>0DTE Sinyal</Text>
           <Text style={{ color: isOpen ? C.pos : C.muted, fontSize: 13, fontWeight: '600' }}>
-            {isOpen ? '● Piyasa açık' : '○ Piyasa kapalı'} · {etHM(now)}{last ? ` · son ${etHM(last)}` : ''}
+            {isOpen ? '● Piyasa açık' : '○ Piyasa kapalı'} · {trHM(now)}{last ? ` · son ${trHM(last)}` : ''}
           </Text>
           <View style={{ marginTop: 6 }}><FreshnessPill /></View>
         </View>
@@ -194,7 +193,7 @@ export default function Odte({ active, onJournal }: { active: boolean; onJournal
         <View style={{ height: 8 }} />
         <Seg value={cfg.orMin} onChange={v => setCfg(c => ({ ...c, orMin: v }))} options={[[15, 'ORB 15 dk'], [30, 'ORB 30 dk']]} small />
         <Text style={s.hint}>
-          Yalnızca ABD seansında (09:30–16:00 ET) çalışır.{' '}
+          Yalnızca ABD seansında (TR {etToIst(9, 30)}–{etToIst(16, 0)}) çalışır.{' '}
           {hasMd
             ? `MarketData tahmini: ~${creditsPerRefresh(list.length, cfg.strikeLimit).toLocaleString('tr-TR')} kredi/yenileme (${list.length} sembol × (zincir ${2 * cfg.strikeLimit} + fiyat/vade/mum 3)); ${cfg.interval} dk aralıkla seans başına ~${Math.round(creditsPerRefresh(list.length, cfg.strikeLimit) * 390 / cfg.interval).toLocaleString('tr-TR')} kredi.`
             : 'CBOE/Yahoo: kredi yok; büyük sembollerde yenileme başına birkaç MB veri.'}

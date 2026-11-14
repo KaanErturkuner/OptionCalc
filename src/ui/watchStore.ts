@@ -7,15 +7,17 @@ const KEY = 'watchlist-v1';
 interface Data { items: WatchItem[] }
 let data: Data = { items: [] }, loaded = false;
 const subs = new Set<() => void>();
-const emit = () => { subs.forEach(f => f()); AsyncStorage.setItem(KEY, JSON.stringify(data)).catch(() => {}); };
+const emit = () => { subs.forEach(f => f()); if (loaded) AsyncStorage.setItem(KEY, JSON.stringify(data)).catch(() => {}); };
 let loading: Promise<void> | null = null;
 function ensure(): Promise<void> { if (!loading) loading = doLoad(); return loading; }
 async function doLoad() {
-  if (loaded) return; loaded = true;
+  if (loaded) return;
   try {
     const raw = await AsyncStorage.getItem(KEY);
     if (raw) { const j = JSON.parse(raw); if (Array.isArray(j?.items)) data = { items: [...j.items.filter((x: WatchItem) => x && x.id), ...data.items.filter(x => !j.items.some((y: WatchItem) => y?.id === x.id))] }; }
   } catch { /* boş */ }
+  loaded = true;
+  AsyncStorage.setItem(KEY, JSON.stringify(data)).catch(() => {});   // yükleme bitti: birleşik veriyi kaydet
   subs.forEach(f => f());
 }
 export const watch = {

@@ -4,7 +4,7 @@
  * max pain, P/C, sıra dışı hacim) puanı güçlendirir/zayıflatır. Yön hizalı ve puan eşiği aşılırsa kontrat seçilir.
  */
 import { mid, spreadPct, type Chain, type OptQuote } from '../market/types.ts';
-import { closeMs, etDate, marketOpen } from '../usmarket.ts';
+import { closeMs, etDate, etToIst, marketOpen } from '../usmarket.ts';
 import * as An from './analytics.ts';
 import type { Bar } from './analytics.ts';
 
@@ -131,7 +131,7 @@ export function decide(ticker: string, S: number, ch: Chain, F: Features, now: n
     if (!marketOpen(now)) return res(score, 'Piyasa kapalı');
     if (m < orMin) return res(score, `Açılış aralığı oluşuyor (ilk ${orMin} dk)`);
     if (m < startMin) return res(score, `İlk giriş ${startMin} dk sonra`);
-    if (m > endMin) return res(score, `${hhmm(endMin)} ET sonrası yeni giriş yok`);
+    if (m > endMin) return res(score, `${etToIst(Math.floor((570 + endMin) / 60), (570 + endMin) % 60)} TR sonrası yeni giriş yok`);
   }
   if (!bars.length) return res(score, 'Gün içi bar verisi yok');
   const dir = score > 0 ? 1 : -1;
@@ -168,11 +168,10 @@ export function decide(ticker: string, S: number, ch: Chain, F: Features, now: n
   const dte = Math.max(0, Math.round((Date.parse(ch.expiry) - Date.parse(etDate(now))) / 86400000));
   return res(score, null, {
     ticker, dir: dir > 0 ? 'call' : 'put', expiry: ch.expiry, dte, strike: pick.strike, entry, target, stop, rr: +rr.toFixed(2),
-    exitBy: dte === 0 ? '15:30 ET' : '15:45 ET (gün içi)', bid: pick.bid, ask: pick.ask, mid: mm, delta, volume: pick.volume, oi: pick.oi,
+    exitBy: dte === 0 ? `${etToIst(15, 30)} TR` : `${etToIst(15, 45)} TR (gün içi)`, bid: pick.bid, ask: pick.ask, mid: mm, delta, volume: pick.volume, oi: pick.oi,
     undTarget: +undTarget.toFixed(2), undStop: +undStop.toFixed(2), score, time: now,
   });
 }
-const hhmm = (m: number) => { const t = 570 + m; return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
 /** "SPY 0DTE 590C AL — giriş ≤ $x, kâr al $y, stop $z, en geç 15:30 ET çık" */
 export function signalText(s: Signal): string {
   const k = (s.strike % 1 ? s.strike.toFixed(1) : String(s.strike)) + (s.dir === 'call' ? 'C' : 'P');

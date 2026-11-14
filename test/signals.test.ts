@@ -94,7 +94,7 @@ ok('bar yaşı >2 dk: −5', (() => { const a = scoreSignal({ ...base, data: { d
 ok('zincir >5 dk: veto', scoreSignal({ ...base, data: { delayedMin: 0, barAgeSec: 30, chainAgeSec: 400 } }).vetoes.length > 0);
 ok('spread > maxSpread: veto', scoreSignal({ ...base, liq: { spreadPct: 9, liquid: true, maxSpreadPct: 8 } }).score === 0);
 ok('RR < minRr: veto', scoreSignal({ ...base, rr: { ...base.rr, rr: 3 } }).vetoes.some(v => v.startsWith('RR')));
-ok('0DTE 14:30 sonrası: veto', scoreSignal({ ...base, time: { etMin: 880, dte: 0 } }).vetoes.includes('0DTE 14:30 ET sonrası'));
+ok('0DTE 14:30 ET sonrası: veto (TR saatiyle)', scoreSignal({ ...base, time: { etMin: 880, dte: 0 } }).vetoes.some(v => /^0DTE \d{2}:\d{2} TR sonrası$/.test(v)));
 ok('bilanço DTE içinde (S5 hariç): veto', scoreSignal({ ...base, risk: { ...base.risk, earningsInDte: true } }).vetoes.includes('bilanço DTE içinde'));
 ok('bilanço S5 muaf', scoreSignal({ ...base, risk: { ...base.risk, earningsInDte: true, s5: true } }).vetoes.length === 0);
 ok('sermaye yetersiz: veto', scoreSignal({ ...base, budget: { askCost: 200, available: 150 } }).vetoes.includes('sermaye yetersiz'));

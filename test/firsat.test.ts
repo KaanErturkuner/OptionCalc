@@ -32,7 +32,7 @@ ok('normCdf(−1) ≈ 0,1587', near(normCdf(-1), 0.1587, 1e-3));
 ok('pTouch: gereken 0 → 1', near(pTouchApprox(0, 1), 1, 1e-6));
 ok('pTouch: gereken = 1 EM → ≈ 0,317', near(pTouchApprox(1, 1), 0.3173, 1e-3));
 ok('pTouch: EM 0 → 0', pTouchApprox(1, 0) === 0);
-ok('minRr: AGRESIF 4 (1:4 dâhil), güvenli 1,5, DURDU yok', minRrFor('AGRESIF') === 4 && minRrFor('GUVENLI_KAR') === 1.5 && minRrFor('DURDU') === Infinity);
+ok('minRr: AGRESIF 3 (1:3 dâhil), güvenli 1,5, DURDU yok', minRrFor('AGRESIF') === 3 && minRrFor('GUVENLI_KAR') === 1.5 && minRrFor('DURDU') === Infinity);
 ok('Türkçe sayı: 1,25', trNum(1.25, 2) === '1,25');
 
 // ---- kart: uygun 1:5 (AGRESIF)
@@ -40,7 +40,7 @@ ok('Türkçe sayı: 1,25', trNum(1.25, 2) === '1,25');
   const c = buildOpp(base());
   ok('kart: RR = 1:5,2 (çıkış/giriş)', near(c.rr, 5.2));
   ok('kart: giriş = dolum (ask+kayma, RR girişi)', near(c.fill, 1));
-  ok('kart: stop prim ≥ −%40 tavanı (0,60)', c.stopPrem >= 0.6 - 1e-9, String(c.stopPrem));
+  ok('kart: stop prim ≥ −%50 tavanı (0,50)', c.stopPrem >= 0.5 - 1e-9, String(c.stopPrem));
   ok('kart: skor 0–100 ve etiket', c.score >= 0 && c.score <= 100 && ['Zayıf', 'Orta', 'İyi', 'Güçlü'].includes(c.label), String(c.score));
   ok('kart: uygun (1:5, skor ≥ 65, kontrat 1 adet)', c.eligible && c.mode === 'AGRESIF', `${c.eligible} ${c.mode} ${c.reason} skor ${c.score} ${c.vetoes}`);
   ok('kart: kademe %50 bütçe 150, 1 kontrat', c.sizing !== null && c.sizing.budget === 150 && c.sizing.contracts === 1, JSON.stringify(c.sizing));
@@ -55,10 +55,10 @@ ok('Türkçe sayı: 1,25', trNum(1.25, 2) === '1,25');
   const c = buildOpp(base({ pick: pick({ rr: 4.2, primTarget: 4.2 }) }));
   ok('kart: 1:5 yok, 1:4,2 → AGRESIF_4 uygun', c.mode === 'AGRESIF_4' && c.eligible, `${c.mode} ${c.eligible} ${c.reason} ${c.vetoes}`);
 }
-// 1:3 → giriş yok
+// 1:3 → yedek 3 (AGRESIF_3)
 {
   const c = buildOpp(base({ pick: pick({ rr: 3, primTarget: 3 }) }));
-  ok('kart: 1:3 Agresif modda uygun değil (veto RR < 4)', c.eligible === false && c.vetoes.some(v => v.startsWith('RR')), `${c.vetoes}`);
+  ok('kart: 1:3 Agresif modda uygun (AGRESIF_3)', c.eligible === true && c.mode === 'AGRESIF_3', `${c.mode} ${c.vetoes}`);
 }
 // vetolar
 {

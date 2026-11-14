@@ -9,7 +9,7 @@ import { PREMIUM_STOP_PCT } from '../paper/rules.ts';
 import { netPnl } from '../paper/costs.ts';
 import type { Kademe } from '../paper/types.ts';
 import { cardCalendarLines, eventsOn, nextTd, BLOCKING_KEYS } from '../calendar/releases.ts';
-import { etDate } from '../usmarket.ts';
+import { etDate, etToIst } from '../usmarket.ts';
 import { fmt } from '../format.ts';
 
 export const MAX_TRADE_CARDS = 3;
@@ -58,12 +58,12 @@ export const dteLabelOf = (dte: number): string => (dte === 0 ? '0DTE' : `${dte}
 
 /** Gece taşıma etiketi (§7.8 ve K4): 0DTE her zaman 15:45'te kapanır; 1–3 DTE, bugün/yarın FOMC/CPI/NFP varsa taşınmaz. */
 export function overnightOf(dte: number, nowMs: number): OvernightLabel {
-  if (dte < 1) return { carry: false, label: "15:45 ET'de kapat", sub: '0DTE: gün bitmeden kapanır' };
+  if (dte < 1) return { carry: false, label: `Kapat: ${etToIst(15, 45)} TR`, sub: '0DTE: gün bitmeden kapanır' };
   const today = etDate(nowMs);
   const blocking = [...new Set([today, nextTd(today)]
     .flatMap(d => eventsOn(d).filter(e => BLOCKING_KEYS.has(e.key)).map(e => e.short)))];
-  if (blocking.length) return { carry: false, label: "15:45 ET'de kapat", sub: `${blocking.join(', ')} nedeniyle gece taşınmaz` };
-  return { carry: true, label: 'Gece taşınabilir', sub: '15:45 ET kararı: rejim ve gece riski kontrolü' };
+  if (blocking.length) return { carry: false, label: `Kapat: ${etToIst(15, 45)} TR`, sub: `${blocking.join(', ')} nedeniyle gece taşınmaz` };
+  return { carry: true, label: 'Gece taşınabilir', sub: `${etToIst(15, 45)} TR kararı: rejim ve gece riski kontrolü` };
 }
 
 /** Adet ve komisyon: kademe bütçesi (sermaye × %) ile floor(bütçe / (prim×100 + komisyon)). Net K/Z komisyon dâhil. */
@@ -107,7 +107,7 @@ export function normalizeVerdict(raw: unknown): VerdictCard | null {
     regime: str(raw.regime),
     expiry: str(raw.expiry), dte: num(raw.dte),
     strike: num(raw.strike), bid: num(raw.bid), ask: num(raw.ask), mid: num(raw.mid),
-    entry: num(raw.entry), stop: num(raw.stop), t5: num(raw.t5), t4: num(raw.t4), riskPerContract: num(raw.riskPerContract),
+    entry: num(raw.entry), stop: num(raw.stop), t5: num(raw.t5), t4: num(raw.t4), t3: num(raw.t3), riskPerContract: num(raw.riskPerContract),
     tierPct: num(raw.tierPct), contracts: num(raw.contracts),
     rationale: str(raw.rationale) ?? '', note: str(raw.note) ?? '',
   };

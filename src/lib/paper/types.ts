@@ -1,7 +1,7 @@
 /* Kâğıt hesap (Aşama 4) tipleri — SINYAL-FIRSAT §7. Saf. Gerçek emir yok. */
 
 /** Hesap modu (§7.1). AGRESIF_4 yalnızca sinyal etiketidir: hesap modu AGRESIF iken 1:5 yoksa 1:4 kabul edilir. */
-export type PaperMode = 'AGRESIF' | 'AGRESIF_4' | 'GUVENLI_KAR' | 'GUVENLI_ZARAR' | 'DURDU';
+export type PaperMode = 'AGRESIF' | 'AGRESIF_4' | 'AGRESIF_3' | 'GUVENLI_KAR' | 'GUVENLI_ZARAR' | 'DURDU';
 
 /** Kademe (pozisyon yüzdesi). Kaan kararı: 30 → 40 → 50; azami 50 değişmez (§7.2). */
 export type Kademe = 0.3 | 0.4 | 0.5;

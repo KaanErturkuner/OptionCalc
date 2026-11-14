@@ -39,6 +39,8 @@ export interface Sizing {
 export function sizePosition(capital: number, k: Kademe, fill: number,
   opts: { commission?: number; fractional?: boolean } = {}): Sizing {
   const comm = opts.commission ?? DEFAULT_COMMISSION;
+  // Sermaye geçersizse (NaN, 0, negatif) işlem açılmaz: NaN adet asla üretilmez.
+  if (!(capital > 0) || !Number.isFinite(capital)) return { budget: 0, contracts: 0, cost: 0, openComm: 0 };
   const budget = budgetFor(capital, k);
   const per = fill * 100 + comm;
   if (!(per > 0) || !Number.isFinite(per)) return { budget, contracts: 0, cost: 0, openComm: 0 };

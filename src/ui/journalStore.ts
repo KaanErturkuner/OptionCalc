@@ -7,16 +7,18 @@ const KEY = 'journal-v1';
 interface Data { trades: Trade[]; signals: SignalLog[] }
 let data: Data = { trades: [], signals: [] }, loaded = false;
 const subs = new Set<() => void>();
-const emit = () => { subs.forEach(f => f()); AsyncStorage.setItem(KEY, JSON.stringify(data)).catch(() => {}); };
+const emit = () => { subs.forEach(f => f()); if (loaded) AsyncStorage.setItem(KEY, JSON.stringify(data)).catch(() => {}); };
 let loading: Promise<void> | null = null;
 function ensure(): Promise<void> {
   if (!loading) loading = doLoad();
   return loading;
 }
 async function doLoad() {
-  if (loaded) return; loaded = true;
+  if (loaded) return;
   try { const raw = await AsyncStorage.getItem(KEY); if (raw) { const j = JSON.parse(raw), seen = new Set([...data.trades, ...data.signals].map(x => x.id)); // yükleme öncesi eklenenleri koru
     data = { trades: [...data.trades, ...(j.trades || []).filter((x: Trade) => !seen.has(x.id))], signals: [...data.signals, ...(j.signals || []).filter((x: SignalLog) => !seen.has(x.id))] }; } } catch { /* boş */ }
+  loaded = true;
+  AsyncStorage.setItem(KEY, JSON.stringify(data)).catch(() => {});   // yükleme bitti: birleşik veriyi kaydet
   subs.forEach(f => f());
 }
 export const journal = {

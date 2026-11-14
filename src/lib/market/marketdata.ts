@@ -36,7 +36,7 @@ export function mdError(status: number, j: any): string {
   if (/one device/i.test(m)) return 'MarketData: tek cihaz kuralı — token başka bir cihaz/IP’den de kullanılıyor; 5 dk bekleyip tek cihazdan dene';
   if (status === 401) return 'Sunucu (MarketData proxy): anahtar geçersiz';
   if (status === 402) return 'MarketData: bu veri planında yok (402)';
-  if (status === 429) return 'MarketData: günlük kredi bitti (09:30 ET’de yenilenir)';
+  if (status === 429) return 'MarketData: günlük kredi bitti (ABD açılışında, TR 16:30–17:30 arası yenilenir)';
   if (status === 404) return 'Sembol bulunamadı';
   return 'MarketData: ' + (m || `HTTP ${status}`);
 }

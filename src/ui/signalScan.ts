@@ -23,6 +23,8 @@ import { qNote } from '@/lib/signals/qull/note';
 import { qExitTriggers } from '@/lib/signals/qull/exits';
 import { scanStrikes, type Quote } from '@/lib/signals/strikes';
 import { etMinutes, sessionLeftMin, timeToExpiryMin, timeToExpiryYears, scaleEm } from '@/lib/signals/session';
+import { EOD_FORCE_ET_MIN } from '@/lib/signals/riskwatch';
+import { journal } from '@/ui/journalStore';
 import { calendarCheck, isEtf, type CalendarCheck, type EarningsInfo } from '@/lib/calendar/events';
 import { fetchFinnhubEarnings } from '@/lib/news/finnhub';
 import { buildOpp, minRrFor, type Opp, type OppInput } from '@/lib/signals/opp';
@@ -35,7 +37,7 @@ import { nextTradingDay } from '@/lib/paper/overnight';
 import { tickPosition, outcomeOf } from '@/lib/paper/engine';
 import { approvalTtlMs, expiryReason, repriceOnApprove, resolveApproval, decisionLabel, type ApprovalSignal } from '@/lib/paper/approval';
 import type { PaperAccount, OpenPosition, Kademe } from '@/lib/paper/types';
-import { etDate } from '@/lib/usmarket';
+import { etDate, isEarlyCloseDay } from '@/lib/usmarket';
 import { radar } from '@/ui/radarStore';
 import { notifyFirsat } from '@/ui/notify';
 import { cached, SCAN_TTL } from './scanCache';
@@ -325,32 +327,41 @@ async function nightCalendar(ticker: string, day: string): Promise<CalendarCheck
   return r;
 }
 
-/** Açık pozisyonu tick'ler: risk, gece, gap. Sonuçları kaydeder ve bildirir. */
+/** Açık pozisyonu tick'ler: risk, gece, gap. Sonuçları kaydeder ve bildirir.
+ *  Veri eksikse son bilinen bid kullanılır. 15:45 ET (erken kapanış günü 12:45) zorunlu çıkış: 0DTE, veri yoksa veya erken kapanış günüyse
+ *  tarama olmasa bile çalışır (Kaan kararı: belirsizlikte pozisyon vadeye açık kalmaz). */
 function tickPaper(paper: PaperAccount, scans: Scan[], now: number, calendar: CalendarCheck | null): PaperAccount {
   const pos = paper.position;
   if (!pos) { firsat.setPosLive(null); return paper; }
   const sc = scans.find(s => s.ticker === pos.ticker);
-  if (!sc) return paper;
-  const q = sc.quotes.find(x => x.type === pos.dir && x.strike === pos.strike);
-  const flags = flagsFor(sc, pos);
-  const adaptive = adaptiveFor(sc, pos, now);
+  const q = sc?.quotes.find(x => x.type === pos.dir && x.strike === pos.strike);
+  const last = firsat.get().posLive;
+  const bid = q && q.bid > 0 ? q.bid : (last && last.bid > 0 ? last.bid : null);
+  const day = etDate(now), mins = etMinutes(now), early = isEarlyCloseDay(day);
+  const forceAt = (early ? 13 * 60 : 16 * 60) - 15;
+  if (!sc && mins < forceAt) return paper;                       // veri yok ve zorunlu saat değil: bekle
+  const forced = mins >= forceAt && (pos.dte < 1 || !sc || early);
+  const adaptive = sc ? adaptiveFor(sc, pos, now) : null;
   const r = tickPosition(paper, {
-    day: etDate(now), now, etMin: sc.etMin, bid: q ? q.bid : null, flags, adaptive, S: sc.S, ivAtm: sc.ivAtm ?? NaN,
-    openUnd: sc.sb.length ? sc.sb[0].o : undefined, openBid: q?.bid,
-    qExit: qExitTriggers(pos, sc.sb, { lod: firsat.get().settings.q.exitLod, ema: firsat.get().settings.q.exitEma }),
-    calendar: calendar ?? { ok: false, reasons: ['takvim sorgulanmadı'] }, strongTriggerLast30: adaptive.rev > adaptive.cont, regimeAligned: !adaptive.regimeAgainst,
+    day, now, etMin: forced ? EOD_FORCE_ET_MIN : (sc ? sc.etMin : mins), bid,
+    flags: sc ? flagsFor(sc, pos) : {}, adaptive, S: sc?.S ?? NaN, ivAtm: sc?.ivAtm ?? NaN,
+    openUnd: sc?.sb.length ? sc.sb[0].o : undefined, openBid: q?.bid,
+    qExit: sc ? qExitTriggers(pos, sc.sb, { lod: firsat.get().settings.q.exitLod, ema: firsat.get().settings.q.exitEma }) : undefined,
+    calendar: calendar ?? { ok: false, reasons: ['takvim sorgulanmadı'] }, strongTriggerLast30: adaptive ? adaptive.rev > adaptive.cont : false,
+    regimeAligned: adaptive ? !adaptive.regimeAgainst : false,
   });
   for (const e of r.events) {
     notifyFirsat(`Fırsat · ${pos.ticker} kâğıt`, e.text, `${pos.id}|${e.kind}|${now}`).catch(() => {});
     if (e.kind === 'close' && e.trade) {
       const log = firsat.get().log;
       firsat.setLog(log.map(l => l.id === pos.id ? { ...l, result: outcomeOf(e.trade!.reason), r: e.trade!.rMultiple } : l));
+      journal.updateTrade(pos.id, { exit: e.trade.exit, exitTime: now, note: `Fırsat kâğıt · ${e.trade.reason}` });
     }
   }
   const np = r.acc.position;
-  const live: PosLive | null = np && q
-    ? { bid: q.bid, rMult: profitR(np, q.bid), at: now, triggers: Object.entries(flags).filter(([, v]) => v).map(([k]) => k), stop: np.stopPrem,
-      adaptive: adaptive.verdict === 'YOK' ? null : adaptive.reason }
+  const live: PosLive | null = np && bid != null
+    ? { bid, rMult: profitR(np, bid), at: now, triggers: sc ? Object.entries(flagsFor(sc, pos)).filter(([, v]) => v).map(([k]) => k) : [], stop: np.stopPrem,
+      adaptive: adaptive && adaptive.verdict !== 'YOK' ? adaptive.reason : null }
     : null;
   firsat.setPosLive(live);
   return r.acc;
@@ -384,8 +395,8 @@ export async function runSignalScan(): Promise<number> {
     const pos = paper.position;
     const calendar = pos && pos.dte >= 1 && etMinutes(now) >= 945 ? await nightCalendar(pos.ticker, etDate(now)) : null;
     paper = tickPaper(paper, scans, now, calendar);
-    refreshCards(scans, now, ttl, paper.mode);
-    firsat.setPaper(paper);
+    firsat.setPaper(paper);                                 // önce kaydet: sonraki adım hata verse bildirim tekrarlanmaz
+    try { refreshCards(scans, now, ttl, paper.mode); } catch { /* kart yenilemesi hatası tur sonucunu bozmaz */ }
     firsat.setLastScan(now);
   } finally { running = false; }
   return ok;
@@ -430,7 +441,11 @@ export async function approveCard(id: string): Promise<string> {
       fill: rep.fill, stopPrem: card.stopPrem * (rep.fill / card.fill), targetPrem: fresh.primTarget, targetR: modeTargetR(mode, fresh.rr),
       mode, now, day: etDate(now), und: card.und,
     });
-    if (o.ok) { paper = o.acc; firsat.setPaper(paper); }
+    if (o.ok) {
+      paper = o.acc; firsat.setPaper(paper);
+      journal.addTrade({ id: card.id, ticker: card.ticker, type: card.type, strike: card.strike, expiry: card.expiry, qty: o.acc.position?.contracts ?? 0,
+        entry: rep.fill, entryTime: now, target: fresh.primTarget, stop: card.stopPrem * (rep.fill / card.fill), fromSignal: true, note: `Fırsat kâğıt · ${mode}` });
+    }
     else { state = 'reddedildi'; note = o.reason; }
   } else if (state === 'fiyat-kacti') {
     note = rep && !rep.ok ? rep.detail : note;
