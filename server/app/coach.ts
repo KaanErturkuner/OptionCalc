@@ -406,6 +406,7 @@ export class Coach {
     const open: CoachOpenView[] = pairing.open.map(o => ({
       tk: o.tk, exp: o.exp, k: o.k, cp: o.cp, qty: o.qty, entryT: o.entryT, entryPx: o.entryPx,
       closedQty: o.closedQty, closedPx: o.closedPx,
+      entryFillId: o.entryFillId, legFillIds: o.legs.map(l => l.fillId),
     }));
     const pending = pairing.trades.filter(p => !this.d.store.coachReportGet(p.sig)).length;
     return {

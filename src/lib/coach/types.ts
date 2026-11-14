@@ -110,6 +110,8 @@ export interface CoachOpenView {
   entryT: string; entryPx: number;
   closedQty: number;       // kısmen kapatılmış kısım
   closedPx: number | null;
+  entryFillId?: number;    // giriş (alış) dolum kimliği — Düzenle/Sil için (yoksa bu sürüm sunucusu değildir)
+  legFillIds?: number[];   // kısmi kapanış (satış) dolum kimlikleri
 }
 export interface CoachDayView {
   day: string;

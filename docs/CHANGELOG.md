@@ -1,5 +1,28 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — Koç: düğmelerle elle düzenleme (kapat / düzenle / sil), AI çağrısı yok
+
+**Neden:** Koç komut kutusu tek yönlüydü (serbest metin → Haiku öneri). Kaan bir işlemi ya da açık pozisyonu dokunarak düzeltmek, kısmi kapatmak ve silmek istedi. Yeni yol Haiku'yu çağırmaz; mevcut `POST /coach/komut/uygula` uç noktasını yapılandırılmış işlemlerle (add/update/delete) kullanır. Komut kutusu olduğu gibi duruyor.
+
+**Ne:**
+- **Açık pozisyon:** "Kapat" (satış ekle: fiyat, adet ±/yazı, en çok açık adet, saat; varsayılan şimdi İstanbul HH:MM, gün = seçili gün; alıştan önce olamaz), "Düzenle" (giriş fiyatı, toplam adet, strike, C/P, vade, saat → `update` yalnız değişen alanlarla), "Sil" (onay → alış + bağlı kapanış dolumları).
+- **Eşleşmiş işlem:** "Düzenle" (giriş fiyat/saat, adet, strike, tür, vade; çıkış fiyat/saat) ve "Sil" (onay → alış + satış dolumları). Çıkış alanları yalnız **tek, paylaşılmayan** satış dolumu varsa açık; kademeli çıkış ya da başka güne düşen/paylaşılan dolum kilitli (neden gösterilir).
+- **Ortak uygulama:** `applyChanges()` (Koc.tsx) komut onayı, kapat, düzenle, sil için aynı yol: `applyKomut` → görünüm → `coachLoop()` (koçluk döngüsü, eski komut akışından taşındı) → yenile.
+- **Saf yardımcılar** `src/lib/coach/manual.ts`: fiyat (virgül/nokta), strike, adet, saat HH:MM, vade (YYYY-MM-DD veya GG.AA; yıl yoksa seçili gün yılı, geçmişse sonraki yıl), İstanbul şimdi, kapat/düzenle/sil eylem kurucuları, sig'den dolum kimliği (`tradeFillIds`).
+- **UI:** `src/ui/CoachEdit.tsx` (RN Modal, koyu tema, ≥44 pt, büyük yazı; numerik ondalık klavye). Yeni native bağımlılık yok.
+- **Görünüm tipi (küçük sunucu değişikliği):** `CoachOpenView` ↑ `entryFillId?`, `legFillIds?` (`server/app/coach.ts` tek satır). Açık pozisyonun giriş dolumu başka günde olabildiği için yalnız görünüm günü `fills` yetmiyordu. Sunucu eski sürümdeyken açık pozisyonda Düzenle/Sil kapalı kalır (Kapat çalışır).
+
+**Dosyalar:** `src/lib/coach/manual.ts` (yeni), `src/ui/CoachEdit.tsx` (yeni), `src/screens/Koc.tsx`, `src/lib/coach/types.ts`, `server/app/coach.ts` (1 satır), `test/coach-manual.test.ts` (yeni), `package.json` (test zinciri).
+
+**Doğrulama:** `npm test` ✓ (yeni `coach-manual.test.ts` dahil; sunucu `komut-test` de geçti); `npx tsc --noEmit` ✓; `npm run lint` ✓ (uyarı yok). Cihazda (Expo Go) görsel kontrol **yapılmadı**; sunucuya canlı istek atılmadı.
+
+**Açık / dikkat:**
+- **Sunucu deploy gerekir** (yalnız açık pozisyon Düzenle/Sil için `entryFillId`). Deploy edilmeden uygulama çalışır, o iki düğme pasif kalır.
+- Silme ve çıkış düzenleme dolum düzeyinde çalışır: paylaşılan bir satış dolumu silinirse başka pozisyonun eşleşmesi de değişir. Onay metni silinecek dolumları listeler; çıkış düzenlemesi paylaşılan dolumda kilitlidir.
+- Koçluk: düzeltme sonrası değişen işlemlerin raporu silinir ve yeniden üretilir (sunucu kuralı). Bu da Haiku çağrısı doğurabilir (mevcut komut akışıyla aynı).
+- Düzenleme önizlemesi yok (Kaydet doğrudan uygular, yalnız Kapat ve Sil'de onay var). İstenirse eklenir.
+- Yükleme akışının kendi koçluk döngüsü bilerek dokunulmadı.
+
 ## 2026-11-14 — Claude — Bilanço takvimi: Nasdaq → Finnhub (sunucu önbelleği), görsel ekranlar, favoriler ve sonuç bildirimi
 
 **Neden:** Bilanço takvimi resmî olmayan Nasdaq uç noktasına bağlıydı (kırılgan, sürpriz/gerçek EPS yok). Kaan görsel bir takvim, sürpriz yüzdesi, grafikler, favori yıldızı ve gerçek EPS açıklanınca bildirim istedi. Anahtar yalnız sunucuda kalır.
