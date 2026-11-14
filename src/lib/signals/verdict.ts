@@ -139,9 +139,10 @@ export function levelsFor(entry: number): { entry: number; stop: number; t5: num
 
 export const TIER_LABEL = '%50 / %40 / %30 kademe';
 
+export interface VerdictLevels { S: number; vwap: number | null; orHigh: number | null; orLow: number | null; flip: number | null }
 export interface VerdictCard {
   dir: VerdictDir; strength: number; strengthText: string; sum: number;
-  crits: Crit[]; fired: string[];
+  crits: Crit[]; fired: string[]; levels: VerdictLevels;   // levels: tetikleyici metni için (bekle kartı)
   expiry: string | null; dte: number | null;
   strike: number | null; bid: number | null; ask: number | null; mid: number | null;
   entry: number | null; stop: number | null; t5: number | null; t4: number | null; riskPerContract: number | null;
@@ -163,8 +164,10 @@ const trNum = (x: number, d = 2) => (Number.isFinite(x) ? x.toFixed(d).replace('
 /** Tam sonuç: yön + vade/strike/prim + gerekçe. Yön Bekle ise strike/prim yine de önerilir (gösterim için) ama giriş açılmaz. */
 export function buildVerdict(b: BuildInput): VerdictCard {
   const t = tally(criteria(b.inputs));
+  const I = b.inputs;
+  const levels: VerdictLevels = { S: I.S, vwap: I.vwap, orHigh: I.orHigh, orLow: I.orLow, flip: I.flip };
   const base = { dir: t.dir, strength: t.strength, strengthText: strengthLabel(t.strength), sum: t.sum, crits: t.crits,
-    fired: t.fired.map(c => c.text), tierPct: b.kademe != null ? Math.round(b.kademe * 100) : null, contracts: null, note: CARD_NOTE };
+    fired: t.fired.map(c => c.text), levels, tierPct: b.kademe != null ? Math.round(b.kademe * 100) : null, contracts: null, note: CARD_NOTE };
   const exp = pickExpiry(b.expiries, b.nowMs);
   const none = (why: string): VerdictCard => ({ ...base, expiry: exp?.date ?? null, dte: exp?.dte ?? null, strike: null, bid: null, ask: null, mid: null,
     entry: null, stop: null, t5: null, t4: null, riskPerContract: null, rationale: why });

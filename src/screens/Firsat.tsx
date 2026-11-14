@@ -16,6 +16,8 @@ import { KADEMELER } from '@/lib/paper/sizing';
 import type { PaperMode } from '@/lib/paper/types';
 import { TRIGGER_AD } from '@/lib/signals/riskwatch';
 import { isQ, type QSettings } from '@/lib/signals/qull/policy';
+import { buildBoard, type BoardEntry } from '@/lib/signals/trade';
+import { TradeCardView, WaitCardView } from '@/ui/TradeCard';
 
 /** Qullamaggie ayar satırları (Qullamaggie uyarlaması — Kaan onayı yok). */
 const Q_ROWS: [keyof QSettings, string][] = [
@@ -105,26 +107,31 @@ export default function Firsat() {
   const [now, setNow] = useState(() => Date.now());
   const [openId, setOpenId] = useState<string | null>(null);
   const [capIn, setCapIn] = useState<number | null>(300);
+  const [detOpen, setDetOpen] = useState(false);
   useEffect(() => { firsat.load(); const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const p = D.paper;
   const modeTxt = p ? MODE_TXT[p.mode] : '—';
   const streak = p ? (p.winStreak > 0 ? `${p.winStreak} kazanç` : p.lossStreak > 0 ? `${p.lossStreak} kayıp` : 'yok') : '—';
   const stats = p ? summarize(p.trades) : null;
   const cards = [...D.cards].sort((a, b) => (a.state === 'bekliyor' ? 0 : 1) - (b.state === 'bekliyor' ? 0 : 1) || b.createdAt - a.createdAt);
+  const pending = cards.filter(c => c.state === 'bekliyor');
+  const past = cards.filter(c => c.state !== 'bekliyor');
   const cal = calibration(D.log);
   const pos = p?.position ?? null;
   const commOpt: [number, string][] = [[BROKER_COMMISSION.midas, 'Midas 1,50 $'], [BROKER_COMMISSION.ibkr, 'IBKR 0,65 $']];
+  // Fırsat panosu: her ticker'ın Sonuç kararından en güçlü 1–3 işlem kartı; yoksa BEKLE kartı (saf türetim: lib/signals/trade.ts)
+  const entries: BoardEntry[] = Object.entries(D.status).flatMap(([t, s]) => (s.verdict ? [{ ticker: t, verdict: s.verdict }] : []));
+  const board = buildBoard(entries, now, p ? { capital: p.capital, kademe: p.kademe, commission: p.settings.commission } : null);
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 12, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 40, gap: 10 }}>
       <View>
         <Text style={{ color: C.text, fontSize: 22, fontWeight: '800' }}>Fırsat</Text>
-        <Text style={{ color: C.muted, fontSize: 12 }}>Kâğıt işlem simülasyonu. Yatırım tavsiyesi değildir.</Text>
         <View style={{ marginTop: 6 }}><FreshnessPill /></View>
       </View>
 
-      {/* 1) Hesap şeridi */}
-      <Card title="Hesap">
+      {/* 1) Hesap özeti (tek satır) */}
+      <Card>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
           <Stat k="Sermaye" v={p ? usd(p.capital, 2) : '—'} />
           <Stat k="Bugün K/Z" v={p ? signed(p.dayPnl) : '—'} color={p && p.dayPnl < 0 ? C.neg : p && p.dayPnl > 0 ? C.pos : undefined} />
@@ -133,26 +140,17 @@ export default function Firsat() {
           <Stat k="Seri" v={streak} />
         </View>
         {p && p.mode === 'DURDU' ? <Text style={{ color: C.neg, fontSize: 12, marginTop: 6 }}>Başkan, bugünlük bu kadar. Yeni işlem yok.</Text> : null}
-        {D.lastScan ? <Text style={{ color: C.muted, fontSize: 11, marginTop: 6 }}>Son tarama {istHM(D.lastScan)} (İstanbul)</Text> : null}
-        <View style={{ marginTop: 8 }}><Btn label="Şimdi tara" onPress={() => { runSignalScan().catch(() => {}); }} /></View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+          <Text style={{ color: C.muted, fontSize: 11, flex: 1 }}>{D.lastScan ? `Son tarama ${istHM(D.lastScan)} (İstanbul)` : 'Henüz tarama yok'}</Text>
+          <View style={{ width: 130 }}><Btn label="Şimdi tara" onPress={() => { runSignalScan().catch(() => {}); }} /></View>
+        </View>
       </Card>
 
-      {/* 2) Sinyal tickerları */}
-      <SignalTickers />
-
-      {/* 2a) Sonuç: ticker başına yön / güç / strike-prim / stop-hedef (kağıt üstü) */}
-      {Object.entries(D.status).some(([, s]) => s.verdict) ? (
-        <Card title="Sonuç">
-          <View style={{ gap: 10 }}>
-            {Object.entries(D.status).filter(([, s]) => s.verdict).map(([t, s]) => (
-              <VerdictBlock key={t} ticker={t} v={s.verdict!} />
-            ))}
-          </View>
-          <Text style={{ color: C.muted, fontSize: 11, marginTop: 6 }}>
-            {`Veri: ${Object.values(D.status).map(s => s.source).filter(Boolean)[0] ?? '—'} · dayanak 1 dk barı (Yahoo) varsa ondan; yoksa kotasyon (gecikmeli olabilir).`}
-          </Text>
-        </Card>
-      ) : null}
+      {/* 2) Ana karar: işlem kartları (en güçlü 3) ya da BEKLE */}
+      {board.trades.length ? board.trades.map(t => <TradeCardView key={t.key} c={t} />) : board.wait ? <WaitCardView w={board.wait} /> : null}
+      <Text style={{ color: C.muted, fontSize: 11, lineHeight: 15 }}>
+        Kâğıt üstü · tavsiye değildir. Prim brüt; komisyon ayrıca gösterilir.
+      </Text>
 
       {/* 3) Açık pozisyon */}
       {pos ? (
@@ -169,104 +167,130 @@ export default function Firsat() {
         </Card>
       ) : null}
 
-      {/* 4) Aktif fırsatlar */}
-      <Card title="Fırsatlar">
-        {cards.length === 0 ? (
-          <Text style={{ color: C.muted, fontSize: 13 }}>Başkan, şu an 1:5 veya 1:4 kurulum yok, bekliyorum.</Text>
-        ) : (
+      {/* 4) Onay bekleyen kâğıt işlemler (Onayla / Geç) */}
+      {pending.length ? (
+        <Card title="Onay bekliyor">
           <View style={{ gap: 10 }}>
-            {cards.slice(0, 12).map(c => (
+            {pending.slice(0, 6).map(c => (
               <OpportunityCard key={c.id} c={c} now={now} n={validationN(D.log, c)} open={openId === c.id} toggle={() => setOpenId(openId === c.id ? null : c.id)} locked={!!pos} />
             ))}
           </View>
-        )}
-        {Object.values(D.status).some(s => s.setups.length) ? (
-          <View style={{ marginTop: 8, gap: 2 }}>
-            <Text style={{ color: C.muted, fontSize: 12, fontWeight: '700' }}>Tarama notları</Text>
-            {Object.entries(D.status).flatMap(([t, s]) => s.setups.map(x => `${t}: ${x}`)).slice(0, 20).map((x, i) => (
-              <Text key={i} style={{ color: C.muted, fontSize: 11 }}>{x}</Text>
+        </Card>
+      ) : null}
+
+      {/* 5) Detaylar: varsayılan kapalı */}
+      <Card>
+        <Text onPress={() => { tap(); setDetOpen(o => !o); }} style={{ color: C.text, fontSize: 14, fontWeight: '800' }}>
+          {detOpen ? '▾ Detayları gizle' : '▸ Detaylar (koşullar, göstergeler, özet, ayarlar)'}
+        </Text>
+        {detOpen ? (
+          <View style={{ gap: 12, marginTop: 12 }}>
+            {/* Ticker bazlı ham Sonuç kartları (kriter dökümü) */}
+            {entries.length ? (
+              <View style={{ gap: 10 }}>
+                <Text style={{ color: C.muted, fontSize: 12, fontWeight: '700' }}>Ticker bazlı koşullar</Text>
+                {entries.map(e => <VerdictBlock key={e.ticker} ticker={e.ticker} v={e.verdict} />)}
+                <Text style={{ color: C.muted, fontSize: 11 }}>
+                  {`Veri: ${Object.values(D.status).map(s => s.source).filter(Boolean)[0] ?? '—'} · dayanak 1 dk barı (Yahoo) varsa ondan; yoksa kotasyon (gecikmeli olabilir).`}
+                </Text>
+              </View>
+            ) : null}
+
+            {Object.values(D.status).some(s => s.setups.length) ? (
+              <View style={{ gap: 2 }}>
+                <Text style={{ color: C.muted, fontSize: 12, fontWeight: '700' }}>Tarama notları</Text>
+                {Object.entries(D.status).flatMap(([t, s]) => s.setups.map(x => `${t}: ${x}`)).slice(0, 20).map((x, i) => (
+                  <Text key={i} style={{ color: C.muted, fontSize: 11 }}>{x}</Text>
+                ))}
+              </View>
+            ) : null}
+
+            {past.length ? (
+              <View style={{ gap: 10 }}>
+                <Text style={{ color: C.muted, fontSize: 12, fontWeight: '700' }}>Geçmiş kartlar</Text>
+                {past.slice(0, 12).map(c => (
+                  <OpportunityCard key={c.id} c={c} now={now} n={validationN(D.log, c)} open={openId === c.id} toggle={() => setOpenId(openId === c.id ? null : c.id)} locked={!!pos} />
+                ))}
+              </View>
+            ) : null}
+
+            <Text style={{ color: C.text, fontSize: 13, fontWeight: '800' }}>Özet ve kayıt</Text>
+            {stats && stats.n > 0 ? (
+              <>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  <Stat k="İşlem" v={String(stats.n)} />
+                  <Stat k="Kazanma" v={`%${trNum(stats.winPct, 0)}`} />
+                  <Stat k="Ort. R" v={trNum(stats.avgR, 2)} />
+                  <Stat k="PF" v={Number.isFinite(stats.pf) ? trNum(stats.pf, 2) : '∞'} />
+                  <Stat k="Maks. düşüş" v={usd(stats.maxDrawdown, 0)} />
+                  <Stat k="En uzun kayıp" v={String(stats.longestLossStreak)} />
+                </View>
+                <View style={{ gap: 2 }}>
+                  {p!.trades.slice(-20).reverse().map(t => (
+                    <Text key={t.id + t.day + t.exit} style={{ color: t.netPnl >= 0 ? C.pos : C.neg, fontSize: 12 }}>
+                      {`${t.day.slice(5)} ${t.ticker} ${t.setup} · ${signed(t.netPnl)} (${trNum(t.rMultiple, 1)}R) · ${t.reason}${t.overnight ? ' · gece' : ''} · sermaye ${usd(t.capitalAfter, 0)}`}
+                    </Text>
+                  ))}
+                </View>
+              </>
+            ) : <Text style={{ color: C.muted, fontSize: 13 }}>Henüz kapanmış işlem yok.</Text>}
+
+            <Text style={{ color: C.text, fontSize: 13, fontWeight: '800' }}>İsabet (kalibrasyon)</Text>
+            <Text style={{ color: C.muted, fontSize: 12 }}>Skor kovasına göre gerçekleşen sonuç (yalnız kapanmış sinyaller). Ağırlıklar otomatik değişmez.</Text>
+            {cal.map(b => (
+              <Text key={b.bucket} style={{ color: C.text, fontSize: 13 }}>
+                {`${b.bucket}: n=${b.n}` + (b.n ? ` · kazanma %${trNum(b.winPct ?? 0, 0)} · ort. R ${trNum(b.avgR ?? 0, 2)} · PF ${b.pf == null ? '—' : trNum(b.pf, 2)}` : ' · veri yok')}
+              </Text>
             ))}
+
+            <Text style={{ color: C.text, fontSize: 13, fontWeight: '800' }}>Sinyal tickerları</Text>
+            <SignalTickers />
+
+            <Text style={{ color: C.text, fontSize: 13, fontWeight: '800' }}>Ayarlar</Text>
+            {p ? (
+              <View style={{ gap: 10 }}>
+                <Text style={{ color: C.muted, fontSize: 12 }}>Komisyon (kontrat başına, açılış ve kapanışta)</Text>
+                <Seg options={commOpt} value={p.settings.commission} onChange={v => updatePaperSettings({ commission: v })} small />
+                <Text style={{ color: C.muted, fontSize: 12 }}>Onay süresi (dk) — 0DTE 3, 1–3 DTE 5 (varsayılan)</Text>
+                <Seg<number | 0>
+                  options={[[0, 'Varsayılan'], [1, '1'], [3, '3'], [5, '5'], [10, '10']]}
+                  value={D.settings.ttlMin ?? 0}
+                  onChange={v => firsat.setTtl(v === 0 ? null : v)} small />
+                <Text style={{ color: C.muted, fontSize: 12 }}>Tarama aralığı (dk); açık pozisyonda her dakika</Text>
+                <Seg<1 | 2 | 5> options={[[1, '1'], [2, '2'], [5, '5']]} value={D.settings.intervalMin} onChange={v => firsat.setInterval(v)} small />
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: C.text, fontSize: 13, flex: 1 }}>{`Kesirli kontrat simülasyonu (varsayılan kapalı)`}</Text>
+                  <Switch value={p.settings.fractional} onValueChange={v => updatePaperSettings({ fractional: v })} />
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: C.text, fontSize: 13, flex: 1 }}>{`DURDU kuralı (varsayılan kapalı)`}</Text>
+                  <Switch value={p.settings.durduEnabled} onValueChange={v => updatePaperSettings({ durduEnabled: v })} />
+                </View>
+                <Text style={{ color: C.muted, fontSize: 11 }}>{`Kademeler %50 / %40 / %30, azami %50 — sabittir ve ayardan değiştirilemez (${KADEMELER.map(k => Math.round(k * 100)).join(' / ')}).`}</Text>
+                <NumField label="Yeni hesap sermayesi ($)" value={capIn} onValue={setCapIn} digits={2} />
+                <Btn label="Hesabı sıfırla (eskisi arşivlenir)" kind="danger" onPress={() => { if (capIn && capIn > 0) resetAccount(capIn); }} />
+              </View>
+            ) : <Text style={{ color: C.muted, fontSize: 13 }}>Hesap yükleniyor…</Text>}
+            <View style={{ gap: 8, marginTop: 6 }}>
+              <Text style={{ color: C.text, fontSize: 13, fontWeight: '800' }}>Qullamaggie setupları</Text>
+              {Q_ROWS.map(([k, label]) => (
+                <View key={k} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: C.text, fontSize: 13, flex: 1 }}>{label}</Text>
+                  <Switch value={D.settings.q[k]} onValueChange={v => firsat.setQ({ [k]: v })} />
+                </View>
+              ))}
+              <Text style={{ color: C.muted, fontSize: 12, fontWeight: '700' }}>Çıkış uyarlamaları (varsayılan kapalı)</Text>
+              {Q_EXIT_ROWS.map(([k, label]) => (
+                <View key={k} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: C.text, fontSize: 13, flex: 1 }}>{label}</Text>
+                  <Switch value={D.settings.q[k]} onValueChange={v => firsat.setQ({ [k]: v })} />
+                </View>
+              ))}
+              <Text style={{ color: C.warn, fontSize: 11 }}>Qullamaggie uyarlaması — Kaan onayı yok. Q setupları backtest kriterini geçene kadar yalnız sinyal listesinde; kâğıt işleme uygun değil.</Text>
+              <Text style={{ color: C.muted, fontSize: 11 }}>0–3 DTE’de Qullamaggie’nin 3–5 gün sonra kısmi satış ve 10/20 günlük MA ile iz sürmesi uygulanamaz (günlük bar yok).</Text>
+            </View>
           </View>
         ) : null}
-      </Card>
-
-      {/* 5) Özet ve kayıt */}
-      <Card title="Özet ve kayıt">
-        {stats && stats.n > 0 ? (
-          <>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-              <Stat k="İşlem" v={String(stats.n)} />
-              <Stat k="Kazanma" v={`%${trNum(stats.winPct, 0)}`} />
-              <Stat k="Ort. R" v={trNum(stats.avgR, 2)} />
-              <Stat k="PF" v={Number.isFinite(stats.pf) ? trNum(stats.pf, 2) : '∞'} />
-              <Stat k="Maks. düşüş" v={usd(stats.maxDrawdown, 0)} />
-              <Stat k="En uzun kayıp" v={String(stats.longestLossStreak)} />
-            </View>
-            <View style={{ marginTop: 8, gap: 2 }}>
-              {p!.trades.slice(-20).reverse().map(t => (
-                <Text key={t.id + t.day + t.exit} style={{ color: t.netPnl >= 0 ? C.pos : C.neg, fontSize: 12 }}>
-                  {`${t.day.slice(5)} ${t.ticker} ${t.setup} · ${signed(t.netPnl)} (${trNum(t.rMultiple, 1)}R) · ${t.reason}${t.overnight ? ' · gece' : ''} · sermaye ${usd(t.capitalAfter, 0)}`}
-                </Text>
-              ))}
-            </View>
-          </>
-        ) : <Text style={{ color: C.muted, fontSize: 13 }}>Henüz kapanmış işlem yok.</Text>}
-      </Card>
-
-      {/* 6) İsabet (kalibrasyon) */}
-      <Card title="İsabet">
-        <Text style={{ color: C.muted, fontSize: 12, marginBottom: 6 }}>Skor kovasına göre gerçekleşen sonuç (yalnız kapanmış sinyaller). Ağırlıklar otomatik değişmez.</Text>
-        {cal.map(b => (
-          <Text key={b.bucket} style={{ color: C.text, fontSize: 13 }}>
-            {`${b.bucket}: n=${b.n}` + (b.n ? ` · kazanma %${trNum(b.winPct ?? 0, 0)} · ort. R ${trNum(b.avgR ?? 0, 2)} · PF ${b.pf == null ? '—' : trNum(b.pf, 2)}` : ' · veri yok')}
-          </Text>
-        ))}
-      </Card>
-
-      {/* 7) Ayarlar */}
-      <Card title="Ayarlar">
-        {p ? (
-          <View style={{ gap: 10 }}>
-            <Text style={{ color: C.muted, fontSize: 12 }}>Komisyon (kontrat başına, açılış ve kapanışta)</Text>
-            <Seg options={commOpt} value={p.settings.commission} onChange={v => updatePaperSettings({ commission: v })} small />
-            <Text style={{ color: C.muted, fontSize: 12 }}>Onay süresi (dk) — 0DTE 3, 1–3 DTE 5 (varsayılan)</Text>
-            <Seg<number | 0>
-              options={[[0, 'Varsayılan'], [1, '1'], [3, '3'], [5, '5'], [10, '10']]}
-              value={D.settings.ttlMin ?? 0}
-              onChange={v => firsat.setTtl(v === 0 ? null : v)} small />
-            <Text style={{ color: C.muted, fontSize: 12 }}>Tarama aralığı (dk); açık pozisyonda her dakika</Text>
-            <Seg<1 | 2 | 5> options={[[1, '1'], [2, '2'], [5, '5']]} value={D.settings.intervalMin} onChange={v => firsat.setInterval(v)} small />
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={{ color: C.text, fontSize: 13, flex: 1 }}>{`Kesirli kontrat simülasyonu (varsayılan kapalı)`}</Text>
-              <Switch value={p.settings.fractional} onValueChange={v => updatePaperSettings({ fractional: v })} />
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={{ color: C.text, fontSize: 13, flex: 1 }}>{`DURDU kuralı (varsayılan kapalı)`}</Text>
-              <Switch value={p.settings.durduEnabled} onValueChange={v => updatePaperSettings({ durduEnabled: v })} />
-            </View>
-            <Text style={{ color: C.muted, fontSize: 11 }}>{`Kademeler %50 / %40 / %30, azami %50 — sabittir ve ayardan değiştirilemez (${KADEMELER.map(k => Math.round(k * 100)).join(' / ')}).`}</Text>
-            <NumField label="Yeni hesap sermayesi ($)" value={capIn} onValue={setCapIn} digits={2} />
-            <Btn label="Hesabı sıfırla (eskisi arşivlenir)" kind="danger" onPress={() => { if (capIn && capIn > 0) resetAccount(capIn); }} />
-          </View>
-        ) : <Text style={{ color: C.muted, fontSize: 13 }}>Hesap yükleniyor…</Text>}
-        <View style={{ gap: 8, marginTop: 6 }}>
-          <Text style={{ color: C.text, fontSize: 13, fontWeight: '800' }}>Qullamaggie setupları</Text>
-          {Q_ROWS.map(([k, label]) => (
-            <View key={k} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={{ color: C.text, fontSize: 13, flex: 1 }}>{label}</Text>
-              <Switch value={D.settings.q[k]} onValueChange={v => firsat.setQ({ [k]: v })} />
-            </View>
-          ))}
-          <Text style={{ color: C.muted, fontSize: 12, fontWeight: '700' }}>Çıkış uyarlamaları (varsayılan kapalı)</Text>
-          {Q_EXIT_ROWS.map(([k, label]) => (
-            <View key={k} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={{ color: C.text, fontSize: 13, flex: 1 }}>{label}</Text>
-              <Switch value={D.settings.q[k]} onValueChange={v => firsat.setQ({ [k]: v })} />
-            </View>
-          ))}
-          <Text style={{ color: C.warn, fontSize: 11 }}>Qullamaggie uyarlaması — Kaan onayı yok. Q setupları backtest kriterini geçene kadar yalnız sinyal listesinde; kâğıt işleme uygun değil.</Text>
-          <Text style={{ color: C.muted, fontSize: 11 }}>0–3 DTE’de Qullamaggie’nin 3–5 gün sonra kısmi satış ve 10/20 günlük MA ile iz sürmesi uygulanamaz (günlük bar yok).</Text>
-        </View>
       </Card>
     </ScrollView>
   );

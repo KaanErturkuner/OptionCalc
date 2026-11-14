@@ -1,5 +1,16 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — [grok] ui: Fırsat ekranı yeniden tasarlandı (işlem kartları, BEKLE, Detaylar)
+
+- Üstte en güçlü 1–3 fırsat için büyük işlem kartı: ticker, CALL/PUT rozeti, strike (spot'tan OTM $), vade (0DTE / "n gün" + tarih), giriş (orta), stop (−%67), hedef 1:5, yedek 1:4, kademe ve adet (sermaye · %kademe → N kontrat · maliyet), gidiş-dönüş komisyon, stopta/hedefte net tahmini, güç x/5, düz Türkçe gerekçe, gece etiketi ve makro uyarılar.
+- Hiç işlem yoksa BEKLE kartı: neden + her ticker için tetikleyici (ör. "QQQ 690 üstü + VWAP 688 üstü → CALL"). Tetikleyici, eşiğe (±3) en yakın yönden seçilir.
+- Ham koşullar, göstergeler, tarama notları, özet, isabet, ayarlar ve Sinyal tickerları varsayılan kapalı "Detaylar" bölümüne taşındı. "Onay bekliyor" kartları (Onayla / Geç) görünür kaldı; geçmiş kartlar Detaylar'da.
+- Kurallar değişmedi: vade, strike, prim stopu, RR, kademe (%50/40/30), komisyon ve gece kuralı aynı fonksiyonlardan okunur.
+- Yeni saf modül `src/lib/signals/trade.ts` (kart türetimi, adet/komisyon, gece etiketi, BEKLE tetikleyicisi, sıralama); `verdict.ts` artık seviyeleri (`levels`) taşıyor (ek alan, mevcut alanlar değişmedi).
+- Yeni görsel: `src/ui/TradeCard.tsx`. Test: `test/trade-card.test.ts` (35 kontrol), `package.json` test betiğine eklendi.
+- Doğrulama: `npm run check` geçti (exit 0). Görsel Expo testi yapılmadı; iPhone'da kart boyutu ve kırılma kontrol edilmeli.
+- Açık: kâğıt işlem önerisi kesin değildir; komisyon "brüt prim + ayrı komisyon" olarak gösterilir. Gece taşıma koşullarının (rejim, 2σ gece senaryosu) tamamı kartta değil, yalnız etiketinde özetlenir.
+
 ## 2026-11-14 — Claude — [grok] reports: Duvarlar ve birikim bloğu daraltılabilir
 
 - Raporlar: "Duvarlar ve birikim ▸/▾" başlığı (tek satır özet: `TICK: CW x · PW y`), varsayılan kapalı. İçinde duvar merdiveni/kartları (CW, PW, gamma flip, max pain) ve opsiyon birikimi. Açık/kapalı durumu oturum boyunca bellekte tutulur (global, rapor başına değil).
