@@ -1,7 +1,7 @@
 /* Menü › Korku ve Açgözlülük: kendi bileşik endeksimiz (CNN değil). Tek bakışta okunur: büyük puan, renkli ölçek,
  * bileşen çubukları ve sade açıklamalar. Bilgi amaçlıdır; yatırım tavsiyesi değildir. */
 import { useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Linking, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Btn, Card, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
@@ -16,6 +16,8 @@ const BAND = [
   { from: 56, to: 76, label: 'Açgözlülük', color: '#84cc16' },
   { from: 76, to: 101, label: 'Aşırı açgözlülük', color: '#16a34a' },
 ];
+/** CNN'in resmî sayfası: kendi endeksleri burada; uygulama bu sayıyı çekmez (veri uç noktası belgelenmemiş, koşulları belirsiz) */
+const CNN_URL = 'https://edition.cnn.com/markets/fear-and-greed';
 const colorOf = (score: number) => (BAND.find(b => score >= b.from && score < b.to) ?? BAND[2]).color;
 
 const HOW: Record<string, string> = {
@@ -81,6 +83,8 @@ export default function KorkuAcgozluluk({ active, onBack }: { active: boolean; o
           </View>
         </Card>
       ) : null}
+
+      <Btn label="CNN'in endeksini sayfada aç" onPress={() => { tap(); Linking.openURL(CNN_URL).catch(() => {}); }} style={{ alignSelf: 'flex-start', minHeight: 44 }} />
 
       {r ? (
         <Card title="Bileşenler">
