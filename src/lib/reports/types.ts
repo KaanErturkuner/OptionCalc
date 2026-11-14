@@ -1,9 +1,10 @@
 /* Rapor girdi/çıktı tipleri (saf). Sunucu veriyi toplar, bu tiplerle metni üretir; uygulama aynı Report'u gösterir. */
 import type { ReportKind } from './schedule.ts';
+import type { MacroLite } from '../calendar/releases.ts';
+export type { MacroLite };
 
 export interface Move { name: string; pct: number | null; price?: number | null }
 export interface NewsLite { title: string; source: string; at: number; tickers: string[] }
-export interface MacroLite { kind: 'FOMC' | 'CPI' | 'NFP'; date: string }
 export interface WallSnap { spot: number | null; callWall: number | null; putWall: number | null; flip: number | null; maxPain: number | null; expiry: string | null; at: number }
 export interface FlowAgg { ticker: string; expiry: string; side: 'call' | 'put'; strike: number; contracts: number; premium: number }
 export interface SmaRow { ticker: string; price: number | null; sma20: number | null; sma50: number | null; sma200: number | null }

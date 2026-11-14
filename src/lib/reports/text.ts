@@ -6,6 +6,7 @@ import { fmt } from '../format.ts';
 import { contractLabel, fmtUsdShort } from '../flow/model.ts';
 import { closeMs } from '../usmarket.ts';
 import { istHm, KIND_LABEL, type ReportKind } from './schedule.ts';
+import { etMs, istHmOf, type MacroLite } from '../calendar/releases.ts';
 import type { FlowAgg, Move, NewsLite, Report, ReportInput, WallSnap } from './types.ts';
 
 const NA = 'veri alınamadı';
@@ -66,8 +67,18 @@ export function spotNote(s: WallSnap | null): string | null {
   return parts.join('; ') || null;
 }
 
-const macroLabel = (kind: string) => kind === 'FOMC' ? 'FOMC kararı (14:00 ET)' : kind === 'CPI' ? 'CPI enflasyon (08:30 ET)' : 'İstihdam (NFP, 08:30 ET)';
-const MACRO_NOTE: Record<string, string> = { FOMC: 'faiz kararı günü: oynaklık artabilir', CPI: 'enflasyon verisi: oynaklık artabilir', NFP: 'istihdam verisi: oynaklık artabilir' };
+/** Makro satırı (bugün): saat İst, açıklandı/bekleniyor (rapor anına göre), önem notu. */
+const macroToday = (m: MacroLite, nowMs: number): string => {
+  const ms = etMs(m.day, m.time);
+  return `  ${m.label} (${m.time} ET · ${istHmOf(ms)} İst) — ${ms <= nowMs ? 'açıklandı' : 'bekleniyor'}${m.verified ? '' : ' · tarih doğrulanmadı'}; ${m.tier === 'high' ? 'oynaklık artabilir' : 'orta önemde'}`;
+};
+/** Gün içi / gün sonu raporları: bugünkü önemli veriler (açıklandı/bekleniyor). Veri yoksa boş. */
+const todayMacroBlock = (input: ReportInput, ts: number): string[] =>
+  input.macro.today.length ? ['', 'Bugünkü önemli veriler', ...input.macro.today.map(m => macroToday(m, ts))] : [];
+const macroTomorrow = (m: MacroLite): string => {
+  const ms = etMs(m.day, m.time);
+  return `  Yarın: ${m.label} (${m.time} ET · ${istHmOf(ms)} İst)${m.verified ? '' : ' · tarih doğrulanmadı'}; ${m.tier === 'high' ? 'oynaklık artabilir' : 'orta önemde'}`;
+};
 const newsLines = (news: NewsLite[], limit = 6) => [...news].sort((a, b) => b.at - a.at).slice(0, limit)
   .map(n => `• ${n.title} — ${n.source} (${istHm(n.at)} İst${n.tickers.length ? ', ' + n.tickers.join('/') : ''})`);
 
@@ -91,19 +102,19 @@ export function buildReport(input: ReportInput): Report {
 
 function premarket(input: ReportInput, ts: number, fails: string[]): Report {
   const bias = openBias(input.futures, [...input.asia, ...input.europe]);
-  const todayMacro = input.macro.today.map(m => `  ${macroLabel(m.kind)} — ${MACRO_NOTE[m.kind]}`);
+  const todayMacro = input.macro.today.map(m => macroToday(m, ts));
   const lines = [
     header('premarket', input), '',
     'Asya', ...moveRows(input.asia), 'Avrupa', ...moveRows(input.europe),
     'Vadeliler (ES / NQ)', ...moveRows(input.futures),
     'İzleme listesi — ön piyasa', ...input.preMarket.length
       ? input.preMarket.map(m => `  ${m.name}: ${pctTr(m.pct)}${m.price != null ? ` (${levelTr(m.price)} $)` : ''}`) : [`  ${NA}`],
-    '', 'Takvim', ...(todayMacro.length ? todayMacro : ['  Bugün ana makro veri yok']),
+    '', 'Takvim (önemli veriler; saat İstanbul)', ...(todayMacro.length ? todayMacro : ['  Bugün önemli makro veri yok']),
     'Bilanço (izleme listesi)', earningsLine(input.earnings, input.watch),
     '', 'Haberler (son 24 saat)', ...(input.newsOk ? (input.news.length ? newsLines(input.news).map(x => '  ' + x) : ['  Önemli haber yok']) : [`  ${NA}`]),
     '', 'Beklenti (kural tabanlı)',
     bias ? `  Vadeliler ve Asya/Avrupa ortalaması: skor ${sign(bias.score)}${fmt(bias.score, 2)} → ${bias.label}` : `  Vadeli/Asya/Avrupa verisi ${NA}; beklenti üretilemedi`,
-    todayMacro.length ? '  Bugün makro veri var: açılış ilk 30 dk oynak olabilir.' : '  Bugün makro veri yok.',
+    todayMacro.length ? '  Bugün önemli veri var: açılış ilk 30 dk oynak olabilir.' : '  Bugün önemli veri yok.',
     ...fails,
     '', 'Kural tabanlı bir özettir; yatırım tavsiyesi değildir.',
   ];
@@ -124,6 +135,7 @@ function intra(input: ReportInput, ts: number, fails: string[]): Report {
     header(input.kind, input), '',
     'Açılıştan beri', ...moveRows(input.moves),
     `  Yön: ${dir.label}${dir.avg != null ? ` (ortalama ${sign(dir.avg)}${fmt(dir.avg, 2)}%)` : ''}`,
+    ...todayMacroBlock(input, ts),
     '', 'Duvarlar (açılış → şimdi)', ...wallRows,
     ...(notes.length ? ['', 'Gözlem', ...notes] : []),
     '', 'Opsiyon birikimi (bugün, en büyük)', ...(fl.length ? fl.map(x => '  ' + x) : [`  ${flNone}`]),
@@ -152,13 +164,14 @@ function eod(input: ReportInput, ts: number, fails: string[]): Report {
   const lines = [
     header('eod', input), '',
     'Gün değişimi', ...moveRows(input.moves),
+    ...todayMacroBlock(input, ts),
     '', 'Duvar kayması (açılış → kapanış)', ...(input.walls.length ? input.walls.map(w => '  ' + wallLine(w.ticker, w.open, w.now)) : [`  ${NA}`]),
     '', 'Hareketli ortalamalar (günlük)', ...smaLines,
     '', 'Opsiyon birikimi (bugün, en büyük)', ...(flowLines(input.flow).length ? flowLines(input.flow).map(x => '  ' + x) : [`  ${input.flowKnown === false ? NA : 'Eşik üstü birikim yok'}`]),
     '', 'Haberler (bugün)', ...(input.newsOk ? (input.news.length ? newsLines(input.news).map(x => '  ' + x) : ['  Önemli haber yok']) : [`  ${NA}`]),
     '', 'Yarın beklentisi (kural tabanlı)',
     `  Trend: ${trendTxt}`,
-    ...(tomorrow.length ? tomorrow.map(m => `  Yarın: ${macroLabel(m.kind)} — ${MACRO_NOTE[m.kind]}`) : ['  Yarın ana makro veri yok']),
+    ...(tomorrow.length ? tomorrow.map(macroTomorrow) : ['  Yarın önemli makro veri yok']),
     '  Bilanço (izleme listesi, 2 gün içinde):',
     ...(input.earnings == null ? [`  ${NA}`] : (() => {
       const soon = input.earnings.filter(e => e.date && input.watch.includes(e.ticker) && e.date >= input.day && e.date <= addDay(input.day, 2));
@@ -170,7 +183,7 @@ function eod(input: ReportInput, ts: number, fails: string[]): Report {
   const spy = input.moves.find(m => m.name === 'SPY'), qqq = input.moves.find(m => m.name === 'QQQ');
   return { kind: 'eod', day: input.day, ts, title: `Gün sonu · ${istHm(ts)} İst`, body: lines.join('\n'),
     pushTitle: 'Gün sonu raporu hazır',
-    pushBody: `SPY ${pctTr(spy?.pct ?? null)} · QQQ ${pctTr(qqq?.pct ?? null)} · ${tomorrow.length ? 'yarın ' + macroLabel(tomorrow[0].kind).split(' (')[0] : 'yarın ana veri yok'}` };
+    pushBody: `SPY ${pctTr(spy?.pct ?? null)} · QQQ ${pctTr(qqq?.pct ?? null)} · ${tomorrow.length ? 'yarın ' + tomorrow[0].short : 'yarın önemli veri yok'}` };
 }
 
 function addDay(day: string, n: number): string { return new Date(Date.parse(day + 'T12:00:00Z') + n * 86400000).toISOString().slice(0, 10); }

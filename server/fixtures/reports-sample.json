@@ -101,13 +101,19 @@
     ],
     "newsOk": true,
     "macro": {
-      "today": [
+      "today": [],
+      "tomorrow": [
         {
-          "kind": "CPI",
-          "date": "2026-11-16"
+          "key": "RETAIL",
+          "short": "Perakende satış",
+          "label": "Perakende satışları (aylık)",
+          "tier": "high",
+          "time": "08:30",
+          "src": "https://www.census.gov/economic-indicators/calendar-listview-2026.html",
+          "day": "2026-11-17",
+          "verified": true
         }
-      ],
-      "tomorrow": []
+      ]
     },
     "earnings": [
       {
@@ -214,13 +220,19 @@
     "news": [],
     "newsOk": true,
     "macro": {
-      "today": [
+      "today": [],
+      "tomorrow": [
         {
-          "kind": "CPI",
-          "date": "2026-11-16"
+          "key": "RETAIL",
+          "short": "Perakende satış",
+          "label": "Perakende satışları (aylık)",
+          "tier": "high",
+          "time": "08:30",
+          "src": "https://www.census.gov/economic-indicators/calendar-listview-2026.html",
+          "day": "2026-11-17",
+          "verified": true
         }
-      ],
-      "tomorrow": []
+      ]
     },
     "earnings": null,
     "sma": [],
@@ -294,8 +306,14 @@
       "today": [],
       "tomorrow": [
         {
-          "kind": "NFP",
-          "date": "2026-11-17"
+          "key": "RETAIL",
+          "short": "Perakende satış",
+          "label": "Perakende satışları (aylık)",
+          "tier": "high",
+          "time": "08:30",
+          "src": "https://www.census.gov/economic-indicators/calendar-listview-2026.html",
+          "day": "2026-11-17",
+          "verified": true
         }
       ]
     },

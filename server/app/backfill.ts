@@ -21,7 +21,7 @@ import { slotsFor, istHm, type Slot } from '../../src/lib/reports/schedule.ts';
 import { pctOf, sma } from '../../src/lib/reports/sources.ts';
 import { dailyDoneBy, exampleReport, MIN_MS, openAndLast, pitPeriods, pitPrice, prevCloseBefore } from '../../src/lib/reports/pit.ts';
 import type { FlowAgg, Move, MacroLite, NewsLite, ReportInput, SmaRow, WallSnap } from '../../src/lib/reports/types.ts';
-import { MACRO_CALENDAR } from '../../src/lib/calendar/events.ts';
+import { eventsOn } from '../../src/lib/calendar/releases.ts';
 import { exDivMs, isTradingDay } from '../../src/lib/usmarket.ts';
 import type { NewsItem } from '../../src/lib/news/types.ts';
 
@@ -32,7 +32,7 @@ const DRY = args.includes('--dry-run');
 const FORCE = args.includes('--force');
 const log = (m: string) => console.log(m);
 
-const macroOn = (d: string): MacroLite[] => MACRO_CALENDAR.flatMap(s => s.dates.filter(x => x === d).map(() => ({ kind: s.kind, date: d })));
+const macroOn = (d: string): MacroLite[] => eventsOn(d);
 
 /** Bir rapor için nokta-zamanlı girdiler. fails: bu raporun "veri sorunları" satırları. */
 async function gatherPit(slot: Slot, deps: { cfg: ReturnType<typeof loadConfig>; store: Store; yahoo: YahooClient; finnhub: FinnhubClient | null }): Promise<ReportInput> {

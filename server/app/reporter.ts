@@ -8,7 +8,7 @@ import { dueSlots, type ReportKind } from '../../src/lib/reports/schedule.ts';
 import { pctOf, sma } from '../../src/lib/reports/sources.ts';
 import { wallSnapFromRows } from '../../src/lib/reports/walls.ts';
 import type { FlowAgg, Move, MacroLite, NewsLite, Report, ReportInput, SmaRow, WallSnap } from '../../src/lib/reports/types.ts';
-import { MACRO_CALENDAR } from '../../src/lib/calendar/events.ts';
+import { eventsOn } from '../../src/lib/calendar/releases.ts';
 import { addDaysStr, isTradingDay } from '../../src/lib/usmarket.ts';
 import type { ChainRow } from '../../src/lib/flow/detect.ts';
 import type { NewsItem } from '../../src/lib/news/types.ts';
@@ -118,7 +118,7 @@ export class Reporter {
       }
       return { news: out, ok: okCount > 0 };
     };
-    const macroOn = (d: string): MacroLite[] => MACRO_CALENDAR.flatMap(s => s.dates.filter(x => x === d).map(() => ({ kind: s.kind, date: d })));
+    const macroOn = (d: string): MacroLite[] => eventsOn(d);
     const walls = (): ReportInput['walls'] => watch.map(t => ({
       ticker: t, open: store.snapGet<WallSnap>(day, t, 'open'), now: store.snapGet<WallSnap>(day, t, 'last'),
     }));

@@ -1,5 +1,46 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — [grok] takvim: PPI ve diğer önemli veriler (2026 yayın tabloları)
+
+**Neden "önemli bir şey yok" dedi:** `MACRO_CALENDAR` (events.ts) yalnız FOMC/CPI/NFP içeriyordu; raporlar ve gece kapısı aynı tabloyu kullanıyordu.
+PPI (13 Kas 2026 Cuma, 08:30 ET = 16:30 İst) hiçbir yerde yoktu. Finnhub ekonomik takvimi kodda hiç çağrılmıyor (`economic` aramasında
+sıfır sonuç); yani kaynak sorgusu yapılmadı, takvim tablosu eksikti.
+
+**Ne:**
+- `src/lib/calendar/releases.ts` (yeni, saf): 2026 yayın tablosu — PPI, PCE (kişisel gelir), GSYH, perakende, JOLTS, ISM imalat/hizmet,
+  UMich (ön/nihai), FOMC tutanakları; haftalık işsizlik başvuruları (kurala göre, Şükran Günü kayması). Her satır ET saat, `verified`, kaynak URL.
+  `eventsOn(gün)`, `releaseWarnings`, `cardCalendarLines(nowMs)`. Saat dönüşümü `Intl` ile (DST dâhil; İstanbul saati sabit yazılmadı).
+- **Blokaj kümesi değişmedi:** gece kapısı yalnız FOMC/CPI/NFP (`BLOCKING_KEYS`, `calendarCheck`). Diğerleri `overnight.ts` içinde `warnings`
+  olarak döner; taşıma kararını değiştirmez. Taşıma mesajında "Uyarı (engellemez): …" olarak görünür.
+- **Raporlar:** piyasa öncesi "Takvim" bölümü (açıklandı / bekleniyor, İst saatiyle); açılış +30 dk / +1,5 / +2,5 sa ve gün sonu raporlarına
+  "Bugünkü önemli veriler"; gün sonunda yarın. Sunucu (`reporter.ts`, `backfill.ts`) artık `eventsOn` kullanır.
+- **Sonuç kartı** (`src/ui/VerdictCard.tsx`): "⚠️ bugün PPI 16:30 İst · açıklandı" / "⚠️ yarın …" satırları.
+- Testler: `test/calendar-releases.test.ts` (tarih araması, 2026-11-13 → PPI, DST İstanbul saati, Şükran Günü başvuru kayması,
+  1 Oca → 31 Ara, blokaj kümesi değişmedi, kart ve rapor metinleri). `package.json` test zincirine eklendi. `npm run check` geçti.
+
+**Doğrulama durumu (retrieval 2026-11-14):**
+- Resmi sayfadan doğrulandı: PPI (Ekim ref 13 Kas, Kasım ref 15 Ara) — BLS; JOLTS 1 Ara 10:00 — BLS; BEA tam takvimi (PCE ve GSYH 2026
+  satırları); Census perakende 13 satır (17 Kas, 16 Ara dâhil); Fed FOMC karar + tutanak tarihleri (Şub–Eki); UMich nihai 20 Kas 10:00 ET.
+- **Doğrulanmadı** (`verified=false`, metinde "tarih doğrulanmadı"): ISM imalat 2 Kas, 1 Ara (ikincil kaynak + kural); ISM hizmet 4 Kas, 3 Ara (kural);
+  UMich ön 4 Ara (tek ikincil kaynak), UMich nihai 18 Ara (ikincil); FOMC tutanağı 18 Kas ve 30 Ara (karar + 21 gün aritmetiği);
+  işsizlik başvuruları tüm yıl (DOL takvimi okunamadı; 25 Kas Şükran kayması ikincil kaynaklarda).
+- Eksik/okunamadı: UMich Kasım ön tarihi; ISM resmi takvimi (ismworld giriş sayfasına yönlendiriyor); PPI/JOLTS 2026 Ocak–Eylül satırları sayfada
+  yok (geçmiş; eklenmedi); Fed Başkan konuşmaları (güvenilir kaynak yok, atlandı); DOL PDF metni okunamadı.
+- Saat dilimi: BEA ve BLS sayfaları saat dilimini yazmıyor; ET varsayıldı (standart yayın saatleri 08:30 / 10:00 / 14:00 ET).
+- Tablo yıllık güncellenmeli (kaynaklar yukarıdaki URL'lerde).
+
+**Sunucu (droplet):** `server/deploy.sh` (active). 13 Kasım örnek raporları yeniden üretildi: eski 5 örnek satırı silindi (`example=1`,
+`ornek:2026-11-13:*`), DB yedeği `flow.db.bak-2026-11-14T00-14-11-312Z.db` (ocflow sahipliği). Yeni 17:00 raporu takvim bölümü:
+`PPI (üretici fiyatları) (08:30 ET · 16:30 İst) — açıklandı; oynaklık artabilir`. MarketData çağrısı yok; push yok. Finnhub yalnız haber/bilanço için
+(backfill'in mevcut davranışı). Örnekler `flow.db` içinde 30 gün sonra silinir.
+
+**Dosyalar:** `src/lib/calendar/releases.ts` (yeni), `test/calendar-releases.test.ts` (yeni), `src/lib/reports/text.ts`, `types.ts`,
+`src/lib/paper/overnight.ts`, `src/lib/paper/engine.ts` (uyarı metni), `src/ui/VerdictCard.tsx`, `server/app/reporter.ts`, `server/app/backfill.ts`,
+`server/fixtures/reports-sample.json`, `test/reports.test.ts`, `package.json`, `docs/TASKS.md`.
+
+**Açık:** UMich Kasım ön tarihi ve ISM resmi takvimi doğrulanmalı; sonraki yıl tablo güncellemesi; Finnhub ekonomik takvimi kullanılmıyor (ücretsiz
+planda kapsamı test edilmedi).
+
 ## 2026-11-14 — Claude — [grok] koç: saat dilimi hatası (ET→İstanbul +7 sa kayması) düzeltmesi
 
 **Ne:** Canlı testte (QQQ 680P 0DTE, alış 2,44 / satış 3,53) Midas'ın "Gerçekleşme tarihi 13 Kasım 2026, 18:05:24" satırı model

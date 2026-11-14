@@ -85,7 +85,7 @@ export function tickPosition(acc0: PaperAccount, t: TickIn): TickResult {
     p = { ...p, nightDay: t.day };
     if (d.carry) {
       p = { ...p, overnight: true };
-      events.push({ kind: 'carry', text: `Başkan, ${p.ticker} ${p.dte}DTE pozisyonu gece taşıyorum. Kötü senaryo −${Math.round(d.badLoss)} $ (${d.badR.toFixed(1)}R). Yarın 09:31'de gap kontrolü yapacağım.` });
+      events.push({ kind: 'carry', text: `Başkan, ${p.ticker} ${p.dte}DTE pozisyonu gece taşıyorum. Kötü senaryo −${Math.round(d.badLoss)} $ (${d.badR.toFixed(1)}R). Yarın 09:31'de gap kontrolü yapacağım.${d.warnings.length ? ' Uyarı (engellemez): ' + d.warnings.join('; ') + '.' : ''}` });
       return { acc: { ...acc, position: p }, events };
     }
     return close({ ...acc, position: p }, t.bid, 'gece-kapanis', `gece taşınamadı (${d.reasons.join(', ')})`);

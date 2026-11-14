@@ -5,6 +5,7 @@ import { closeMs, exDivMs, addDaysStr, isTradingDay, YEAR_MS } from '../usmarket
 import type { OpenPosition } from './types.ts';
 import { RATE } from '../signals/rr.ts';
 import type { CalendarCheck } from '../calendar/events.ts';
+import { releaseWarnings } from '../calendar/releases.ts';
 
 export const GAP_BAD_R_MAX = 1.5;       // kötü senaryo kaybı ≤ 1,5R ise taşınır
 export const NIGHT_SIGMA_MULT = 2;      // kötü senaryo: 2 × σ_gece (pozisyon aleyhine)
@@ -47,6 +48,7 @@ export interface OvernightDecision {
   sigma: number;
   badLoss: number;              // kötü senaryo kaybı ($)
   badR: number;                 // kötü senaryo kaybı (R)
+  warnings: string[];           // yalnız UYARI (PPI/PCE/… ; taşımayı ENGELLEMEZ — blokaj kümesi FOMC/CPI/NFP)
 }
 
 /** Gece kararı (15:45 ET). Tüm ön koşullar sağlanırsa taşınır; kötü senaryo ≤ 1,5R şart. */
@@ -70,7 +72,7 @@ export function overnightDecision(i: OvernightInput): OvernightDecision {
   const badLoss = Math.max(0, p.costBasis - value * 100 * p.contracts);
   const badR = p.rDollars > 0 ? badLoss / p.rDollars : Infinity;
   if (badR > GAP_BAD_R_MAX) reasons.push(`kötü senaryo ${badR.toFixed(1)}R > 1,5R`);
-  return { carry: reasons.length === 0, reasons, sigma, badLoss, badR };
+  return { carry: reasons.length === 0, reasons, sigma, badLoss, badR, warnings: releaseWarnings(i.day, next) };
 }
 
 export interface GapInput {

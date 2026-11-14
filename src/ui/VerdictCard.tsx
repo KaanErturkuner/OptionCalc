@@ -1,13 +1,16 @@
 /* "Sonuç" kartı: yön, güç (0–5), vade/strike, prim, stop/hedef (1:5, yedek 1:4), kademe ve kriter dökümü. Kağıt üstü; tavsiye değildir. */
+import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { C } from '@/ui/theme';
 import { fmt } from '@/lib/format';
 import type { VerdictCard as V } from '@/lib/signals/verdict';
 import { CARD_NOTE } from '@/lib/signals/verdict';
+import { cardCalendarLines } from '@/lib/calendar/releases';
 
 const DIR_LABEL = { call: 'CALL al', put: 'PUT al', bekle: 'Bekle' } as const;
 
 export default function VerdictBlock({ ticker, v }: { ticker: string; v: V }) {
+  const [nowMs] = useState(() => Date.now());   // kart açıldığı andaki saat (render saf kalsın)
   const col = v.dir === 'call' ? C.pos : v.dir === 'put' ? C.neg : C.muted;
   return (
     <View style={{ borderRadius: 14, borderWidth: 1, borderColor: col, backgroundColor: 'rgba(255,255,255,.03)', padding: 10, gap: 6 }}>
@@ -42,6 +45,9 @@ export default function VerdictBlock({ ticker, v }: { ticker: string; v: V }) {
         </>
       ) : null}
       <Text style={{ color: C.text, fontSize: 13, lineHeight: 18 }}>{v.rationale}</Text>
+      {cardCalendarLines(nowMs).map(l => (
+        <Text key={l} style={{ color: C.warn, fontSize: 12, fontWeight: '700' }}>{l}</Text>
+      ))}
       {v.crits.map(c => (
         <Text key={c.id} style={{ color: c.pts > 0 ? C.pos : c.pts < 0 ? C.neg : C.muted, fontSize: 11.5, lineHeight: 16 }}>
           {c.pts > 0 ? '▲ +1' : c.pts < 0 ? '▼ −1' : '•  0'}  {c.text}

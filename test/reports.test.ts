@@ -1,4 +1,5 @@
 // Rapor zamanlaması (DST haftası, tatil, erken kapanış), metin üretimi (fixture) ve kaynak ayrıştırıcıları. Ağ YOK.
+import { eventsOn } from '../src/lib/calendar/releases.ts';
 import * as S from '../src/lib/reports/schedule.ts';
 import * as T from '../src/lib/reports/text.ts';
 import * as R from '../src/lib/reports/sources.ts';
@@ -81,11 +82,11 @@ const at = (day: string, kind: S.ReportKind) => S.slotsFor(day).find(s => s.kind
   const all: Record<string, any> = {
     premarket: { ...B, kind: 'premarket', nowMs: Date.parse('2026-11-16T14:00:00Z'), asia: [{ name: 'Nikkei 225', pct: 0.42, price: 50210 }],
       europe: [{ name: 'DAX', pct: 0.27, price: 24510 }], futures: [{ name: 'ES (S&P vadeli)', pct: 0.21, price: 6812.5 }, { name: 'NQ (Nasdaq vadeli)', pct: 0.35, price: 24410 }],
-      preMarket: [{ name: 'QQQ', pct: 0.4, price: 598.1 }], macro: { today: [{ kind: 'CPI', date: '2026-11-16' }], tomorrow: [] } },
+      preMarket: [{ name: 'QQQ', pct: 0.4, price: 598.1 }], macro: { today: eventsOn('2026-11-16'), tomorrow: [] } },
     intra1: { ...B, kind: 'intra1', nowMs: Date.parse('2026-11-16T15:00:00Z'), moves: [{ name: 'QQQ', pct: 0.46, price: 600.2 }],
       walls: [{ ticker: 'QQQ', open: { spot: 598, callWall: 600, putWall: 580, flip: 596, maxPain: 597, expiry: 'x', at: 0 }, now: { spot: 600.2, callWall: 605, putWall: 580, flip: 599, maxPain: 600, expiry: 'x', at: 1 } }] },
     eod: { ...B, kind: 'eod', nowMs: Date.parse('2026-11-16T21:30:00Z'), moves: [{ name: 'QQQ', pct: 0.8, price: 604.4 }],
-      sma: [{ ticker: 'QQQ', price: 604.4, sma20: 590.1, sma50: 575.3, sma200: 520.8 }], macro: { today: [], tomorrow: [{ kind: 'NFP', date: '2026-11-17' }] } },
+      sma: [{ ticker: 'QQQ', price: 604.4, sma20: 590.1, sma50: 575.3, sma200: 520.8 }], macro: { today: [], tomorrow: eventsOn('2026-11-17') } },
   };
   const pre = T.buildReport(all.premarket);
   ok('piyasa öncesi: başlık 17:00 İst', pre.title === 'Piyasa öncesi · 17:00 İst', pre.title);
