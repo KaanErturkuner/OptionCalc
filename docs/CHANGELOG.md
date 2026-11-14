@@ -1,5 +1,18 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Cuma (2026-11-13) akış ekranı: gerçek EOD zincirden sonradan kurma
+
+**Neden:** Akış tarayıcısı Cuma günü henüz çalışmıyordu; Akış ekranında 13/11 boştu. Kaan örnek veri değil gerçek veri istedi; kredi tavanı bu iş için 50.000’e kadar onaylandı.
+
+**Ne:**
+- Canlı tarayıcıyla aynı eşikler ve vade kümesi (0DTE + 3 ay Cuma). dV = günün toplam hacmi (açılış tabanı 0); OI = önceki seans mutabakatı (MarketData `date=D` kuralı).
+- MarketData tarihsel zincir (`date=`, 1000 sembol / 1 kredi). Cuma henüz tarihsel değilse `mode=eod` yedeği (sembol başı 1 kredi, `minVolume` süzmesi).
+- Gün içi opsiyon mumu dokümanda yok; bir kez yoklanır. Yoksa zaman = kapanış 16:00 ET (uydurma gün içi an yok).
+- Olaylar `reconstructed=1`. Akış kartında etiket: "Sonradan gerçek veriden oluşturuldu". Push yok.
+- Betik: `server/app/flowbackfill.ts` (yalnız sunucuda, md.ts üzerinden). `flow.db` yedeği alınır.
+
+**Açık:** Cuma opsiyon verisi bazı planlarda pazartesi 09:30 ET’ye kadar tarihsel sayılmaz; o durumda eod yedeği veya erteleme.
+
 ## 2026-11-14 — Claude (commit prefix [grok], Kaan isteği) — Koç yükleme hatası: görüntü dönüşümü, gerçek hata gösterimi, sunucu günlüğü
 
 **Neden:** Expo Go'da 22 Midas görüntüsü yüklenemedi ("0/22 görüntü işlendi · 0 yeni dolum"). Sunucuya hiçbir `/coach` çağrısı Haiku'ya ulaşmadı: `koç extract` satırı yok, `coach_calls`/`coach_shots` bugün boş. Sunucu 400/413/429 yanıtlarını loglamıyordu; Caddy'de erişim günlüğü yoktu. İstemci tarafında üç kök neden vardı:

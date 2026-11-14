@@ -7,9 +7,11 @@ import { registerFlowPush } from '@/ui/flowPush';
 import { loadState } from '@/lib/state';
 import { fetchFlow, type FlowFeed } from '@/lib/flow/client';
 import { contractLabel, fmtIst, fmtIstTime, fmtUsdShort, type FlowEvent } from '@/lib/flow/model';
+import { RECONSTRUCTED_LABEL } from '@/lib/flow/reconstruct';
 import { groupByDay, FLOW_DAYS_DEFAULT } from '@/lib/flow/days';
 import { fmt } from '@/lib/format';
 import { flowKeyOf } from '@/lib/flow/client';
+import { closeMs } from '@/lib/usmarket';
 
 const REFRESH_MS = 60000;
 
@@ -87,6 +89,11 @@ export default function Akis({ active }: { active: boolean }) {
           <Text accessibilityRole="header" style={{ color: C.muted, fontSize: 13, fontWeight: '800', marginTop: 6, marginLeft: 4 }}>
             {g.label} · {g.items.length} olay
           </Text>
+          {g.items.some(e => e.reconstructed) ? (
+            <Text style={{ color: C.warn, fontSize: 11, lineHeight: 16, marginLeft: 4, marginBottom: 2 }}>
+              Bu gün canlı taranmadı. Olaylar kapanış zincirinden {RECONSTRUCTED_LABEL.toLowerCase()}. Saat, bilinmiyorsa kapanıştır (16:00 ET); uydurma gün içi an yok.
+            </Text>
+          ) : null}
           {g.items.map(e => (
           <Card key={e.id}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -97,10 +104,12 @@ export default function Akis({ active }: { active: boolean }) {
               Hacim Δ {fmt(e.dv, 0)} · prim ~{fmtUsdShort(e.prem)} · orta {fmt(e.mid, 2)}
             </Text>
             <Text style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>
-              OI {fmt(e.oi, 0)} · Hacim/OI {fmt(e.volOi, 2)} · {fmtIstTime(e.ts)} İST
+              OI {fmt(e.oi, 0)} · Hacim/OI {fmt(e.volOi, 2)} · {eventTimeLabel(e)}
             </Text>
             <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-              <Badge text={e.confirmed ? 'Teyitli (canlı)' : 'Teyitsiz'} color={e.confirmed ? C.pos : C.muted} />
+              {e.reconstructed
+                ? <Badge text={RECONSTRUCTED_LABEL} color={C.warn} />
+                : <Badge text={e.confirmed ? 'Teyitli (canlı)' : 'Teyitsiz'} color={e.confirmed ? C.pos : C.muted} />}
               {e.wide ? <Badge text="Geniş spread" color={C.warn} /> : null}
               {e.pushed ? <Badge text="Bildirim gönderildi" color={C.blue} /> : null}
             </View>
@@ -110,6 +119,12 @@ export default function Akis({ active }: { active: boolean }) {
       ))}
     </ScrollView>
   );
+}
+
+/** Yeniden kurulmuş ve zamanı kapanışsa "kapanış"; çubuktan gelen gerçek an varsa İstanbul saati. */
+function eventTimeLabel(e: FlowEvent): string {
+  if (e.reconstructed && Math.abs(e.ts - closeMs(e.day)) < 60000) return 'kapanış (16:00 ET)';
+  return `${fmtIstTime(e.ts)} İST`;
 }
 
 function Badge({ text, color }: { text: string; color: string }) {

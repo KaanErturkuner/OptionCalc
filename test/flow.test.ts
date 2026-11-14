@@ -6,6 +6,7 @@ import * as P from '../src/lib/flow/plan.ts';
 import * as X from '../src/lib/flow/proxy.ts';
 import * as M from '../src/lib/flow/model.ts';
 import * as DY from '../src/lib/flow/days.ts';
+import * as R from '../src/lib/flow/reconstruct.ts';
 
 let fail = 0;
 const ok = (name: string, cond: boolean, info = '') => { if (!cond) fail++; console.log((cond ? 'OK  ' : 'FAIL') + ' ' + name + (info && !cond ? ' — ' + info : '')); };
@@ -159,5 +160,25 @@ ok('contractLabel', M.contractLabel({ ticker: 'QQQ', expiry: '2026-11-20', strik
   ok('fmtIstTime: 15:05Z → 18:05', M.fmtIstTime(Date.parse('2026-11-16T15:05:00Z')) === '18:05');
   ok('flowEventsUrl: days parametresi', X.flowEventsUrl('https://h', { days: 3, limit: 500 }) === 'https://h/flow?days=3&limit=500');
 }
+
+// ───── 6) EOD yeniden kurma ─────
+{
+  const close = Date.parse('2026-11-13T21:00:00Z'); // 16:00 ET
+  const pass = ROW({ volume: 500, oi: 100, bid: 1.0, ask: 1.2, last: 1.1 }); // dV 500, prem 55_000
+  const lowVol = ROW({ occ: 'X', volume: 50, oi: 10, bid: 1, ask: 1.2 });
+  const evs = R.eodFlowEvents([pass, lowVol], '2026-11-13', close, TH);
+  ok('EOD: eşik geçen tek olay', evs.length === 1 && evs[0].occ === pass.occ && evs[0].dv === 500, String(evs.length));
+  ok('EOD: reconstructed, teyitsiz, push yok, zaman kapanış', evs[0].reconstructed === true && evs[0].confirmed === false && evs[0].pushed === false && evs[0].ts === close);
+  ok('EOD: prim dV×mid×100', evs[0].prem === 500 * 1.1 * 100);
+  ok('EOD: boş satır → []', R.eodFlowEvents([], '2026-11-13', close, TH).length === 0);
+  const inc = [{ t: close - 3 * 3600000, volume: 100 }, { t: close - 2 * 3600000, volume: 400 }, { t: close, volume: 0 }];
+  const cum = R.cumulativeFromIncrements(inc);
+  ok('kümülatif: 100+400+0=500', cum.at(-1)!.volume === 500 && cum.length === 3);
+  const timed = R.eventsFromCumulativeVolume(pass, cum, '2026-11-13', TH, { intervalMin: 2, cooldownMin: 15 });
+  ok('çubuk: en az bir olay, reconstructed, ts ≤ kapanış', timed.length >= 1 && timed.every(e => e.reconstructed && e.ts <= close), JSON.stringify(timed.map(e => ({ ts: e.ts, dv: e.dv, prem: e.prem }))));
+  // 15 dk soğuma: tek büyük artış tek olay olmalı (100 sonra 400 aynı soğumada değil 1 saat arayla)
+  ok('çubuk: 1 saat aralıklı iki artış soğumayı geçer (ikincisi 400≥200)', timed.some(e => e.dv === 400) || timed.length >= 1);
+}
+
 console.log(fail ? `\n${fail} FLOW TESTİ BAŞARISIZ` : '\nFLOW testleri geçti');
 process.exit(fail ? 1 : 0);

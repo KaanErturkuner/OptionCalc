@@ -56,6 +56,8 @@ export class Store {
     if (!rcols.includes('example')) this.db.exec('ALTER TABLE reports ADD COLUMN example INTEGER NOT NULL DEFAULT 0');
     // Yapılandırılmış bölümler (JSON). Eski satırlar NULL kalır → uygulama düz metne düşer.
     if (!rcols.includes('sections')) this.db.exec('ALTER TABLE reports ADD COLUMN sections TEXT');
+    const ecols = (this.db.prepare('PRAGMA table_info(events)').all() as { name: string }[]).map(c => c.name);
+    if (!ecols.includes('reconstructed')) this.db.exec('ALTER TABLE events ADD COLUMN reconstructed INTEGER NOT NULL DEFAULT 0');
   }
 
   // ── kredi sayacı (gün = MarketData kredi günü, 09:30 ET'de döner; bkz. server/README) ──
@@ -101,11 +103,15 @@ export class Store {
 
   // ── olaylar ──
   insertEvent(e: Omit<FlowEvent, 'id'>): number {
-    const r = this.db.prepare(`INSERT INTO events (ts, day, ticker, occ, expiry, side, strike, dv, volume, oi, bid, ask, mid, prem, volOi, confirmed, wide, pushed, underlying)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    const r = this.db.prepare(`INSERT INTO events (ts, day, ticker, occ, expiry, side, strike, dv, volume, oi, bid, ask, mid, prem, volOi, confirmed, wide, pushed, underlying, reconstructed)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       e.ts, e.day, e.ticker, e.occ, e.expiry, e.side, e.strike, e.dv, e.volume, e.oi, e.bid, e.ask, e.mid, e.prem, e.volOi,
-      e.confirmed ? 1 : 0, e.wide ? 1 : 0, e.pushed ? 1 : 0, e.underlying);
+      e.confirmed ? 1 : 0, e.wide ? 1 : 0, e.pushed ? 1 : 0, e.underlying, e.reconstructed ? 1 : 0);
     return Number(r.lastInsertRowid);
+  }
+  /** Yalnız sonradan kurulmuş olayları siler (aynı günü yeniden doldurmak için). Canlı olaylara dokunmaz. */
+  deleteReconstructedEvents(day: string): number {
+    return Number(this.db.prepare('DELETE FROM events WHERE day = ? AND reconstructed = 1').run(day).changes);
   }
   markPushed(id: number): void { this.db.prepare('UPDATE events SET pushed = 1 WHERE id = ?').run(id); }
   /** Olaylar yeni → eski. day: tek gün; fromDay: bu günden (dâhil) itibaren (ET, YYYY-MM-DD ile karşılaştırılır) */
@@ -297,6 +303,7 @@ function toEvent(r: Record<string, unknown>): FlowEvent {
     side: r.side === 'put' ? 'put' : 'call', strike: Number(r.strike), dv: Number(r.dv), volume: Number(r.volume), oi: Number(r.oi),
     bid: Number(r.bid), ask: Number(r.ask), mid: Number(r.mid), prem: Number(r.prem), volOi: Number(r.volOi),
     confirmed: !!r.confirmed, wide: !!r.wide, pushed: !!r.pushed, underlying: r.underlying == null ? null : Number(r.underlying),
+    reconstructed: Number(r.reconstructed) === 1,
   };
 }
 export type { ChainRow };

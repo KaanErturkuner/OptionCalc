@@ -28,6 +28,7 @@ export interface FlowEvent {
   wide: boolean;       // geniş spread → düşük güven
   pushed: boolean;
   underlying: number | null;
+  reconstructed?: boolean;  // canlı taranmadı; EOD (veya tarihsel çubuk) verisinden sonradan kuruldu
 }
 export interface FlowSummaryRow { ticker: string; callPrem: number; putPrem: number; events: number }
 
