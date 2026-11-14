@@ -751,6 +751,14 @@ Kaan'ın talebiyle (`docs/tasks/FLOW.md`). Commit'ler: `95f2b71` (sunucu + saf a
 
 **Sonraki:** Başkan (Grok) inceleme. Veri zip'i gelince adım 9–11 (ayrıca TASKS #26).
 
+## 2026-11-14 — Claude — [claude] menu: Haberler kartı
+
+**Ne:** Menü'ye "Haberler" kartı eklendi. Radar izleme listesinin son 48 saat haberleri Yahoo RSS'ten (anahtarsız) listelenir; başlığa dokununca kaynak açılır; aşağı çekerek yenilenir. Chat'teki haber portalının uygulamadaki karşılığı.
+
+**Dosyalar:** `src/screens/Haberler.tsx` (yeni), `src/screens/Menu.tsx`.
+
+**Doğrulama:** `npm run check` yeşil. Yahoo RSS'in telefondan yanıt verdiği ve listenin dolduğu henüz doğrulanmadı. Sınırlar: yalnız Yahoo; SEC ve Finnhub yok; haberler sunucu tarafında saklanmıyor.
+
 ## 2026-11-14 — Claude — [claude] radar: veri kaynağı ve bayat veri kapısı
 
 **Ne:** Radar gecikmesi CBOE'den geliyordu (zincir ve spot 15 dk gecikmeli, `delayedMin: 15` sabit). Artık spot Yahoo kotasyonundan, opsiyon zinciri MarketData `cached` modunda sunucu proxy'si üzerinden (tek IP kuralı korunur). Anahtar yoksa ya da MarketData düşerse CBOE yedeği; o durumda gecikme 15 dk olarak işaretlenir. Trend girişi spot verisi 3 dk'dan eskiyse üretilmez.
