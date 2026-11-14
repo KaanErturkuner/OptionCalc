@@ -8,7 +8,7 @@ import { buildSnapshot, oiMap } from '@/lib/radar/snapshot';
 import { buildBaseline, ivRankOf } from '@/lib/radar/baseline';
 import { runDetectors } from '@/lib/radar/detectors';
 import { applyCooldown, buildAlerts, type Alert } from '@/lib/radar/engine';
-import { priceAt, nextSessionOpen, eodOf, H30, H2 } from '@/lib/radar/track';
+import { priceAt, nextSessionOpen, eodOf, barrierOf, H30, H2 } from '@/lib/radar/track';
 import { isEtf, SECTOR } from '@/lib/radar/universe';
 import type { DayRecord, Snapshot, Signal } from '@/lib/radar/types';
 import { NewsHub, type NewsItem } from '@/lib/news';
@@ -100,6 +100,7 @@ function fillOutcomes(got: Collected[], now: number) {
     if (!('h2' in o) && now >= a.at + H2) patch.h2 = priceAt(bars, a.at + H2);
     if (!('eod' in o) && now >= eodOf(a.at)) patch.eod = priceAt(bars, eodOf(a.at), 10 * 60000);
     if (!('next' in o) && etDate(now) > etDate(a.at)) patch.next = nextSessionOpen(bars, a.at);
+    if (!('bar' in o) && now >= a.at + H2) patch.bar = barrierOf(a.direction, a.spot, bars, a.at, a.emPct);
     if (Object.keys(patch).length) radar.patchOutcome(a.id, patch);
   }
 }

@@ -1,3 +1,4 @@
+import type { Bar } from '../src/lib/odte/analytics.ts';
 import * as RD from '../src/lib/radar/detectors/index.ts';
 import { pcSurge } from '../src/lib/radar/detectors/pcSurge.ts';
 import { unusual } from '../src/lib/radar/detectors/unusual.ts';
@@ -13,7 +14,8 @@ import { buildBaseline, ivRankOf, realizedVol } from '../src/lib/radar/baseline.
 import { buildAlerts, applyCooldown, groupSignals, type Alert } from '../src/lib/radar/engine.ts';
 import { renderAlert, kontratEtiket } from '../src/lib/radar/text.ts';
 import { buildSnapshot, oiMap } from '../src/lib/radar/snapshot.ts';
-import { hitOf, priceAt, summarize } from '../src/lib/radar/track.ts';
+import { hitOf, priceAt, summarize, barrierOf, barrierSummary } from '../src/lib/radar/track.ts';
+import { combineScore, isConfirmed } from '../src/lib/radar/engine.ts';
 import type { Baseline, Signal, Snapshot } from '../src/lib/radar/types.ts';
 import { classify } from '../src/lib/news/classify.ts';
 import { tickersIn } from '../src/lib/news/names.ts';
@@ -104,10 +106,19 @@ console.log('\n— Dedektörler: pozitif / negatif örnekler —');
   ok('bilanço pahalı (zımni 8% / hist 5%)', earnings(snap({ earnings: { date: '2026-11-16', days: 3 }, earningsImpliedPct: 8, earningsHistPct: 5 }), bl())[0]?.facts.durum === 'pahalı');
   ok('bilanço 9 gün sonra → yok', earnings(snap({ earnings: { date: '2026-11-22', days: 9 }, earningsImpliedPct: 8, earningsHistPct: 5 }), bl()).length === 0);
 
-  const tr = trend(snap({ spot: 100, orHigh: 99, orLow: 98, vwap: 99, ema9: 100, ema21: 99, expectedMove: 1 }));
+  const UP_BARS = Array.from({ length: 5 }, (_, i) => ({ t: NOW - (5 - i) * 60000, o: 100, h: 100.2, l: 99.9, c: 100.1, v: 1000 }));
+  const T = { spot: 100, orHigh: 99, orLow: 98, vwap: 99, ema9: 100, ema21: 99, expectedMove: 1, bars: UP_BARS };
+  const tr = trend(snap(T));
   ok('trend: hisse 1,8×EM → 102C', tr[0]?.facts.kontrat === '102C' && tr[0]?.direction === 'bull', JSON.stringify(tr[0]?.facts));
-  ok('trend: ETF 0,45×EM → 100C', trend(snap({ ticker: 'QQQ', spot: 100, orHigh: 99, orLow: 98, vwap: 99, ema9: 100, ema21: 99, expectedMove: 1 }))[0]?.facts.kontrat === '100C');
-  ok('trend yok: kırılım yok', trend(snap({ spot: 98.5, orHigh: 99, orLow: 98, vwap: 99, ema9: 100, ema21: 99 })).length === 0);
+  ok('trend: ETF 0,45×EM → 100C', trend(snap({ ...T, ticker: 'QQQ' }))[0]?.facts.kontrat === '100C');
+  ok('trend yok: kırılım yok', trend(snap({ ...T, spot: 98.5 })).length === 0);
+  ok('trend yok: %0,1 tampon altında (100,05 / OR 100)', trend(snap({ ...T, orHigh: 100, spot: 100.05 })).length === 0);
+  ok('trend yok: VWAP hold bozuk (son bar VWAP altı)', trend(snap({ ...T, bars: [...UP_BARS.slice(0, 4), { ...UP_BARS[4], c: 98.9 }] })).length === 0);
+  ok('trend yok: 15:50 ET (pencere dışı)', trend(snap({ ...T, now: Date.parse('2026-11-13T20:50:00Z') })).length === 0);
+  ok('trend yok: 09:45 ET (açılış gürültüsü)', trend(snap({ ...T, now: Date.parse('2026-11-13T14:45:00Z') })).length === 0);
+  ok('trend yok: bar sayısı yetersiz', trend(snap({ ...T, bars: UP_BARS.slice(0, 3) })).length === 0);
+  const sFar = trend(snap({ ...T, spot: 101.5 }))[0]?.severity ?? 0, sNear = trend(snap(T))[0]?.severity ?? 0;
+  ok('trend şiddeti kırılım mesafesiyle artar', sFar > sNear && sNear >= 0.55, `(${sNear} → ${sFar})`);
   ok('runDetectors çalışır', Array.isArray(RD.runDetectors(snap(), bl())));
 }
 
@@ -133,6 +144,10 @@ console.log('\n— Uyarı motoru: gruplama, puanlama, eşikler, soğuma —');
   const withNews: NewsItem = { id: 'n', tickers: ['MU'], title: 'Micron shares fall after downgrade', source: 'Yahoo', url: 'u', publishedAt: NOW, kind: 'news', sentiment: -0.6, tags: ['downgrade'] };
   const a3 = buildAlerts(new Map([['MU', snap({ sector: { ticker: 'SMH', changePct: -1 } })]]), [mk('pcSurge', 0.5), mk('skew', 0.5, 'bear', NOW + 1000)], [withNews]);
   ok('haber + sektör teyidi → +0,2 (0,75 → 0,95)', a3[0].newsConfirm && a3[0].sectorConfirm && Math.abs(a3[0].score - 0.95) < 1e-9, `(${a3[0]?.score})`);
+  ok('tek aile (yalnız akış) 0,7 → yalnız liste (teyit yok)', buildAlerts(snaps, [mk('pcSurge', 0.7)], [])[0].level === 'liste');
+  ok('aile birleşimi: aynı aileden 2 sinyal → max (0,5 ⊕ 0,4 = 0,5)', Math.abs(combineScore([mk('pcSurge', 0.5), mk('unusual', 0.4)]) - 0.5) < 1e-9);
+  ok('aile birleşimi: iki farklı aile → 1 − 0,5·0,5', Math.abs(combineScore([mk('pcSurge', 0.5), mk('skew', 0.5)]) - 0.75) < 1e-9);
+  ok('teyit: onaylı trend tek başına bildirim', isConfirmed([mk('trend', 0.7)], false, false));
   ok('zayıf sinyal (0,3) → listeye bile girmez', buildAlerts(snaps, [mk('pcSurge', 0.3)], []).length === 0);
   const a4 = buildAlerts(snaps, [mk('pcSurge', 0.4)], []);
   ok('orta sinyal (0,4) → yalnız liste', a4.length === 1 && a4[0].level === 'liste');
@@ -146,7 +161,7 @@ console.log('\n— Uyarı motoru: gruplama, puanlama, eşikler, soğuma —');
   applyCooldown([stronger], [first]);
   ok('soğuma: skor +0,2 artarsa bastırılmaz', stronger.suppressed === false);
   const hist: Alert[] = Array.from({ length: 12 }, (_, i) => ({ ...first, id: 'h' + i, ticker: 'T' + i, at: NOW - 60000 * i, suppressed: false, level: 'bildirim' as const }));
-  const capped = buildAlerts(snaps, [mk('pcSurge', 0.7, 'bear', NOW + 2 * 3600000)], [])[0];
+  const capped = buildAlerts(snaps, [mk('pcSurge', 0.7, 'bear', NOW + 2 * 3600000), mk('skew', 0.5, 'bear', NOW + 2 * 3600000)], [])[0];
   applyCooldown([capped], hist);
   ok('günlük bildirim tavanı 12 → liste', capped.level === 'liste');
 }
@@ -223,6 +238,16 @@ console.log('\n— Anlık görüntü (CBOE SPY 0DTE fikstürü) ve senaryo —')
   ok('isabet: bear yön + düşüş = isabet', hitOf('bear', 100, 99, 0.01) === true && hitOf('bull', 100, 99, 0.01) === false && hitOf('neutral', 100, 99, 0.01) === null);
   ok('isabet: vol → |hareket| ≥ ½ EM', hitOf('vol', 100, 100.6, 0.01) === true && hitOf('vol', 100, 100.2, 0.01) === false);
   const sm = summarize([{ kinds: ['pcSurge'], direction: 'bear', spot: 100, emPct: 0.01, outcome: { h2: 98 } }, { kinds: ['pcSurge'], direction: 'bear', spot: 100, emPct: 0.01, outcome: { h2: 101 } }]);
+  const ub: Bar[] = Array.from({ length: 130 }, (_, i) => ({ t: NOW + (i + 1) * 60000, o: 100, h: 100.1, l: 99.9, c: 100, v: 1 }));
+  ok('bariyer: hedef önce → win', barrierOf('bull', 100, ub.map((b, i) => i === 3 ? { ...b, h: 101 } : b), NOW, 0.01) === 'win');
+  ok('bariyer: stop önce → loss (bull)', barrierOf('bull', 100, ub.map((b, i) => i === 3 ? { ...b, l: 99 } : b), NOW, 0.01) === 'loss');
+  ok('bariyer: bear yönde düşüş hedefi → win', barrierOf('bear', 100, ub.map((b, i) => i === 5 ? { ...b, l: 99 } : b), NOW, 0.01) === 'win');
+  ok('bariyer: aynı barda ikisi → loss', barrierOf('bull', 100, ub.map((b, i) => i === 2 ? { ...b, h: 101, l: 99 } : b), NOW, 0.01) === 'loss');
+  ok('bariyer: hiç vurmadı → timeout', barrierOf('bull', 100, ub, NOW, 0.01) === 'timeout');
+  ok('bariyer: veri ufku kapsamıyor → null', barrierOf('bull', 100, ub.slice(0, 5), NOW, 0.01) === null);
+  ok('bariyer: vol yönü ölçülmez → null', barrierOf('vol', 100, ub, NOW, 0.01) === null);
+  const bsum = barrierSummary(['win', 'win', 'loss', 'timeout', null]);
+  ok('bariyer özeti: win% = win/(win+loss)', bsum.n === 4 && bsum.winPct === 67 && bsum.timeoutPct === 25, JSON.stringify(bsum));
   ok('isabet özeti: 2 uyarıdan %50 isabet', sm[0]?.n === 2 && sm[0]?.hitPct === 50, JSON.stringify(sm));
 }
 

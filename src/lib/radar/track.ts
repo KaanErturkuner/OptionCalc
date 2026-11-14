@@ -40,3 +40,27 @@ export function summarize(rows: Scored[]): { kind: SignalKind; n: number; hitPct
   return [...byKind].map(([kind, e]) => ({ kind, n: e.n, hitPct: e.n ? Math.round(e.hits / e.n * 100) : null,
     avgMovePct: e.n ? +(e.mv / e.n * 100).toFixed(2) : null, avgEm: e.emN ? +(e.em / e.emN).toFixed(2) : null }));
 }
+
+export type BarrierResult = 'win' | 'loss' | 'timeout';
+/** Bariyer isabeti: uyarıdan sonra horizonMs içinde yönlü +k·EM hedefi mi önce vuruldu, yoksa −k·EM stopu mu (bar high/low yolu).
+ *  Aynı barda ikisi de vurulursa muhafazakâr davranıp kayıp sayılır. Veri ufku kapsamıyorsa null (ölçülmez). */
+export function barrierOf(direction: Direction, spot: number, bars: Bar[], at: number, emPct: number | null, horizonMs = H2, k = 0.5): BarrierResult | null {
+  if ((direction !== 'bull' && direction !== 'bear') || !emPct || emPct <= 0) return null;
+  const up = direction === 'bull' ? spot * (1 + k * emPct) : spot * (1 - k * emPct);
+  const dn = direction === 'bull' ? spot * (1 - k * emPct) : spot * (1 + k * emPct);
+  const path = bars.filter(b => b.t > at && b.t <= at + horizonMs).sort((a, b) => a.t - b.t);
+  if (!bars.some(b => b.t >= at + horizonMs - 5 * 60000)) return null;
+  for (const b of path) {
+    const hitWin = direction === 'bull' ? b.h >= up : b.l <= up;
+    const hitLoss = direction === 'bull' ? b.l <= dn : b.h >= dn;
+    if (hitWin && hitLoss) return 'loss';
+    if (hitLoss) return 'loss';
+    if (hitWin) return 'win';
+  }
+  return 'timeout';
+}
+/** Bariyer özeti: win / (win + loss) — timeout ayrı sayılır (yön bilgisi yok) */
+export function barrierSummary(rs: (BarrierResult | null | undefined)[]): { n: number; winPct: number | null; timeoutPct: number | null } {
+  const v = rs.filter((x): x is BarrierResult => x != null), w = v.filter(x => x === 'win').length, l = v.filter(x => x === 'loss').length, t = v.length - w - l;
+  return { n: v.length, winPct: w + l ? Math.round(w / (w + l) * 100) : null, timeoutPct: v.length ? Math.round(t / v.length * 100) : null };
+}

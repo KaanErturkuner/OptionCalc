@@ -16,7 +16,25 @@ export interface Alert {
   expiry: string | null; dte: number | null; spot: number; expectedMove: number | null; emPct: number | null;
   probUp: number | null; dataAgeSec: number; source: string; delayedMin: number;
   title: string; body: string; feedback: 1 | -1 | null;
-  outcome: { m30?: number | null; h2?: number | null; eod?: number | null; next?: number | null };
+  outcome: { m30?: number | null; h2?: number | null; eod?: number | null; next?: number | null; bar?: 'win' | 'loss' | 'timeout' | null };
+}
+
+/** Aynı kaynaktan türeyen sinyaller (ör. P/C yığılması + olağan dışı kontrat + OI birikimi hepsi akış verisi) bağımsız kanıt değildir.
+ *  Bu yüzden her aileden yalnız en güçlü şiddet alınır, aileler arasında 1 − Π(1 − max_aile) birleşimi uygulanır. */
+export const FAMILY: Partial<Record<SignalKind, string>> = {
+  pcSurge: 'akis', unusual: 'akis', oiBuild: 'akis',
+  ivJump: 'vol', skew: 'vol', complacency: 'vol', panic: 'vol',
+  pin: 'yapi', gamma: 'yapi', sector: 'goreli', earnings: 'olay', trend: 'trend',
+};
+export function combineScore(sigs: Signal[]): number {
+  const best = new Map<string, number>();
+  for (const x of sigs) { const f = FAMILY[x.kind] ?? x.kind; best.set(f, Math.max(best.get(f) ?? 0, x.severity)); }
+  return 1 - [...best.values()].reduce((p, v) => p * (1 - v), 1);
+}
+/** Bildirim için en az bir teyit: iki farklı aile, haber, sektör ya da onaylı trend girişi. Tek aileden gelen akış/vol uyarısı yalnız listede kalır. */
+export function isConfirmed(sigs: Signal[], newsConfirm: boolean, sectorConfirm: boolean): boolean {
+  const fams = new Set(sigs.map(x => FAMILY[x.kind] ?? x.kind));
+  return fams.size >= 2 || newsConfirm || sectorConfirm || sigs.some(x => x.kind === 'trend');
 }
 
 const aligned = (sent: number | undefined, dir: Direction) => dir === 'bull' ? (sent ?? 0) > 0 : dir === 'bear' ? (sent ?? 0) < 0 : true;
@@ -40,7 +58,7 @@ export function buildAlerts(snaps: Map<string, Snapshot>, signals: Signal[], new
     const newsConfirm = related.some(n => aligned(n.sentiment, g.direction));
     const noNews = related.length === 0;
     const sigs = g.signals.map(x => ({ ...x, severity: noNews && NO_NEWS_KINDS.includes(x.kind) ? Math.min(1, x.severity + 0.1) : x.severity }));
-    let score = 1 - sigs.reduce((p, x) => p * (1 - x.severity), 1);
+    let score = combineScore(sigs);
     const sectorConfirm = !!snap?.sector && (g.direction === 'bull' ? snap.sector.changePct > 0 : g.direction === 'bear' ? snap.sector.changePct < 0 : false);
     if (newsConfirm) score += 0.1;
     if (sectorConfirm) score += 0.1;
@@ -52,7 +70,7 @@ export function buildAlerts(snaps: Map<string, Snapshot>, signals: Signal[], new
       source: snap?.source ?? '', delayedMin: snap?.delayedMin ?? 0, probUp: snap?.probUp ?? null, now: g.start, expiry: snap?.expiry, dte: snap?.dte });
     out.push({
       id: `${g.ticker}-${g.direction}-${g.start}`, ticker: g.ticker, direction: g.direction, score, at: g.start,
-      level: score >= NOTIFY_MIN ? 'bildirim' : 'liste', suppressed: false, kinds, signals: sigs,
+      level: score >= NOTIFY_MIN && isConfirmed(sigs, newsConfirm, sectorConfirm) ? 'bildirim' : 'liste', suppressed: false, kinds, signals: sigs,
       news: news0, newsConfirm, sectorConfirm, noNews,
       expiry: snap?.expiry ?? null, dte: snap?.dte ?? null, spot: snap?.spot ?? 0, expectedMove: snap?.expectedMove ?? null, emPct: snap?.emPct ?? null,
       probUp: snap?.probUp ?? null, dataAgeSec: snap?.dataAgeSec ?? 0, source: snap?.source ?? '', delayedMin: snap?.delayedMin ?? 0,

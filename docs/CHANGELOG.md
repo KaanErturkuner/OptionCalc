@@ -2,6 +2,19 @@
 
 En yeni üstte. Biçim: `## YYYY-MM-DD — Ajan — başlık`, sonra ne / dosyalar / nasıl doğrulandı / açık sorular.
 
+## 2026-11-14 — Claude — [claude] radar: giriş ve skor algoritması
+
+**Ne:**
+- **Giriş (`trend`):** tek fiyat–OR kontrolü yerine onaylı kırılım: OR dışına %0,1 tampon, VWAP hold (son 5 bar aynı tarafta), EMA hizası, ET 10:00–15:30 penceresi. Şiddet kırılım mesafesine bağlı (0,55–0,80); sabit 0,6 kaldırıldı.
+- **Skor (`engine.ts`):** aynı kaynaktan gelen sinyaller (akış: P/C, olağan dışı kontrat, OI) bağımsız sayılmıyor; aile başına en güçlü şiddet, aileler arası 1 − Π(1 − max). Bildirim için teyit şart: iki farklı aile, haber, sektör ya da onaylı trend. Tek aileden gelen uyarı listede kalır.
+- **İsabet (`track.ts`, `radarScan.ts`):** yeni `barrierOf` — 2 saat içinde +½·EM hedefi mi önce vuruldu, −½·EM stopu mu (bar high/low yolu, aynı barda ikisi → kayıp). `barrierSummary` win% = win/(win+loss). Eski "2 saat sonra yön" ölçümü duruyor.
+
+**Dosyalar:** `src/lib/radar/detectors/trend.ts`, `src/lib/radar/engine.ts`, `src/lib/radar/track.ts`, `src/ui/radarScan.ts`, `test/radar.test.ts`.
+
+**Doğrulama:** `npm run check` yeşil (test, typecheck, lint, bt:selftest). Radar testlerine yeni 14 kontrol eklendi (giriş kuralları, aile birleşimi, teyit kapısı, bariyer uçları).
+
+**Açık / dürüst not:** Win rate'in gerçekten yükseldiğini bu oturumda ölçemedim: sandbox'ta Yahoo erişimi ve gerçek radar kaydı yok. Tek kanıt birim testleri. Gerçek ölçüm için uygulamada birkaç hafta kayıt + `barrierSummary` çıktısı gerekir; eşikler (OR tamponu, 0,5·EM hedef, 5 bar hold) o veriye göre kalibre edilmeli. Radar UI'ında win% henüz gösterilmiyor. Bilinmiyor: yeni eşiklerle bildirim sayısının düşüp düşmeyeceği.
+
 ## 2026-11-13 — Grok — [grok] Aşama 4–5 incelemesi
 
 **Ne:** Claude'un Aşama 4 (kâğıt hesap) ve Aşama 5 (Fırsat sekmesi + tarama bağlama) kodu doğrulandı. İlk `npm test` / `tsc --noEmit` / lint / `bt:selftest` yeşildi. Kaan'ın sayısal örnekleri (300→150→1:3 çıkış→600; 150→50 kayıp→200→%40=80; ikinci kayıp → %30 + güvenli mod), %50 tavan, kademe 50→40→30 ve 30→40→50, güne taşıma, 4 kazanç / 2 kayıp güvenli mod, 1:5 sonra 1:4, %67 prim stopu, 1,50 $ komisyon, 0DTE 15:45, onay 3/5 dk ve "fiyat kaçtı" testlerde tutuyor. %50 kuralına dokunulmadı.
