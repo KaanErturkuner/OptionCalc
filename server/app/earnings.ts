@@ -7,11 +7,11 @@
  *  - Geçmiş çeyrekler (/stock/earnings): sembol başına 24 saatte bir.
  *  - Favori bildirimi: bir favori sembolün epsActual'i ÖNCE boşken, şimdi doluysa, o cihaza Expo push (sunucu tarafı; uygulama
  *    açık olmak zorunda değil). Aynı cihaz+gün+sembol bir kez (earn_notified). İlk çekimde görülen geçmiş sonuçlar bildirmez.
- * Tick: bugün−3 … bugün+14, 15 dk. Hata metinleri errText ile maskelenir; anahtar asla loglanmaz/yanıtlanmaz.
+ * Tick: bugün−3 … bugün+60, 15 dk; Finnhub takvim çağrıları 31 günlük parçalara bölünür. Hata metinleri errText ile maskelenir; anahtar asla loglanmaz/yanıtlanmaz.
  */
 import { addDaysStr, etDate } from '../../src/lib/usmarket.ts';
 import {
-  capUsdFromProfile, daysBetween, newActualsOf, parseFinnhubCalendar, parseFinnhubHistory, passesCapFilter, staleDays,
+  capUsdFromProfile, daysBetween, newActualsOf, parseFinnhubCalendar, parseFinnhubHistory, passesCapFilter, staleDays, windowsOf,
   type EarnHistory, type EarningsItem, type EarningsRange,
 } from '../../src/lib/earnings/model.ts';
 import { earnActualText } from '../../src/lib/earnings/calendar.ts';
@@ -33,6 +33,9 @@ export interface EarningsDeps {
 /** Başarısız çekimden sonra aynı aralığı bu kadar beklemeden yeniden deneme (istek fırtınası olmasın) */
 export const EARN_RETRY_AFTER_FAIL_MS = 5 * 60000;
 export const EARN_TICK_MS = 15 * 60000;
+/** Periyodik tarama penceresi: bugünden geriye / ileriye gün */
+export const EARN_TICK_BACK_DAYS = 3;
+export const EARN_TICK_AHEAD_DAYS = 60;
 export const EARN_CAP_STALE_MS = 7 * 86400000;
 export const EARN_HIST_TTL_MS = 86400000;
 /** Her tick'te en çok bu kadar piyasa değeri sorgusu (≈1,1 sn aralıkla; tick arka planda çalışır) */
@@ -56,18 +59,25 @@ export class EarningsCache {
   private log(m: string): void { (this.d.log ?? console.log)(`${new Date().toISOString()} ${m}`); }
 
   /**
-   * [from,to] takvimi (piyasa değeri filtreli: watch = izleme listesi + favoriler). Gerekirse Finnhub'dan yeniler.
+   * [from,to] takvimi (piyasa değeri filtreli: watch = izleme listesi + favoriler). Gerekirse Finnhub'dan yeniler
+   * (aralık 31 günlük parçalara bölünür; yalnız eski günü olan parça çekilir).
    * Yenileme başarısızsa ve aralığın her günü önbellekteyse önbellek döner (fetchedAt eski kalır); eksik gün varsa hata fırlatır.
    */
   async range(from: string, to: string, watch: string[] = []): Promise<EarningsRange> {
     const t = this.now();
     const days = daysBetween(from, to);
-    if (staleDays(this.d.store.earnFetchedDays(from, to), from, to, t).length) {
-      try { await this.refreshOnce(from, to); }
-      catch (e) {
+    const stale = staleDays(this.d.store.earnFetchedDays(from, to), from, to, t);
+    if (stale.length) {
+      let firstErr: unknown = null;
+      for (const w of windowsOf(from, to)) {
+        if (!stale.some(d => d >= w.from && d <= w.to)) continue;
+        try { await this.refreshOnce(w.from, w.to); }
+        catch (e) { firstErr ??= e; }
+      }
+      if (firstErr) {
         const have = this.d.store.earnFetchedDays(from, to);
-        if (!days.every(d => have.has(d))) throw e;
-        this.log('bilanço takvimi yenilenemedi, önbellek kullanılıyor: ' + errText(e));
+        if (!days.every(d => have.has(d))) throw firstErr;
+        this.log('bilanço takvimi yenilenemedi, önbellek kullanılıyor: ' + errText(firstErr));
       }
     }
     const fetched = this.d.store.earnFetchedDays(from, to);
@@ -77,13 +87,13 @@ export class EarningsCache {
     return { from, to, fetchedAt: vals.length ? Math.min(...vals) : 0, items };
   }
 
-  /** Periyodik: bugün−3 … bugün+14 takvimi, piyasa değerleri, eski satırların budanması. Hata yutulur (loglanır). */
+  /** Periyodik: bugün−3 … bugün+60 takvimi, piyasa değerleri, eski satırların budanması. Hata yutulur (loglanır). */
   async tick(): Promise<void> {
     if (this.ticking) return;
     this.ticking = true;
     const today = etDate(this.now());
     try {
-      const from = addDaysStr(today, -3), to = addDaysStr(today, 14);
+      const from = addDaysStr(today, -EARN_TICK_BACK_DAYS), to = addDaysStr(today, EARN_TICK_AHEAD_DAYS);
       await this.range(from, to);
       await this.fillCaps(from, to, EARN_CAPS_PER_TICK);
       this.d.store.earnPrune(addDaysStr(today, -60), this.now() - 30 * 86400000);

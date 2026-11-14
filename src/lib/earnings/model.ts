@@ -19,7 +19,10 @@ export interface EarningsRange { from: string; to: string; fetchedAt: number; it
 export interface EarnHistoryRow { period: string; year: number | null; quarter: number | null; epsEstimate: number | null; epsActual: number | null; surprisePct: number | null }
 export interface EarnHistory { symbol: string; fetchedAt: number; items: EarnHistoryRow[] }
 
-export const EARN_MAX_RANGE_DAYS = 31;
+/** İstek aralığı üst sınırı (takvim ayı + ara; sunucu tick'i bugün−3 … bugün+60 tarar) */
+export const EARN_MAX_RANGE_DAYS = 62;
+/** Finnhub çağrısı başına en çok gün (parçalama; aralık uzunsa birden çok çağrı) */
+export const EARN_CHUNK_DAYS = 31;
 export const EARN_DEFAULT_SPAN_DAYS = 7;
 /** Küçük şirket filtresi: bu değerin altındaki (veya bilinmeyen) piyasa değerli hisseler izleme listesi/favori değilse gizlenir */
 export const MIN_MARKET_CAP_USD = 2e9;
@@ -36,6 +39,16 @@ export const isIsoDay = (s: unknown): s is string => {
   return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === s;
 };
 
+/** [from,to] aralığını en çok `size` günlük ardışık pencerelere böler (Finnhub çağrı boyutu). Boş aralık → []. */
+export function windowsOf(from: string, to: string, size = EARN_CHUNK_DAYS): { from: string; to: string }[] {
+  const out: { from: string; to: string }[] = [];
+  for (let d = from; d <= to; d = addDaysStr(d, size)) {
+    const end = addDaysStr(d, size - 1);
+    out.push({ from: d, to: end < to ? end : to });
+  }
+  return out;
+}
+
 /** Gün dizisi [from..to] (dâhil). Aralık geçerliyse. */
 export function daysBetween(from: string, to: string): string[] {
   const out: string[] = [];
@@ -44,7 +57,7 @@ export function daysBetween(from: string, to: string): string[] {
 }
 
 /**
- * İstek aralığını doğrular. Eksik from → bugün (ET); eksik to → from + 6 gün (7 gün). En çok 31 gün.
+ * İstek aralığını doğrular. Eksik from → bugün (ET); eksik to → from + 6 gün (7 gün). En çok EARN_MAX_RANGE_DAYS gün.
  * Döner: {from,to} veya {error} (Türkçe, kısa).
  */
 export function checkRange(from: string | null | undefined, to: string | null | undefined, today: string):

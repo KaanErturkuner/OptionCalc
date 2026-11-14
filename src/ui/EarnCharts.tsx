@@ -10,6 +10,8 @@ import type { ImpliedMove, DayPrem } from '@/lib/earnings/charts';
 import type { EarnHistoryRow } from '@/lib/earnings/model';
 import { fmtSurprise, surpriseTone } from '@/lib/earnings/calendar';
 
+/** Grafik genişliği: pencereye göre (çağıran kart içi genişliği verir), telefonda 160–340 pt arası. Sabit geniş değer yok. */
+export const chartWidth = (w: number) => Math.max(160, Math.min(Math.floor(w), 340));
 const toneColor = (x: number | null) => (surpriseTone(x) === 'pos' ? C.pos : surpriseTone(x) === 'neg' ? C.neg : C.muted);
 const fmtK = (k: number) => (k % 1 ? k.toFixed(1) : k.toFixed(0)).replace('.', ',');
 const RH = 13, LBL = 46, PAD = 14;
@@ -18,7 +20,7 @@ const RH = 13, LBL = 46, PAD = 14;
 export function EarnChainChart({ rows, metric, spot, move, width }: { rows: StrikeRow[]; metric: Metric; spot: number; move: ImpliedMove | null; width: number }) {
   const desc = [...rows].sort((a, b) => b.k - a.k);
   if (!desc.length) return <Text style={{ color: C.muted, fontSize: 13 }}>Bu aralıkta strike yok.</Text>;
-  const W = Math.max(width, 220), H = desc.length * RH + PAD * 2, cx = W / 2;
+  const W = chartWidth(width), H = desc.length * RH + PAD * 2, cx = W / 2;
   const barMax = W / 2 - LBL / 2 - 6;
   const vmax = Math.max(1, ...desc.map(r => (metric === 'oi' ? Math.max(r.callOi, r.putOi) : Math.max(r.callVol, r.putVol))));
   const yOf = (p: number): number => {
@@ -60,7 +62,7 @@ export function EarnChainChart({ rows, metric, spot, move, width }: { rows: Stri
 /** Gün bazında call / put primi: üstte call (yeşil), altta put (kırmızı); ortak ölçek. */
 export function EarnFlowChart({ data, width }: { data: DayPrem[]; width: number }) {
   if (!data.length) return <Text style={{ color: C.muted, fontSize: 13 }}>Son 5 günde olağandışı akış yok.</Text>;
-  const H = 150, W = Math.max(width, 220), top = 14, bottom = H - 18, mid = (top + bottom) / 2;
+  const H = 150, W = chartWidth(width), top = 14, bottom = H - 18, mid = (top + bottom) / 2;
   const vmax = Math.max(1, ...data.map(d => Math.max(d.call, d.put)));
   const slot = W / data.length, bw = Math.min(28, slot * 0.5);
   const half = (bottom - top) / 2 - 2;
@@ -87,9 +89,12 @@ const dayShort = (iso: string) => new Date(iso + 'T12:00:00Z').toLocaleDateStrin
 
 /** Çeyrek başına beklenti (gri çubuk) ve gerçek EPS (mavi; beklentiyi geçtiyse yeşil, altındaysa kırmızı) + sürpriz etiketi. */
 export function EarnEpsChart({ rows, width }: { rows: EarnHistoryRow[]; width: number }) {
-  const data = rows.filter(r => r.epsEstimate != null || r.epsActual != null);
+  const W = chartWidth(width);
+  // En yeni çeyrekler (genişliğe göre): her çeyrek ≥ 36 pt, etiketler birbirine girmez ve kenardan kırpılmaz
+  const maxBars = Math.max(4, Math.min(12, Math.floor(W / 36)));
+  const data = rows.filter(r => r.epsEstimate != null || r.epsActual != null).slice(-maxBars);
   if (!data.length) return <Text style={{ color: C.muted, fontSize: 13 }}>Geçmiş bilanço verisi yok.</Text>;
-  const H = 170, W = Math.max(width, 220), top = 24, bottom = H - 22;
+  const H = 170, top = 24, bottom = H - 22;
   const vals = data.flatMap(r => [r.epsEstimate ?? 0, r.epsActual ?? 0]);
   const hi = Math.max(0, ...vals), lo = Math.min(0, ...vals), span = hi - lo || 1;
   const y = (v: number) => top + ((hi - v) / span) * (bottom - top);

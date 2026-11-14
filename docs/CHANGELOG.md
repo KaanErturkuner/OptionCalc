@@ -1,5 +1,23 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — Bilanço: 62 günlük takvim, ay gezintisi, telefon düzeni
+
+**Neden:** Takvim yalnız Kasım'ı gösteriyordu (sunucu tick'i bugün+14, uygulama en çok 31 gün). Detay ekranında grafikler ve satırlar 320–390 pt genişlikte taşıyordu (sabit genişlikler, kırpılan EPS etiketleri, kart başlığında Seg taşması).
+
+**Ne:**
+- **Sunucu** (`server/app/earnings.ts`, `earnings.ts` model): `/earnings` aralığı en çok 62 gün (`EARN_MAX_RANGE_DAYS`). Finnhub takvim çağrıları 31 günlük parçalara bölünür (`windowsOf`); yalnız eski günü olan parça çekilir. Tick penceresi bugün−3 … bugün+60. Piyasa değeri (profile2) doldurma akışı değişmedi (tick başına 120, 60/dk sınırı).
+- **Uygulama takvimi** (`Bilanco.tsx`): görünen ay ± 7 gün çekilir (`monthFetchSpan`); ‹ › ay ve hafta gezer (`shiftMonth`), yıl sınırı dâhil; gezintide seçili gün yeni görünümde bugün ya da ilk gün olur. Hafta başlığı iki ay arasında doğru (`weekTitle`). Cihaz içi bellek önbelleği (`RangeCache`, 10 dk, aralık+watch anahtarı); çekmek için aşağı çek.
+- **Detay** (`BilancoDetay.tsx`, `EarnCharts.tsx`): grafik genişliği `width − 56`, 160–340 pt'e sıkıştırılır (`chartWidth`); OI/Hacim seçici kart başlığından çıkıp satıra alındı; EPS grafiği genişliğe göre en yeni 4–12 çeyrek (etiket çakışması/kırpma yok); lejant ve satır sembolü sarar/kısalır.
+
+**Dosyalar:** `server/app/earnings.ts`, `server/app/http.ts` (yorum), `server/app/earnings-test.ts` (+3 test grubu), `server/README.md`, `src/lib/earnings/{model,calendar,client,rangeCache}.ts` (`rangeCache` yeni), `src/screens/{Bilanco,BilancoDetay}.tsx`, `src/ui/EarnCharts.tsx`, `test/earnings.test.ts`.
+
+**Doğrulama:** `npx tsc --noEmit` ✓; `npm test` ✓ (bilanço + sunucu testleri dâhil); `expo lint` (değişen dosyalar) ✓. Cihazda / Expo Go'da görsel kontrol **yapılmadı**; genişlikler 320/375/390 için akıl yürütmeyle doğrulandı (hiçbir öğe pencereden geniş değil).
+
+**Açık / dikkat:**
+- **Sunucu deploy gerekir** (tick penceresi ve 62 gün sınırı). Deploy edilmeden uygulama ay gezintisinde 31 gün sınırına takılmaz (ay ± 7 = ≤45 gün) ama sunucu eski sürümse 45 günlük istek 400 döner — deploy sonrası çalışır.
+- İlk tick'te ~1000+ sembol için piyasa değeri doldurması birkaç saat sürer (120/tick); bu sırada küçük şirketler gizli kalır.
+- OTA güncellemesi yayınlanmadı (Kaan kararı).
+
 ## 2026-11-14 — Claude — Koç: düğmelerle elle düzenleme (kapat / düzenle / sil), AI çağrısı yok
 
 **Neden:** Koç komut kutusu tek yönlüydü (serbest metin → Haiku öneri). Kaan bir işlemi ya da açık pozisyonu dokunarak düzeltmek, kısmi kapatmak ve silmek istedi. Yeni yol Haiku'yu çağırmaz; mevcut `POST /coach/komut/uygula` uç noktasını yapılandırılmış işlemlerle (add/update/delete) kullanır. Komut kutusu olduğu gibi duruyor.

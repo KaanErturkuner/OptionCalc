@@ -40,7 +40,7 @@ Spec: [`docs/tasks/FLOW.md`](../docs/tasks/FLOW.md). Uygulama tarafı: `src/lib/
 | POST | `/coach/karne?day=YYYY-MM-DD` | ✓ | Günün karnesini üret (Haiku) |
 | POST | `/coach/komut` `{"text":"…","day":"YYYY-MM-DD"}` | ✓ | Koç komutu: serbest Türkçe düzeltme → değişiklik ÖNERİSİ (Haiku). Kayıt değişmez. Bkz. "Koç › Komut" |
 | POST | `/coach/komut/uygula` `{"day":"YYYY-MM-DD","actions":[…]}` | ✓ | Onaylanan öneriyi yeniden doğrular ve tek işlemde uygular → `{applied, view}` |
-| GET | `/earnings?from=YYYY-MM-DD&to=YYYY-MM-DD&watch=AAPL,MSFT` | ✓ | Bilanço takvimi (Finnhub `/calendar/earnings`, SQLite önbellek). Varsayılan bugün..+6; en çok 31 gün. `watch` = izleme listesi + favori semboller (piyasa değeri filtresini geçer). Yanıt: `{from,to,fetchedAt,items[]}`; satır: `date,symbol,hour(bmo/amc/dmh/""),epsEstimate,epsActual,revenueEstimate,revenueActual,surprisePct,quarter,year,marketCapUsd` |
+| GET | `/earnings?from=YYYY-MM-DD&to=YYYY-MM-DD&watch=AAPL,MSFT` | ✓ | Bilanço takvimi (Finnhub `/calendar/earnings`, SQLite önbellek). Varsayılan bugün..+6; en çok 62 gün (sunucu 31 günlük Finnhub parçalarına böler). `watch` = izleme listesi + favori semboller (piyasa değeri filtresini geçer). Yanıt: `{from,to,fetchedAt,items[]}`; satır: `date,symbol,hour(bmo/amc/dmh/""),epsEstimate,epsActual,revenueEstimate,revenueActual,surprisePct,quarter,year,marketCapUsd` |
 | GET | `/earnings/history?symbol=AAPL` | ✓ | Geçmiş EPS çeyrekleri (Finnhub `/stock/earnings`, sembol başına 24 sa önbellek): `{symbol,fetchedAt,items[{period,year,quarter,epsEstimate,epsActual,surprisePct}]}` |
 | POST | `/earnings/favs` `{"token":"ExponentPushToken[…]","symbols":["AAPL"]}` | ✓ | Cihazın favori listesini tam değiştirir (en çok 100). Favori sembolün `epsActual`'i boştan dolunca o cihaza Expo push (bir kez). 409 = cihaz sınırı |
 
@@ -49,7 +49,7 @@ Saklama: olaylar son 5 işlem günü için tutulur (`store.prune`); eski günler
 ### Bilanço takvimi (`/earnings`, Finnhub)
 
 - **Anahtar:** `finnhub_key` (systemd credential, yalnız sunucuda; istemciye ve loga girmez). Hata metinleri sırsızdır.
-- **Takvim:** gün başına izlenir; 24 saatten eski veya çekilmemiş gün yenilenir; geçmiş/bugünkü gün ayrıca 08:00 ve 16:30 ET kontrol noktasından sonra bir kez (sonuçlar dolsun). Tick 15 dk, aralık bugün−3 … bugün+14. Eski satırlar 60 gün sonra silinir.
+- **Takvim:** gün başına izlenir; 24 saatten eski veya çekilmemiş gün yenilenir; geçmiş/bugünkü gün ayrıca 08:00 ve 16:30 ET kontrol noktasından sonra bir kez (sonuçlar dolsun). Tick 15 dk, aralık bugün−3 … bugün+60 (Finnhub çağrıları 31 günlük parçalar). Eski satırlar 60 gün sonra silinir.
 - **Piyasa değeri:** `/stock/profile2` (milyon USD), sembol başına haftada bir; tick başına en çok 120 sorgu, 429'da durur. **Görünürlük:** değeri ≥ 2 mlr $ olanlar, ya da `watch` içindekiler (izleme listesi + favoriler). Değeri bilinmeyen küçük şirketler gizli.
 - **Geçmiş EPS:** `/stock/earnings`, sembol başına 24 sa önbellek.
 - **Favori bildirimi:** uygulama `POST /earnings/favs` ile favorilerini ve Expo tokenını bildirir. Sunucu yeni çekimde bir favori sembolün `epsActual`'inin boştan dolduğunu görürse (ilk çekimde görülen geçmiş sonuçlar bildirilmez) o cihaza push atar; `earn_notified` tablosu aynı cihaz+gün+sembol için tekrarı önler. Uygulama kapalıyken de çalışır.

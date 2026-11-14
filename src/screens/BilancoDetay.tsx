@@ -31,7 +31,8 @@ interface ChainView { rows: StrikeRow[]; spot: number; move: ImpliedMove | null;
 export default function BilancoDetay({ row, onBack }: { row: EarningsItem; onBack: () => void }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const chartW = Math.min(width, 520) - 56;
+  // Kart içi genişlik: ekran yanları (14+14) + kart iç boşluğu (14+14). Grafikler bunu 160–340 pt'e sıkıştırır.
+  const chartW = width - 56;
   const favs = useEarnFavs();
   const fav = favs.includes(row.symbol);
   const sym = row.symbol;
@@ -123,16 +124,19 @@ export default function BilancoDetay({ row, onBack }: { row: EarningsItem; onBac
         {hist ? <EarnEpsChart rows={hist.items} width={chartW} /> : null}
       </Card>
 
-      <Card title="Beklenen hareket ve strike'lar" right={<Seg<'oi' | 'vol'> small options={[['oi', 'OI'], ['vol', 'Hacim']]} value={metric} onChange={setMetric} />}>
+      <Card title="Beklenen hareket ve strike'lar">
         {chainErr ? <Text style={{ color: C.warn, fontSize: 13 }}>{chainErr}</Text> : null}
         {!chain && !chainErr ? <Text style={{ color: C.muted, fontSize: 13 }}>Yükleniyor…</Text> : null}
         {chain ? (
           <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+              <Seg<'oi' | 'vol'> small options={[['oi', 'OI'], ['vol', 'Hacim']]} value={metric} onChange={setMetric} />
+            </View>
             <Text style={{ color: C.text, fontSize: 13 }}>
               {move ? `±$${move.straddle.toFixed(2).replace('.', ',')} (%${move.pct.toFixed(1).replace('.', ',')})` : 'Beklenen hareket hesaplanamadı'}
               <Text style={{ color: C.muted }}>{`  · vade ${chain.expiry} · spot ${chain.spot.toFixed(2).replace('.', ',')}`}</Text>
             </Text>
-            <ScrollView style={{ height: 360 }} nestedScrollEnabled>
+            <ScrollView style={{ height: 360 }} nestedScrollEnabled showsVerticalScrollIndicator>
               <EarnChainChart rows={chain.rows} metric={metric} spot={chain.spot} move={move} width={chartW} />
             </ScrollView>
           </View>

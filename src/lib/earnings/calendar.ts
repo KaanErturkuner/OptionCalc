@@ -48,11 +48,30 @@ export function monthGrid(year: number, month: number): (string | null)[][] {
   return rows;
 }
 
-/** Ayın ilk ve son günü (ISO). Sunucu aralığı en çok 31 gün; ay ızgarası bu aralıkla yüklenir. */
+/** Ayın ilk ve son günü (ISO). Ay ızgarası için istek aralığı monthFetchSpan (ay ± 7 gün). */
 export function monthSpan(year: number, month: number): { from: string; to: string } {
   const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const mm = String(month).padStart(2, '0');
   return { from: `${year}-${mm}-01`, to: `${year}-${mm}-${String(last).padStart(2, '0')}` };
+}
+
+/** Görünen ayın istek aralığı: ay ± `buffer` gün (ayın kenarındaki hafta yanında da olsun). En çok 45 gün (sunucu sınırı 62). */
+export function monthFetchSpan(year: number, month: number, buffer = 7): { from: string; to: string } {
+  const s = monthSpan(year, month);
+  return { from: addDaysStr(s.from, -buffer), to: addDaysStr(s.to, buffer) };
+}
+
+/** Ay kaydır (dir = ±1…): {y,m} → {y,m}. Yıl sınırını geçer. */
+export function shiftMonth(year: number, month: number, dir: number): { y: number; m: number } {
+  const idx = year * 12 + (month - 1) + dir;
+  return { y: Math.floor(idx / 12), m: (((idx % 12) + 12) % 12) + 1 };
+}
+
+/** Hafta başlığı: "9–15 Kas" (gün ve kısa ay; iki ay arasında "28 Eki – 3 Kas") */
+export function weekTitle(mon: string, sun: string): string {
+  const f = (iso: string) => new Date(iso + 'T12:00:00Z').toLocaleDateString('tr-TR', { timeZone: 'UTC', day: 'numeric', month: 'short' });
+  const sameMonth = mon.slice(0, 7) === sun.slice(0, 7);
+  return sameMonth ? `${Number(mon.slice(8))}–${f(sun)}` : `${f(mon)} – ${f(sun)}`;
 }
 
 /** Anchor gününü içeren pazartesi–pazar (ISO, 7 gün) */

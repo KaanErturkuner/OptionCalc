@@ -39,7 +39,7 @@ async function call<T>(url: string, init: { method?: string; body?: string } = {
   }
 }
 
-/** Takvim aralığı (en çok 31 gün). watch: izleme listesi + favori semboller (piyasa değeri filtresini geçer). */
+/** Takvim aralığı (en çok 62 gün). watch: izleme listesi + favori semboller (piyasa değeri filtresini geçer). */
 export function fetchEarnings(key: string, from: string, to: string, watch: string[] = [], b?: string): Promise<EarningsRange> {
   const w = watch.length ? `&watch=${encodeURIComponent(watch.join(','))}` : '';
   return call<EarningsRange>(`${base(b)}/earnings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${w}`, {}, key);

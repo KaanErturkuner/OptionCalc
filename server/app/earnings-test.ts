@@ -105,6 +105,51 @@ async function main() {
     s.store.close();
   }
 
+  // 6) 62 günlük aralık: Finnhub takvim çağrıları 31 günlük parçalara bölünür; tick penceresi bugün−3 … bugün+60
+  {
+    const calls: string[] = [];
+    const store = new Store(':memory:');
+    const clock = { t: Date.parse('2026-11-13T15:00:00Z') };   // Cuma 10:00 ET
+    const src: CalendarSource = {
+      async calendarEarnings(f: string, t: string) { calls.push(`${f}..${t}`); return { earningsCalendar: [] }; },
+      async profile() { throw new Error('Finnhub HTTP 403'); },
+      async earningsHistory() { return []; },
+    };
+    const cache = new EarningsCache({ store, src, now: () => clock.t, log: () => {} });
+    const r = await cache.range('2026-10-20', '2026-12-20');
+    ok('62 gün: iki parça çağrısı', calls.length === 2 && calls[0] === '2026-10-20..2026-11-19' && calls[1] === '2026-11-20..2026-12-20', calls.join(' | '));
+    ok('62 gün: yanıt aralığı doğru', r.from === '2026-10-20' && r.to === '2026-12-20');
+    calls.length = 0;
+    await cache.range('2026-10-20', '2026-12-20');
+    ok('62 gün: ikinci istek önbellekten (Finnhub yok)', calls.length === 0, calls.join(' | '));
+    const store2 = new Store(':memory:');
+    const calls2: string[] = [];
+    const cache2 = new EarningsCache({ store: store2, src: { ...src, async calendarEarnings(f: string, t: string) { calls2.push(`${f}..${t}`); return { earningsCalendar: [] }; } }, now: () => clock.t, log: () => {} });
+    await cache2.tick();
+    ok('tick: bugün−3 … bugün+60 (64 gün, 3 parça)', calls2.length === 3 && calls2[0] === '2026-11-10..2026-12-10' && calls2[1] === '2026-12-11..2027-01-10' && calls2[2] === '2027-01-11..2027-01-12', calls2.join(' | '));
+    store2.close();
+    store.close();
+  }
+
+  // 7) bir parça başarısız, aralığın her günü önbellekte değilse hata; hepsi önbellekteyse önbellek döner
+  {
+    let fail = false;
+    const store = new Store(':memory:');
+    const clock = { t: Date.parse('2026-11-13T15:00:00Z') };
+    const src: CalendarSource = {
+      async calendarEarnings() { if (fail) throw new Error('Finnhub HTTP 500'); return { earningsCalendar: [] }; },
+      async profile() { throw new Error('Finnhub HTTP 403'); },
+      async earningsHistory() { return []; },
+    };
+    const cache = new EarningsCache({ store, src, now: () => clock.t, log: () => {} });
+    await cache.range('2026-11-01', '2026-11-30');                       // ilk parça tamam
+    fail = true; clock.t += 25 * H;                                      // önbellek eski
+    let threw = false;
+    try { await cache.range('2026-11-01', '2026-12-31'); } catch { threw = true; }
+    ok('eksik gün + parça hatası → hata', threw);
+    store.close();
+  }
+
   console.log(fail ? `\n${fail} BİLANÇO SUNUCU TESTİ BAŞARISIZ` : '\nBilanço sunucu testleri geçti');
   process.exit(fail ? 1 : 0);
 }

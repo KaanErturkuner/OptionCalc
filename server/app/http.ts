@@ -17,7 +17,7 @@
  *  POST /coach/karne?day=        — (anahtar) günün karnesini üret (Haiku)
  *  POST /coach/komut {text,day}  — (anahtar) serbest Türkçe komut → değişiklik ÖNERİSİ (Haiku; kayıt DEĞİŞMEZ; en çok 500 karakter)
  *  POST /coach/komut/uygula {day,actions} — (anahtar) onaylanan öneriyi yeniden doğrular, tek işlemde uygular, {applied, view} döner
- *  GET  /earnings?from=&to=&watch= — (anahtar) bilanço takvimi (Finnhub, SQLite önbellek): {from,to,fetchedAt,items[]}; en çok 31 gün;
+ *  GET  /earnings?from=&to=&watch= — (anahtar) bilanço takvimi (Finnhub, SQLite önbellek): {from,to,fetchedAt,items[]}; en çok 62 gün (31 günlük Finnhub parçaları);
  *                                  eksikse from=bugün(ET), to=from+6. watch=virgüllü izleme+favori sembolleri (piyasa değeri filtresini geçer).
  *                                  Satır: date,symbol,hour(bmo|amc|dmh|''),epsEstimate/Actual,revenueEstimate/Actual,surprisePct,quarter,year,marketCapUsd.
  *                                  Hata: 400 (aralık), 502 (Finnhub), 503 (anahtar yok)

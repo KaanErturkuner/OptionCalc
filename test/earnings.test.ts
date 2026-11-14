@@ -1,9 +1,10 @@
 /* Bilanço takvimi (saf): doğrulama, EPS sürprizi, piyasa değeri filtresi, yeni gerçek tespiti, ızgara, grafik verisi. */
 import {
   checkRange, parseFinnhubCalendar, surprisePct, capUsdFromProfile, passesCapFilter, newActualsOf, parseFinnhubHistory,
-  normalizeSymbols, staleDays, MIN_MARKET_CAP_USD, type EarningsItem,
+  normalizeSymbols, staleDays, windowsOf, MIN_MARKET_CAP_USD, type EarningsItem,
 } from '../src/lib/earnings/model.ts';
-import { groupByTiming, countsByDay, monthGrid, monthSpan, weekOf, earnActualText, fmtEps, fmtSurprise, fmtCap } from '../src/lib/earnings/calendar.ts';
+import { groupByTiming, countsByDay, monthGrid, monthSpan, monthFetchSpan, shiftMonth, weekTitle, weekOf, earnActualText, fmtEps, fmtSurprise, fmtCap } from '../src/lib/earnings/calendar.ts';
+import { RangeCache } from '../src/lib/earnings/rangeCache.ts';
 import { flowPremByDay, impliedMove } from '../src/lib/earnings/charts.ts';
 import type { OptQuote } from '../src/lib/market/types.ts';
 import type { FlowEvent } from '../src/lib/flow/model.ts';
@@ -14,8 +15,10 @@ const ok = (name: string, cond: boolean, info = '') => { if (!cond) fail++; cons
 // Aralık doğrulama (bugün 2026-11-13)
 const r1 = checkRange(null, null, '2026-11-13');
 ok('aralık: varsayılan bugün..+6 (7 gün)', 'from' in r1 && r1.from === '2026-11-13' && r1.to === '2026-11-19', JSON.stringify(r1));
-ok('aralık: 31 gün kabul', 'from' in checkRange('2026-11-01', '2026-12-01', '2026-11-13'));
-ok('aralık: 32 gün red', 'error' in checkRange('2026-11-01', '2026-12-02', '2026-11-13'));
+ok('aralık: 62 gün kabul', 'from' in checkRange('2026-11-01', '2027-01-01', '2026-11-13'));
+ok('aralık: 63 gün red', 'error' in checkRange('2026-11-01', '2027-01-02', '2026-11-13'));
+ok('windowsOf: 62 gün → 31+31', JSON.stringify(windowsOf('2026-10-20', '2026-12-20')) === JSON.stringify([{ from: '2026-10-20', to: '2026-11-19' }, { from: '2026-11-20', to: '2026-12-20' }]));
+ok('windowsOf: kısa aralık tek parça', windowsOf('2026-11-01', '2026-11-03').length === 1 && windowsOf('2026-11-03', '2026-11-01').length === 0);
 ok('aralık: ters sıra red', 'error' in checkRange('2026-11-10', '2026-11-09', '2026-11-13'));
 ok('aralık: bozuk tarih red', 'error' in checkRange('2026-13-01', null, '2026-11-13') && 'error' in checkRange('abc', null, '2026-11-13'));
 
@@ -107,3 +110,17 @@ ok('beklenen hareket: iki taraf da yoksa null', impliedMove({ calls: [q(100, 0, 
 
 console.log(fail ? `\n${fail} BİLANÇO TESTİ BAŞARISIZ` : '\nBilanço testleri geçti');
 process.exit(fail ? 1 : 0);
+
+// Ay / hafta gezinme ve cihaz içi aralık önbelleği
+ok('ay istek aralığı: ay ± 7 gün (Kas 2026)', JSON.stringify(monthFetchSpan(2026, 11)) === '{"from":"2026-10-25","to":"2026-12-07"}', JSON.stringify(monthFetchSpan(2026, 11)));
+ok('ay istek aralığı sunucu sınırının (62 gün) içinde', checkRange(monthFetchSpan(2026, 2).from, monthFetchSpan(2026, 2).to, '2026-11-13') && 'from' in checkRange(monthFetchSpan(2026, 2).from, monthFetchSpan(2026, 2).to, '2026-11-13'));
+ok('ay kaydırma: Ara → Oca (yıl geçişi)', JSON.stringify(shiftMonth(2026, 12, 1)) === '{"y":2027,"m":1}' && JSON.stringify(shiftMonth(2026, 1, -1)) === '{"y":2025,"m":12}');
+ok('ay kaydırma: +2 ay', JSON.stringify(shiftMonth(2026, 11, 2)) === '{"y":2027,"m":1}');
+ok('hafta başlığı: aynı ay', weekTitle('2026-11-09', '2026-11-15') === '9–15 Kas', weekTitle('2026-11-09', '2026-11-15'));
+ok('hafta başlığı: iki ay arası', weekTitle('2026-10-26', '2026-11-01').includes('Eki') && weekTitle('2026-10-26', '2026-11-01').includes('Kas'));
+const rc = new RangeCache<string>(1000, 2);
+rc.set('a', 'A', 0);
+ok('önbellek: TTL içinde döner', rc.get('a', 999) === 'A');
+ok('önbellek: TTL dolunca düşer', rc.get('a', 1000) === undefined);
+rc.set('b', 'B', 0); rc.set('c', 'C', 0);
+ok('önbellek: en çok 2 kayıt (en eskisi atılır)', rc.size === 2 && rc.get('b', 1) === undefined && rc.get('c', 1) === 'C');
