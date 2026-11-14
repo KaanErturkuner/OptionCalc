@@ -11,11 +11,14 @@ export { tickersIn, NAMES } from './names.ts';
 
 export interface NewsSettings { secUa?: string; finnhubKey?: string }
 export const POLL_GAP_MS = 5 * 60000;
+/** SEC ayrı ve daha sık çekilir (EDGAR fair access: ~10 istek/sn; sembol başına 1 istek). */
+export const SEC_POLL_GAP_MS = 2 * 60000;
 export const RELATED_WINDOW_MS = 6 * 3600000;
 
 export class NewsHub {
   private seen = new Set<string>();
   private lastPoll = -Infinity;
+  private lastSec = -Infinity;
   private cik = new Map<string, string | null>();
   /** Yeni (daha önce görülmemiş) haberler. 5 dk'dan sık çağrılırsa boş döner. */
   async poll(tickers: string[], universe: string[], sinceMs: number, s: NewsSettings, now = Date.now(), signal?: AbortSignal): Promise<NewsItem[]> {
@@ -28,10 +31,6 @@ export class NewsHub {
     // Ek anahtarsız kaynaklar: Google News (4'erli sorgular) ve CNBC üst haberleri (çeşitlilik)
     for (const q of googleQueries(tickers)) jobs.push({ p: 'google', run: fetchFeed(googleFeed(q), universe, sinceMs, signal) });
     jobs.push({ p: 'cnbc', run: fetchFeed(CNBC_TOP, universe, sinceMs, signal) });
-    if (s.secUa) for (const t of tickers) jobs.push({ p: 'sec', run: (async () => {
-      if (!this.cik.has(t)) this.cik.set(t, await fetchSecCik(t, s.secUa!, signal));
-      const c = this.cik.get(t); return c ? fetchSecFilings(t, c, s.secUa!, sinceMs, signal) : [];
-    })() });
     if (s.finnhubKey) for (const t of tickers) jobs.push({ p: 'finnhub', run: fetchFinnhubNews(t, s.finnhubKey!, new Date(sinceMs).toISOString().slice(0, 10), new Date(now).toISOString().slice(0, 10), signal) });
     const settled = await Promise.allSettled(jobs.map(j => j.run));
     let okP: string | undefined, errP: string | undefined, errV: unknown;
@@ -45,6 +44,20 @@ export class NewsHub {
     const fresh: NewsItem[] = [];
     for (const n of all) { const k = n.url || n.id; if (this.seen.has(k)) continue; this.seen.add(k); fresh.push(n); }
     return fresh.sort((a, b) => b.publishedAt - a.publishedAt);
+  }
+
+  /** SEC 8-K / Form 4: ayrı kapı (SEC_POLL_GAP_MS). Yalnız secUa girilmişse çalışır; dönüş: yeni haberler. */
+  async pollSec(tickers: string[], sinceMs: number, s: NewsSettings, now = Date.now(), signal?: AbortSignal): Promise<NewsItem[]> {
+    if (!s.secUa || now - this.lastSec < SEC_POLL_GAP_MS) return [];
+    this.lastSec = now;
+    registerSecret(s.secUa);
+    const settled = await Promise.allSettled(tickers.map(async t => {
+      if (!this.cik.has(t)) this.cik.set(t, await fetchSecCik(t, s.secUa!, signal));
+      const c = this.cik.get(t); return c ? fetchSecFilings(t, c, s.secUa!, sinceMs, signal) : [];
+    }));
+    const fresh: NewsItem[] = [];
+    for (const r of settled) if (r.status === 'fulfilled') for (const n of r.value) { const k = n.url || n.id; if (!this.seen.has(k)) { this.seen.add(k); fresh.push(n); } }
+    return fresh;
   }
 }
 /** Sinyal anından ±6 saat içindeki aynı ticker haberleri */

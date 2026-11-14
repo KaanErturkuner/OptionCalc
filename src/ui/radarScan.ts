@@ -50,6 +50,16 @@ async function pool<T, R>(xs: T[], n: number, f: (x: T) => Promise<R>): Promise<
   return out;
 }
 
+/** SEC 8-K / Form 4 için sık döngü (uygulama açıkken, ~2 dk). Yeni filing'leri son haberlere ekler; döner: eklenen sayı. */
+export async function pollSecNews(): Promise<number> {
+  await radar.load();
+  const st = radar.get().settings, now = Date.now();
+  if (!st.secUa.trim()) return 0;
+  const fresh = await hub.pollSec(st.watch, now - NEWS_KEEP_MS, { secUa: st.secUa, finnhubKey: st.finnhubKey }, now).catch(() => [] as NewsItem[]);
+  recentNews = [...recentNews.filter(n => now - n.publishedAt < NEWS_KEEP_MS), ...fresh];
+  return fresh.length;
+}
+
 /** Tarama turu. Aynı anda ikinci tur başlamaz. Döner: üretilen uyarı sayısı. */
 export async function runRadarScan(): Promise<number> {
   if (running) return 0;

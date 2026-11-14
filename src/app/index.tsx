@@ -11,7 +11,7 @@ import { tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import { checkOpenPositions, syncBackgroundTask } from '@/ui/monitor';
 import { radar } from '@/ui/radarStore';
-import { runRadarScan } from '@/ui/radarScan';
+import { runRadarScan, pollSecNews } from '@/ui/radarScan';
 import { firsat } from '@/ui/firsatStore';
 import { runSignalScan } from '@/ui/signalScan';
 import { marketOpen } from '@/lib/usmarket';
@@ -61,6 +61,13 @@ export default function Home() {
         runRadarScan().catch(() => {});
       }
     }, RADAR_EVERY_MS);
+    return () => clearInterval(id);
+  }, []);
+  // SEC 8-K / Form 4: uygulama açıkken ~2 dk'da bir (SEC'in kendi kapısı; secUa yoksa atlanır)
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (AppState.currentState === 'active' && radar.get().settings.auto) pollSecNews().catch(() => {});
+    }, 2 * 60000);
     return () => clearInterval(id);
   }, []);
   // Fırsat taraması: seans içinde ve uygulama açıkken, ayarlanan aralıkta (varsayılan 2 dk; kontrol dakikada bir)
