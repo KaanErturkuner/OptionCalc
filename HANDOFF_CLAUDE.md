@@ -688,3 +688,14 @@ git push origin master
 - Yayınlamadan önce Başkan'a/Kaan'a haber ver.
 - Her zaman diğer tarafın commit'lerini içeren master'dan yayınla (önce fetch + merge). Son yayınlanan OTA, master'da olmayan bir değişikliği taşıyorsa onu geri silmiş olursun.
 - Asla force-push yapma.
+
+### 15.1 GitHub Actions ile (Başkan'sız; önerilen yol)
+Kaan "Expo'ya yayınla" ya da "sunucuya yükle" dediğinde Claude bunları yalnız repo erişimiyle yapar. Anahtarlar repo secrets'tadır (EXPO_TOKEN, EXPO_PUBLIC_FLOW_API_KEY, DEPLOY_SSH_KEY, DEPLOY_HOST); Claude değerleri görmez ve görmeye çalışmamalı. Push'ta otomatik yayın YOK, hepsi elle tetiklenir.
+
+- **Her zaman önce:** `git pull` (master güncel olsun; Başkan'ın commit'leri dahil). Değişikliklerin master'a push'lanmış olmalı; workflow master'dan çalışır.
+- **"Expo'ya yayınla"** = `gh workflow run ota.yml -f message="Kısa Türkçe açıklama"` (ya da GitHub → Actions → "Expo'ya yayınla (OTA)" → Run workflow). Adımlar: npm ci → tsc → npm test → .env (gizli) → eas update (production) → paket doğrulama (sslip.io + anahtar). Yalnız test için: `-f dry_run=true`. Sonuç: `gh run watch` / `gh run view --log`; "Update group ID" satırını Kaan'a bildir.
+- **"Sunucuya yükle"** = `gh workflow run deploy-server.yml` (DB yedeği → server/deploy.sh → servis durumu + son loglar). `server/` ya da sunucunun kullandığı `src/lib/` değiştiyse gerekir.
+- **Sunucu logları / tanılama (salt okunur)** = `gh workflow run server-cmd.yml -f cmd=status|logs|coach-logs|disk|db-tables [-f lines=200]`. SSH ve sunucu logları YALNIZ bu workflow'larla erişilebilir.
+- `src/lib/flow/client.ts` içindeki ENV_FLOW_KEY yedeğini ASLA silme.
+- Koordinasyon kuralları (yukarıda) aynen geçerli: yayından önce haber ver, diğer tarafın commit'lerini içeren master'dan yayınla, force-push yok.
+- Geri alma: `npx eas-cli update:republish` yerelde EXPO_TOKEN ister; Claude'da yoksa Kaan'a/Başkan'a söyle ya da önceki iyi commit'i geri alıp (git revert) ota.yml'yi yeniden çalıştır.

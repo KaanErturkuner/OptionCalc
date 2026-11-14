@@ -20,3 +20,4 @@ environment doesn't expand `@AGENTS.md`, open it directly. Essentials:
 
 ## Expo'ya yayınlama (OTA)
 Expo Go + OTA yalnız (native/TestFlight yok). Ön koşullar (EXPO_TOKEN, git'e girmeyen .env içinde EXPO_PUBLIC_FLOW_API_KEY), adımlar, doğrulama, geri alma ve koordinasyon: `HANDOFF_CLAUDE.md` §15. Sırları asla commit etme/yazdırma; `src/lib/flow/client.ts` içindeki ENV_FLOW_KEY yedeğini silme.
+- GitHub Actions (Başkan'sız): "Expo'ya yayınla" = `gh workflow run ota.yml -f message=...`; "Sunucuya yükle" = `gh workflow run deploy-server.yml`; loglar = `gh workflow run server-cmd.yml -f cmd=logs`. Önce her zaman `git pull`. Ayrıntı: HANDOFF_CLAUDE.md §15.1.

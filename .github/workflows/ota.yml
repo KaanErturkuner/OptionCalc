@@ -1,0 +1,49 @@
+# Expo'ya yayınla (OTA). YALNIZ elle: Actions → "Expo'ya yayınla (OTA)" → Run workflow, ya da
+#   gh workflow run ota.yml -f message="Kısa açıklama"   (dry_run=true: yalnız tsc + test, yayın YOK)
+# Sırlar: EXPO_TOKEN, EXPO_PUBLIC_FLOW_API_KEY (repo secrets). Değerler loglanmaz.
+name: "Expo'ya yayınla (OTA)"
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: 'Güncelleme mesajı (Türkçe, kısa)'
+        required: true
+      dry_run:
+        description: 'true: yalnız tsc + test (yayın yok)'
+        type: boolean
+        default: false
+concurrency: { group: ota-production, cancel-in-progress: false }
+jobs:
+  ota:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: npm }
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
+      - name: .env yaz (gizli)
+        if: ${{ !inputs.dry_run }}
+        env: { FLOW_KEY: '${{ secrets.EXPO_PUBLIC_FLOW_API_KEY }}' }
+        run: |
+          test -n "$FLOW_KEY" || { echo "EXPO_PUBLIC_FLOW_API_KEY sırrı yok"; exit 1; }
+          umask 077; printf 'EXPO_PUBLIC_FLOW_API_KEY=%s\n' "$FLOW_KEY" > .env
+      - name: EAS update (production)
+        if: ${{ !inputs.dry_run }}
+        env: { EXPO_TOKEN: '${{ secrets.EXPO_TOKEN }}', MSG: '${{ inputs.message }}' }
+        run: npx eas-cli update --branch production --environment production --message "$MSG" --non-interactive
+      - name: Paket doğrulama (sslip.io + anahtar; değer yazdırılmaz)
+        if: ${{ !inputs.dry_run }}
+        env: { FLOW_KEY: '${{ secrets.EXPO_PUBLIC_FLOW_API_KEY }}' }
+        run: |
+          ok=1
+          for f in dist/_expo/static/js/*/*.hbc; do
+            s=$(grep -c sslip.io "$f" || true); k=$(grep -cF "$FLOW_KEY" "$f" || true)
+            echo "$(basename "$(dirname "$f")") sslip=$s key=$k"
+            [ "$s" -ge 1 ] && [ "$k" -ge 1 ] || ok=0
+          done
+          [ "$ok" = 1 ] || { echo "PAKET HATALI: anahtar ya da sunucu adresi yok — önceki grubu update:republish ile geri al"; exit 1; }
+      - if: always()
+        run: rm -f .env

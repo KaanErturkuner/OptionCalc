@@ -1,0 +1,33 @@
+# Sunucuya yükle: DB yedeği + server/deploy.sh. YALNIZ elle: gh workflow run deploy-server.yml
+# Sırlar: DEPLOY_SSH_KEY (yalnız CI için ayrı ed25519 anahtar), DEPLOY_HOST.
+name: "Sunucuya yükle"
+on: workflow_dispatch
+concurrency: { group: deploy-server, cancel-in-progress: false }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: npm }
+      - run: npm ci
+      - run: npm test
+      - name: SSH anahtarı
+        env: { KEY: '${{ secrets.DEPLOY_SSH_KEY }}', HOST: '${{ secrets.DEPLOY_HOST }}' }
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          ssh-keyscan -t ed25519 "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+      - name: DB yedeği
+        env: { HOST: '${{ secrets.DEPLOY_HOST }}' }
+        run: |
+          ssh -i ~/.ssh/deploy -o BatchMode=yes -o IdentitiesOnly=yes root@"$HOST" 'cd /var/lib/optioncalc-flow && B=flow.db.bak-ci-$(date -u +%Y%m%dT%H%M%SZ) && node -e "const {DatabaseSync}=require(\"node:sqlite\");new DatabaseSync(\"flow.db\").exec(\"VACUUM INTO '"'"'$B'"'"'\")" && chown ocflow:ocflow "$B" && chmod 600 "$B" && echo "yedek: $B"'
+      - name: deploy.sh
+        env: { FLOW_SSH_KEY: /home/runner/.ssh/deploy, HOST: '${{ secrets.DEPLOY_HOST }}' }
+        run: FLOW_SSH_HOST="root@$HOST" server/deploy.sh
+      - name: Durum
+        env: { HOST: '${{ secrets.DEPLOY_HOST }}' }
+        run: ssh -i ~/.ssh/deploy -o BatchMode=yes -o IdentitiesOnly=yes root@"$HOST" 'systemctl is-active optioncalc-flow && journalctl -u optioncalc-flow -n 15 --no-pager'
+      - if: always()
+        run: rm -f ~/.ssh/deploy

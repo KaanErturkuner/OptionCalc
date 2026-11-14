@@ -1,0 +1,39 @@
+# Sunucu tanılama (YALNIZ okuma): gh workflow run server-cmd.yml -f cmd=logs -f lines=200
+name: "Sunucu tanılama (salt okunur)"
+on:
+  workflow_dispatch:
+    inputs:
+      cmd:
+        description: 'Komut'
+        type: choice
+        options: [status, logs, coach-logs, disk, db-tables]
+        default: status
+      lines:
+        description: 'Günlük satır sayısı (logs)'
+        default: '150'
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: SSH anahtarı
+        env: { KEY: '${{ secrets.DEPLOY_SSH_KEY }}', HOST: '${{ secrets.DEPLOY_HOST }}' }
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          ssh-keyscan -t ed25519 "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Çalıştır
+        env: { HOST: '${{ secrets.DEPLOY_HOST }}', CMD: '${{ inputs.cmd }}', LINES: '${{ inputs.lines }}' }
+        run: |
+          case "$LINES" in ''|*[!0-9]*) LINES=150;; esac
+          case "$CMD" in
+            status) R='systemctl status optioncalc-flow --no-pager -l | head -30; systemctl is-active caddy';;
+            logs) R="journalctl -u optioncalc-flow -n $LINES --no-pager";;
+            coach-logs) R="journalctl -u optioncalc-flow -n 2000 --no-pager | grep -iE 'koç|coach|bilanço' | tail -n $LINES";;
+            disk) R='df -h / ; du -sh /var/lib/optioncalc-flow; ls -la /var/lib/optioncalc-flow | tail -20';;
+            db-tables) R='cd /var/lib/optioncalc-flow && node -e "const {DatabaseSync}=require(\"node:sqlite\");const d=new DatabaseSync(\"flow.db\",{readOnly:true});for(const t of d.prepare(\"select name from sqlite_master where type=\x27table\x27\").all())console.log(t.name,d.prepare(\"select count(*) n from \"+t.name).get().n)"';;
+            *) echo "bilinmeyen komut"; exit 1;;
+          esac
+          ssh -i ~/.ssh/deploy -o BatchMode=yes -o IdentitiesOnly=yes root@"$HOST" "$R"
+      - if: always()
+        run: rm -f ~/.ssh/deploy
