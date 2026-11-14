@@ -855,6 +855,14 @@ Kaan'ın talebiyle (`docs/tasks/FLOW.md`). Commit'ler: `95f2b71` (sunucu + saf a
 
 **Sonraki:** Başkan (Grok) inceleme. Veri zip'i gelince adım 9–11 (ayrıca TASKS #26).
 
+## 2026-11-14 — Claude — [claude] SEC sıklığı + bilanço hipotezi motoru (H1)
+
+**SEC:** SEC 8-K / Form 4 artık ayrı bir kapıyla çekiliyor (`NewsHub.pollSec`, 2 dk; `SEC_POLL_GAP_MS`). Genel haber turu 5 dk'da kalıyor. Uygulama açıkken ve Radar ayarı açıkken `pollSecNews` çalışıyor (`src/app/index.tsx`, `src/ui/radarScan.ts`). Sınır: uygulama arka plandayken çalışmaz; sunucu tarafı yok.
+
+**Bilanço hipotezi (H1):** `src/lib/prob/earningsTest.ts`: zımni hareket / gerçekleşen hareket / maliyet ile kısa straddle P/L, en az 60 olay, dış örneklem, en büyük 5 hareket çıkarılınca kontrol. Sentetik veriyle doğrulandı (`test/earnings-test.test.ts`). Gerçek sonuç üretilmedi: geçmiş olay tarihleri ve bilanço öncesi EOD straddle verisi yok (OPRA/MarketData onayı bekleniyor).
+
+**Doğrulama:** `npm run check` yeşil.
+
 ## 2026-11-14 — Claude — [claude] haber çeşitliliği + çeviri, bilanço takvimi, Akış arama ve aylık opex
 
 **Haber:** Kaynaklar: Yahoo Finance (hisse), Google News (4'erli sorgular), CNBC (üst haberler); Radar haber havuzuna da eklendi (`src/lib/news/feeds.ts`, `index.ts`). Tekrarlar URL ve başlık anahtarıyla elenir. Başlıklar otomatik Türkçeye çevrilir (`src/lib/news/translate.ts`); orijinal başlık altta. Haberler ekranında kaynak durumu (kaç kaynak çalıştı) gösterilir.
