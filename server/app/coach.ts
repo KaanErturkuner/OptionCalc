@@ -4,6 +4,7 @@
  *     → dolumlar SQLite'a (aynı dolum tekrar gelirse yok) → eşleştirme (src/lib/coach/fills.ts, FIFO) → yeni eşleşen
  *     işlemler için en çok 3 koçluk (Haiku #2, yalnız metin: sayılar kodda) → rapor SQLite.
  *  2) POST /coach/process: bekleyen koçlukları işler (en çok 5). 3) GET /coach?day=: görünüm. 4) POST /coach/karne.
+ *  5) Komut: POST /coach/komut (Haiku, yalnız ÖNERİ) → POST /coach/komut/uygula (onaylı; yeniden doğrulanır, tek işlemde yazılır).
  * Anahtar: /etc/optioncalc-flow/anthropic_key (systemd LoadCredential). Asla loglanmaz/yanıtlanmaz; hata metninden de temizlenir.
  * Model: COACH_MODEL (varsayılan claude-haiku-5-5). Yedek: COACH_FALLBACK_MODEL YALNIZ tanımlıysa ve birincil model
  * reddedilirse; kullanım loglanır ve kayda `fallback=1` yazılır.
@@ -16,11 +17,13 @@ import { checkImage } from '../../src/lib/coach/image.ts';
 import { canCoach } from '../../src/lib/coach/limits.ts';
 import { buildTradeContext, type FlowLite, type WallsLite } from '../../src/lib/coach/context.ts';
 import { parseYahooBars, type Bar } from '../../src/lib/coach/bars.ts';
-import { COACH_SYSTEM, coachUserText, EXTRACT_SYSTEM, EXTRACT_TOOL, extractUserText, KARNE_SYSTEM, karneUserText } from '../../src/lib/coach/prompt.ts';
-import { parseJsonLoose, parseModelJson, sampleText, validateCoach, validateFills, validateKarne } from '../../src/lib/coach/validate.ts';
-import type { CoachDayView, CoachOpenView, CoachTradeView, Fill, Karne, TradeReport } from '../../src/lib/coach/types.ts';
+import { COACH_SYSTEM, coachUserText, EXTRACT_SYSTEM, EXTRACT_TOOL, extractUserText, KARNE_SYSTEM, karneUserText, KOMUT_SYSTEM, KOMUT_TOOL, komutUserText } from '../../src/lib/coach/prompt.ts';
+import { KOMUT_TEXT_MAX, parseJsonLoose, parseModelJson, sampleText, validateCoach, validateFills, validateKarne, validateKomut } from '../../src/lib/coach/validate.ts';
+import type { CoachDayView, CoachOpenView, CoachTradeView, Fill, Karne, KomutProposal, TradeReport } from '../../src/lib/coach/types.ts';
 import { buildReport } from '../../src/lib/coach/report.ts';
-import { pairFills, type PairedTrade } from '../../src/lib/coach/fills.ts';
+import { pairFills, type Pairing, type PairedTrade } from '../../src/lib/coach/fills.ts';
+import { buildKomutLines } from '../../src/lib/coach/komut.ts';
+import { istDate, istHm } from '../../src/lib/coach/time.ts';
 import { checkFillTime } from '../../src/lib/coach/sanity.ts';
 import type { Config } from './config.ts';
 import type { Store } from './store.ts';
@@ -31,7 +34,7 @@ const YAHOO = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; OptionCalcCoach/1.0)' };
 const DAY_MS = 86400000;
 const RETAIN_MS = 30 * DAY_MS;
-const MAX_TOKENS = { extract: 1024, coach: 3500, karne: 3000 } as const;   // extract: 400 çok düşüktü (6 satır JSON ≈ 450 token); coach: 2000 kesti, 3500
+const MAX_TOKENS = { extract: 1024, coach: 3500, karne: 3000, komut: 900 } as const;   // extract: 400 çok düşüktü (6 satır JSON ≈ 450 token); coach: 2000 kesti, 3500
 const EXTRACT_MAX_DAYS_BACK = 7;   // Yahoo 1 dk verisi son 7 gün
 const WINDOW_DAYS = 30;           // eşleştirme ve saklama penceresi
 const INLINE_COACH = 3;           // yükleme isteği başına en çok koçluk (kalanı /coach/process)
@@ -204,6 +207,106 @@ export class Coach {
     return { processed: r.done, pending: r.pending, errors: r.errors };
   }
 
+  /** POST /coach/komut: serbest Türkçe komut → değişiklik ÖNERİSİ. Kayıt DEĞİŞMEZ. Haiku çağrısı, çıkarma ile ortak günlük havuz. */
+  async komutPropose(input: { text?: unknown; day?: unknown }): Promise<KomutProposal> {
+    const t = this.now();
+    const text = typeof input.text === 'string' ? input.text.trim() : '';
+    if (!text) throw new CoachError(400, 'Komut boş');
+    if (text.length > KOMUT_TEXT_MAX) throw new CoachError(400, `Komut en çok ${KOMUT_TEXT_MAX} karakter`);
+    const day = this.komutDay(input.day, t);
+    const recent = this.d.store.coachRecent(t - DAY_MS);
+    const gate = canCoach({ nowMs: t, countToday: recent.n, lastAtMs: recent.lastTs, dailyCap: this.d.cfg.coachDailyCap, minGapSec: this.d.cfg.coachMinGapSec });
+    if (!gate.ok) throw new CoachError(429, gate.error, { retryAfterSec: gate.retryAfterSec, kind: gate.kind });
+
+    const fills = this.fillsSince(etDate(t - WINDOW_DAYS * DAY_MS));
+    const pairing = pairFills(fills);
+    const byId = new Map(fills.map(f => [f.id, f]));
+    const dayFills = fills.filter(f => f.t.slice(0, 10) === day);
+    const open = pairing.open.map(o => ({ tk: o.tk, exp: o.exp, k: o.k, cp: o.cp, kalanAdet: o.qty, girisDolumId: o.entryFillId, girisZaman: o.entryT, girisFiyat: o.entryPx, kapanisDolumIds: o.legs.map(l => l.fillId) }));
+    // Geçerli kimlikler: günün dolumları + açık pozisyonların dolumları (bunların dışındaki kimlik reddedilir)
+    const known = new Map<number, string>();
+    for (const f of dayFills) known.set(f.id, f.exp);
+    for (const o of pairing.open) for (const id of [o.entryFillId, ...o.legs.map(l => l.fillId)]) known.set(id, o.exp);
+
+    const co = await this.client.call('komut', day, KOMUT_SYSTEM, [{ type: 'text', text: komutUserText({ day, bugunIst: istDate(t), suAnIst: istHm(t), text, dayFills, open }) }], KOMUT_TOOL);
+    const raw = co.toolInput ? { ok: true as const, value: co.toolInput as unknown } : parseJsonLoose(co.text);
+    const v = raw.ok ? validateKomut(raw.value, known) : { ok: false as const, error: raw.error };
+    if (!v.ok) {
+      this.parseWarn('komut doğrulanamadı', day, co, v.error);
+      throw new CoachError(422, 'Komut anlaşılamadı: ' + v.error);
+    }
+    const { actions, warnings } = v.value;
+    const note = v.value.note ?? (actions.length ? null : 'Anlaşılamadı; komutu daha açık yaz (ör. "QQQ 600C 3.20\'den kapattım").');
+    return {
+      day, actions, lines: buildKomutLines(actions, byId), note, warnings,
+      model: co.model, fallback: co.fallback, usage: { inTok: co.inTok, outTok: co.outTok },
+    };
+  }
+
+  /** POST /coach/komut/uygula: onaylanan öneriyi YENİDEN doğrular (bilinmeyen dolum / geçersiz alan → hiçbiri uygulanmaz)
+   *  ve tek işlemde yazar. Sonra: değişen işlemlerin raporları silinir, etkilenen günlerin karnesi silinir. */
+  komutApply(input: { day?: unknown; actions?: unknown }): { applied: number; view: CoachDayView } {
+    const t = this.now();
+    const day = this.komutDay(input.day, t);
+    const fromDay = etDate(t - WINDOW_DAYS * DAY_MS);
+    const fills = this.fillsSince(fromDay);
+    const before = pairFills(fills);
+    const v = validateKomut({ actions: input.actions }, new Map(fills.map(f => [f.id, f.exp] as const)));
+    if (!v.ok) throw new CoachError(400, v.error);
+    if (v.value.dropped) throw new CoachError(400, `Uygulanmadı (hiçbiri yazılmadı): ${v.value.warnings.join(' · ')}`);
+    if (!v.value.actions.length) throw new CoachError(400, 'Uygulanacak işlem yok');
+
+    let applied = 0;
+    try {
+      this.d.store.tx(() => {
+        for (const a of v.value.actions) {
+          if (a.op === 'add') {
+            const f = a.fill;
+            const r = this.d.store.coachFillInsert({ day: f.t.slice(0, 10), t: f.t, tk: f.tk, exp: f.exp, k: f.k, cp: f.cp, q: f.q, side: f.side, px: f.px, conf: 'yuksek', shot: 'komut' });
+            if (!r.added) throw new CoachError(409, `Ekle: aynı dolum zaten kayıtlı (#${r.id})`);
+          } else if (a.op === 'update') {
+            const set = { ...a.set, day: a.set.t != null ? a.set.t.slice(0, 10) : undefined };
+            if (!this.d.store.coachFillUpdate(a.id, set)) throw new CoachError(409, `Düzelt: dolum #${a.id} bulunamadı`);
+          } else if (!this.d.store.coachFillDelete(a.id)) {
+            throw new CoachError(409, `Sil: dolum #${a.id} bulunamadı`);
+          }
+          applied++;
+        }
+      });
+    } catch (e) {
+      if (e instanceof CoachError) throw e;
+      if (/UNIQUE/i.test(String((e as Error).message ?? ''))) throw new CoachError(409, 'Bu değişiklik mevcut bir dolumla çakışıyor (aynı dolum zaten var)');
+      throw e;
+    }
+    this.invalidateAfterKomut(before, fromDay);
+    return { applied, view: this.view(day) };
+  }
+
+  private komutDay(v: unknown, t: number): string {
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new CoachError(400, 'day=YYYY-MM-DD gerekli');
+    if (v > etDate(t) || v < etDate(t - WINDOW_DAYS * DAY_MS)) throw new CoachError(400, 'Gün geçersiz (son 30 gün, bugüne kadar)');
+    return v;
+  }
+
+  /** Komut sonrası: işlem kimliği (sig) yok olan veya işlemin içeriği (fiyat, adet, zaman) değişen raporlar silinir.
+   *  Sig dolum kimliklerinden türer, fiyattan değil; bu yüzden içerik karşılaştırması şart. Etkilenen günlerin karnesi silinir.
+   *  Yeni/değişen işlemler "bekliyor" olur; koçluk /coach/process ya da yüklemede üretilir. */
+  private invalidateAfterKomut(before: Pairing, fromDay: string): void {
+    const after = pairFills(this.fillsSince(fromDay));
+    const oldBy = new Map(before.trades.map(p => [p.sig, p]));
+    const newBy = new Map(after.trades.map(p => [p.sig, p]));
+    const karneDays = new Set<string>();
+    for (const sig of new Set([...oldBy.keys(), ...newBy.keys()])) {
+      const cur = newBy.get(sig);
+      const p = cur ?? oldBy.get(sig)!;
+      const rep = this.d.store.coachReportGet(sig);
+      const stale = !cur || (rep != null && JSON.stringify(rep.trade) !== JSON.stringify(cur.trade));
+      if (rep && stale) this.d.store.coachReportDelete(sig);
+      if (stale || !oldBy.has(sig)) karneDays.add(p.entryT.slice(0, 10));
+    }
+    for (const d of karneDays) this.d.store.coachKarneDelete(d);
+  }
+
   /** Eşleşmiş, koçluğu olmayan (uzun) işlemleri koçlar. Her biri bağımsız: biri başarısızsa diğerleri sürer. */
   private async processPending(a: { day?: string; limit: number; nowMs: number }) {
     const t = a.nowMs;
@@ -303,6 +406,7 @@ export class Coach {
     const open: CoachOpenView[] = pairing.open.map(o => ({
       tk: o.tk, exp: o.exp, k: o.k, cp: o.cp, qty: o.qty, entryT: o.entryT, entryPx: o.entryPx,
       closedQty: o.closedQty, closedPx: o.closedPx,
+      entryFillId: o.entryFillId, legFillIds: o.legs.map(l => l.fillId),
     }));
     const pending = pairing.trades.filter(p => !this.d.store.coachReportGet(p.sig)).length;
     return {

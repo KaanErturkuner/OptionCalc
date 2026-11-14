@@ -1,10 +1,11 @@
 /*
  * Koç uygulama istemcisi (fetch; ağ). Anahtar yalnız x-app-key başlığında gider, loglanmaz.
- * Sunucu: POST /coach (tek görüntü), GET /coach?day=, POST /coach/process?day=, POST /coach/karne?day=  (server/README.md "Koç").
+ * Sunucu: POST /coach (tek görüntü), GET /coach?day=, POST /coach/process?day=, POST /coach/karne?day=,
+ *  POST /coach/komut (öneri), POST /coach/komut/uygula (onaylı değişiklik)  (server/README.md "Koç").
  */
 import { FLOW_BASE_URL } from '../flow/model.ts';
 import { APP_KEY_HEADER } from '../flow/proxy.ts';
-import type { CoachDayView, Karne } from './types.ts';
+import type { CoachDayView, Karne, KomutAction, KomutProposal } from './types.ts';
 
 export type { CoachDayView, CoachFillView, CoachOpenView, CoachTradeView } from './types.ts';
 
@@ -86,4 +87,14 @@ export function processCoach(key: string, day: string, b?: string): Promise<Proc
 
 export function makeKarne(key: string, day: string, b?: string): Promise<{ day: string; model: string; karne: Karne; ts: number }> {
   return needKey(key) ?? call(`${base(b)}/coach/karne?day=${encodeURIComponent(day)}`, { method: 'POST', headers: hdr(key), timeoutMs: 90000 });
+}
+
+/** Serbest komut → değişiklik ÖNERİSİ (kayıt değişmez). Gün: seçili gün (ET, YYYY-MM-DD). */
+export function proposeKomut(key: string, text: string, day: string, b?: string): Promise<KomutProposal> {
+  return needKey(key) ?? call<KomutProposal>(`${base(b)}/coach/komut`, { method: 'POST', headers: hdr(key, true), body: JSON.stringify({ text, day }), timeoutMs: 60000 });
+}
+
+/** Kullanıcının onayladığı öneriyi uygular (sunucu yeniden doğrular; bilinmeyen dolum → hata, hiçbiri uygulanmaz). */
+export function applyKomut(key: string, day: string, actions: KomutAction[], b?: string): Promise<{ applied: number; view: CoachDayView }> {
+  return needKey(key) ?? call<{ applied: number; view: CoachDayView }>(`${base(b)}/coach/komut/uygula`, { method: 'POST', headers: hdr(key, true), body: JSON.stringify({ day, actions }), timeoutMs: 60000 });
 }

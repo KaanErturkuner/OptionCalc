@@ -1,14 +1,18 @@
 /* Menü › Koç: Midas ekran görüntüleri (en çok 40, sıralı yükleme) → sunucu (Haiku) → dolumlar, eşleşmiş işlemler + koçluk,
- * açık pozisyonlar, eşleşmeyen satışlar, günün karnesi. Eğitim amaçlıdır; yatırım tavsiyesi DEĞİLDİR.
+ * açık pozisyonlar, eşleşmeyen satışlar, günün karnesi. Komut kutusu: serbest Türkçe düzeltme → öneri → onay → uygulama.
+ * Eğitim amaçlıdır; yatırım tavsiyesi DEĞİLDİR.
  * Görsel seçici kurulu değilse (expo-image-picker) yükleme devre dışı kalır, açıklama gösterilir. */
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Btn, Card, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
+import { CloseModal, OpenEditModal, TradeEditModal } from '@/ui/CoachEdit';
 import { loadState } from '@/lib/state';
 import { flowKeyOf } from '@/lib/flow/client';
-import { fetchCoachDay, makeKarne, processCoach, uploadScreenshot, type CoachDayView, type UploadResult } from '@/lib/coach/client';
+import { applyKomut, fetchCoachDay, makeKarne, processCoach, proposeKomut, uploadScreenshot, type CoachDayView, type UploadResult } from '@/lib/coach/client';
+import { deleteActions, tradeFillIds } from '@/lib/coach/manual';
+import type { CoachOpenView, CoachTradeView, KomutAction, KomutProposal } from '@/lib/coach/types';
 import { runUploadQueue, type QueueItem, type QueueProgress } from '@/lib/coach/queue';
 import { describeUploadError, majorityDay, type UploadFailure } from '@/lib/coach/uploadError';
 import { addDaysStr, etDate } from '@/lib/usmarket';
@@ -24,6 +28,27 @@ const cpLabel = (cp: 'C' | 'P') => (cp === 'C' ? 'C' : 'P');
 const kb = (b64: string) => Math.round((b64.length * 3) / 4 / 1024);
 /** Yükleme kartındaki her görüntü satırı (ayrı durum; GET hatalarından bağımsız) */
 interface UploadRow { label: string; state: 'bekliyor' | 'gonderiliyor' | 'yeniden' | 'ok' | 'hata'; text: string }
+/** Açık düzenleme penceresi (yalnız biri açık) */
+type EditTarget = { kind: 'close'; pos: CoachOpenView } | { kind: 'open'; pos: CoachOpenView } | { kind: 'trade'; trade: CoachTradeView };
+
+/** Koçluk döngüsü (komut ve elle düzenleme sonrası ortak): bekleyen işlemleri en çok PROCESS_LOOPS turda işler.
+ *  Hatalar metin listesi olarak döner; ağ hatası döngüyü durdurur. */
+async function coachLoop(key: string, day: string, pending: number): Promise<string[]> {
+  const errors: string[] = [];
+  let left = pending;
+  for (let k = 0; k < PROCESS_LOOPS && left > 0; k++) {
+    try {
+      const pr = await processCoach(key, day);
+      left = pr.pending;
+      errors.push(...pr.errors);
+      if (pr.processed === 0 || pr.errors.length) break;
+    } catch (e) {
+      errors.push((e as Error).message || 'Koçluk üretilemedi');
+      break;
+    }
+  }
+  return errors;
+}
 
 export default function Koc({ active, onBack }: { active: boolean; onBack?: () => void }) {
   const insets = useSafeAreaInsets();
@@ -37,6 +62,11 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
   const [noKey, setNoKey] = useState(false);
   const [pickerOk, setPickerOk] = useState(true);
   const [progress, setProgress] = useState<string | null>(null);
+  const [komutText, setKomutText] = useState('');
+  const [komutBusy, setKomutBusy] = useState<'send' | 'apply' | null>(null);
+  const [proposal, setProposal] = useState<KomutProposal | null>(null);   // yalnız öneri; Onayla'ya kadar hiçbir kayıt değişmez
+  const [komutErr, setKomutErr] = useState<string | null>(null);
+  const [edit, setEdit] = useState<EditTarget | null>(null);   // açık düzenleme penceresi
 
   const load = useCallback(async (d: string) => {
     setBusy('load');
@@ -146,6 +176,62 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
     await load(targetDay);
   };
 
+  /** Komut → öneri (sunucu Haiku ile çözümler; kayıt değişmez). */
+  const komutSend = async () => {
+    const text = komutText.trim();
+    if (!text || komutBusy) return;
+    setKomutBusy('send'); setKomutErr(null); setProposal(null);
+    try {
+      const st = await loadState();
+      setProposal(await proposeKomut(flowKeyOf(st?.flowKey), text, day));
+    } catch (e) {
+      setKomutErr((e as Error).message || 'Komut gönderilemedi');
+    } finally {
+      setKomutBusy(null);
+    }
+  };
+
+  /** Ortak uygulama: onaylı işlemler → sunucu (yeniden doğrular, tek işlemde yazar) → dönen görünüm → koçluk döngüsü → yenile.
+   *  Uygulama hatası fırlatır (çağıran gösterir); koçluk hataları `err` kartına yazılır. */
+  const applyChanges = async (pDay: string, actions: KomutAction[], label: string, afterApply?: () => void) => {
+    const st = await loadState();
+    const key = flowKeyOf(st?.flowKey);
+    const r = await applyKomut(key, pDay, actions);
+    afterApply?.();
+    if (pDay === day) setView(r.view);
+    setNotice(`${label}: ${r.applied} değişiklik.${r.view.pending ? ` ${r.view.pending} işlem koçluk bekliyor.` : ''}`);
+    setLoadErr(null);
+    const errs = await coachLoop(key, pDay, r.view.pending);
+    setErr(errs.length ? errs.join(' · ') : null);
+    await load(day);
+  };
+
+  /** Onaylı öneri → uygula (komut kutusu). */
+  const komutApplyNow = async () => {
+    if (!proposal || !proposal.actions.length || komutBusy) return;
+    setKomutBusy('apply'); setKomutErr(null);
+    try {
+      await applyChanges(proposal.day, proposal.actions, 'Komut uygulandı', () => { setProposal(null); setKomutText(''); });
+    } catch (e) {
+      setKomutErr((e as Error).message || 'Uygulanamadı');
+    } finally {
+      setKomutBusy(null);
+    }
+  };
+
+  /** Silme onayı (Alert) → sunucu. Hata err kartında. */
+  const confirmDelete = (ids: number[], what: string) => {
+    Alert.alert('Silinsin mi?', `${what}\n\nBu işlem geri alınamaz.`, [
+      { text: 'Vazgeç', style: 'cancel' },
+      { text: 'Sil', style: 'destructive', onPress: () => { void (async () => {
+        try { await applyChanges(day, deleteActions(ids), 'Silindi'); }
+        catch (e) { setErr((e as Error).message || 'Silinemedi'); }
+      })(); } },
+    ]);
+  };
+
+  const komutCancel = () => { setProposal(null); setKomutErr(null); };
+
   const karne = async () => {
     tap();
     setBusy('karne'); setErr(null);
@@ -192,6 +278,36 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
         <Btn label={busy === 'upload' ? `Yükleniyor… ${progress ?? ''}` : 'Görüntü seç ve yükle'} onPress={() => { void upload(); }} style={{ alignSelf: 'flex-start' }} />
       </Card>
 
+      <Card title="Komut">
+        <Text style={{ color: C.muted, fontSize: 13, marginBottom: 8 }}>
+          İşlemi Türkçe düzelt, ekle ya da sil. Önce öneri gösterilir; Onayla düğmesine basmadan hiçbir kayıt değişmez.
+        </Text>
+        <TextInput value={komutText} onChangeText={setKomutText} editable={!komutBusy} multiline maxLength={500}
+          placeholder={"ör. QQQ 600C 3.20'den kapattım"} placeholderTextColor="#55617a" keyboardAppearance="dark"
+          style={{ color: C.text, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 10, minHeight: 64, textAlignVertical: 'top', fontSize: 15, marginBottom: 8 }} />
+        <Btn label={komutBusy === 'send' ? 'Gönderiliyor…' : 'Gönder'} onPress={() => { void komutSend(); }}
+          style={{ alignSelf: 'flex-start' }} />
+        {komutErr ? <Text style={{ color: C.neg, fontSize: 13, marginTop: 8 }}>{komutErr}</Text> : null}
+      </Card>
+
+      {proposal ? (
+        <Card title={`Öneri · ${dayLabel(proposal.day)}`}>
+          {proposal.lines.length ? (
+            <View style={{ gap: 6 }}>
+              {proposal.lines.map((l, i) => <Text key={`${i}${l}`} style={{ color: C.text, fontSize: 13 }}>{l}</Text>)}
+            </View>
+          ) : null}
+          {proposal.note ? <Text style={{ color: C.muted, fontSize: 13, marginTop: 8 }}>{proposal.note}</Text> : null}
+          {proposal.warnings.length ? <Text style={{ color: C.warn, fontSize: 12, marginTop: 8 }}>Uyarı: {proposal.warnings.join(' · ')}</Text> : null}
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            {proposal.actions.length ? (
+              <Btn kind="primary" label={komutBusy === 'apply' ? 'Uygulanıyor…' : 'Onayla'} onPress={() => { void komutApplyNow(); }} />
+            ) : null}
+            <Btn label="Vazgeç" onPress={komutCancel} />
+          </View>
+        </Card>
+      ) : null}
+
       {noKey ? <Card title="Anahtar"><Text style={{ color: C.muted }}>Akış anahtarı girilmedi (Hesapla › Ayarlar). Koç aynı anahtarla çalışır.</Text></Card> : null}
       {rows.length ? (
         <Card title="Yükleme (görüntü başına)">
@@ -213,27 +329,65 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
         <Card><Text style={{ color: C.muted }}>Bu gün için eşleşmiş işlem yok. Alış ve satış ekranlarını yükle.</Text></Card>
       ) : null}
 
-      {view?.trades.map((t, i) => t.report && t.status === 'hazir' ? (
-        <CoachReport key={t.sig} r={t.report} index={i + 1} ts={t.ts} />
-      ) : (
-        <Card key={t.sig} title={`${i + 1}. ${t.tk} ${t.k}${cpLabel(t.cp)} · ${t.qty} adet`}>
-          <Text style={{ color: C.muted, fontSize: 13 }}>
-            Giriş {hm(t.entryT)} · {px(t.entryPx)} → çıkış {hm(t.exitT)} · {px(t.exitPx)} ({t.legs} bacak). Koçluk bekliyor (birkaç dakika içinde ya da «Bekleyenleri işle» ile).
-          </Text>
-        </Card>
-      ))}
+      {view?.trades.map((t, i) => {
+        const ids = tradeFillIds(t.sig);
+        return (
+          <View key={t.sig} style={{ gap: 6 }}>
+            {t.report && t.status === 'hazir' ? (
+              <CoachReport r={t.report} index={i + 1} ts={t.ts} />
+            ) : (
+              <Card title={`${i + 1}. ${t.tk} ${t.k}${cpLabel(t.cp)} · ${t.qty} adet`}>
+                <Text style={{ color: C.muted, fontSize: 13 }}>
+                  Giriş {hm(t.entryT)} · {px(t.entryPx)} → çıkış {hm(t.exitT)} · {px(t.exitPx)} ({t.legs} bacak). Koçluk bekliyor (birkaç dakika içinde ya da «Bekleyenleri işle» ile).
+                </Text>
+              </Card>
+            )}
+            {ids ? (
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: -6, marginBottom: 6 }}>
+                <Btn label="Düzenle" onPress={() => setEdit({ kind: 'trade', trade: t })} style={{ flex: 1 }} />
+                <Btn kind="danger" label="Sil" style={{ flex: 1 }} textStyle={{ color: C.neg }}
+                  onPress={() => confirmDelete([ids.entryId, ...ids.legs.map(l => l.id)],
+                    `${t.tk} ${t.k}${cpLabel(t.cp)} işlemi silinecek: alış #${ids.entryId}${ids.legs.length ? ` ve bağlı ${ids.legs.length} satış dolumu (${ids.legs.map(l => `#${l.id}`).join(', ')})` : ''}.`)} />
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
 
       {view && view.open.length ? (
         <Card title="Açık pozisyonlar">
-          <View style={{ gap: 6 }}>
-            {view.open.map((o, i) => (
-              <Text key={`${o.tk}${o.exp}${o.k}${o.cp}${i}`} style={{ color: C.text, fontSize: 13 }}>
-                {o.tk} {o.k}{cpLabel(o.cp)} · {o.exp.slice(5).replace('-', '.')} · kalan {o.qty} adet · giriş {px(o.entryPx)} ({hm(o.entryT)})
-                {o.closedQty ? ` · ${o.closedQty} adet ${px(o.closedPx)} fiyatından kapandı` : ''}
-              </Text>
-            ))}
+          <View style={{ gap: 10 }}>
+            {view.open.map((o, i) => {
+              const canEdit = o.entryFillId != null;
+              return (
+                <View key={`${o.tk}${o.exp}${o.k}${o.cp}${i}`} style={{ gap: 8 }}>
+                  <Text style={{ color: C.text, fontSize: 13 }}>
+                    {o.tk} {o.k}{cpLabel(o.cp)} · {o.exp.slice(5).replace('-', '.')} · kalan {o.qty} adet · giriş {px(o.entryPx)} ({hm(o.entryT)})
+                    {o.closedQty ? ` · ${o.closedQty} adet ${px(o.closedPx)} fiyatından kapandı` : ''}
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Btn kind="primary" label="Kapat" style={{ flex: 1 }} onPress={() => setEdit({ kind: 'close', pos: o })} />
+                    <Btn label="Düzenle" style={{ flex: 1, opacity: canEdit ? 1 : 0.4 }} onPress={() => { if (canEdit) setEdit({ kind: 'open', pos: o }); }} />
+                    <Btn kind="danger" label="Sil" style={{ flex: 1, opacity: canEdit ? 1 : 0.4 }} textStyle={{ color: C.neg }}
+                      onPress={() => { if (canEdit) confirmDelete([o.entryFillId as number, ...(o.legFillIds ?? [])],
+                        `${o.tk} ${o.k}${cpLabel(o.cp)} açık pozisyonu silinecek: alış #${o.entryFillId}${o.legFillIds?.length ? ` ve bağlı ${o.legFillIds.length} satış dolumu` : ''}.`); }} />
+                  </View>
+                  {canEdit ? null : <Text style={{ color: C.muted, fontSize: 12 }}>Düzenle/Sil bu pozisyon için sunucu tarafında dolum kimliği gerektirir (sunucu güncellemesi bekleniyor).</Text>}
+                </View>
+              );
+            })}
           </View>
         </Card>
+      ) : null}
+
+      {edit?.kind === 'close' ? (
+        <CloseModal day={day} pos={edit.pos} onApply={actions => applyChanges(day, actions, 'Satış eklendi')} onClose={() => setEdit(null)} />
+      ) : null}
+      {edit?.kind === 'open' ? (
+        <OpenEditModal pos={edit.pos} onApply={actions => applyChanges(day, actions, 'Düzenleme kaydedildi')} onClose={() => setEdit(null)} />
+      ) : null}
+      {edit?.kind === 'trade' ? (
+        <TradeEditModal trade={edit.trade} fills={view?.fills ?? []} onApply={actions => applyChanges(day, actions, 'Düzenleme kaydedildi')} onClose={() => setEdit(null)} />
       ) : null}
 
       {view && view.orphans.length ? (

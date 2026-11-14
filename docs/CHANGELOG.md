@@ -1,5 +1,71 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — Bilanço: 62 günlük takvim, ay gezintisi, telefon düzeni
+
+**Neden:** Takvim yalnız Kasım'ı gösteriyordu (sunucu tick'i bugün+14, uygulama en çok 31 gün). Detay ekranında grafikler ve satırlar 320–390 pt genişlikte taşıyordu (sabit genişlikler, kırpılan EPS etiketleri, kart başlığında Seg taşması).
+
+**Ne:**
+- **Sunucu** (`server/app/earnings.ts`, `earnings.ts` model): `/earnings` aralığı en çok 62 gün (`EARN_MAX_RANGE_DAYS`). Finnhub takvim çağrıları 31 günlük parçalara bölünür (`windowsOf`); yalnız eski günü olan parça çekilir. Tick penceresi bugün−3 … bugün+60. Piyasa değeri (profile2) doldurma akışı değişmedi (tick başına 120, 60/dk sınırı).
+- **Uygulama takvimi** (`Bilanco.tsx`): görünen ay ± 7 gün çekilir (`monthFetchSpan`); ‹ › ay ve hafta gezer (`shiftMonth`), yıl sınırı dâhil; gezintide seçili gün yeni görünümde bugün ya da ilk gün olur. Hafta başlığı iki ay arasında doğru (`weekTitle`). Cihaz içi bellek önbelleği (`RangeCache`, 10 dk, aralık+watch anahtarı); çekmek için aşağı çek.
+- **Detay** (`BilancoDetay.tsx`, `EarnCharts.tsx`): grafik genişliği `width − 56`, 160–340 pt'e sıkıştırılır (`chartWidth`); OI/Hacim seçici kart başlığından çıkıp satıra alındı; EPS grafiği genişliğe göre en yeni 4–12 çeyrek (etiket çakışması/kırpma yok); lejant ve satır sembolü sarar/kısalır.
+
+**Dosyalar:** `server/app/earnings.ts`, `server/app/http.ts` (yorum), `server/app/earnings-test.ts` (+3 test grubu), `server/README.md`, `src/lib/earnings/{model,calendar,client,rangeCache}.ts` (`rangeCache` yeni), `src/screens/{Bilanco,BilancoDetay}.tsx`, `src/ui/EarnCharts.tsx`, `test/earnings.test.ts`.
+
+**Doğrulama:** `npx tsc --noEmit` ✓; `npm test` ✓ (bilanço + sunucu testleri dâhil); `expo lint` (değişen dosyalar) ✓. Cihazda / Expo Go'da görsel kontrol **yapılmadı**; genişlikler 320/375/390 için akıl yürütmeyle doğrulandı (hiçbir öğe pencereden geniş değil).
+
+**Açık / dikkat:**
+- **Sunucu deploy gerekir** (tick penceresi ve 62 gün sınırı). Deploy edilmeden uygulama ay gezintisinde 31 gün sınırına takılmaz (ay ± 7 = ≤45 gün) ama sunucu eski sürümse 45 günlük istek 400 döner — deploy sonrası çalışır.
+- İlk tick'te ~1000+ sembol için piyasa değeri doldurması birkaç saat sürer (120/tick); bu sırada küçük şirketler gizli kalır.
+- OTA güncellemesi yayınlanmadı (Kaan kararı).
+
+## 2026-11-14 — Claude — Koç: düğmelerle elle düzenleme (kapat / düzenle / sil), AI çağrısı yok
+
+**Neden:** Koç komut kutusu tek yönlüydü (serbest metin → Haiku öneri). Kaan bir işlemi ya da açık pozisyonu dokunarak düzeltmek, kısmi kapatmak ve silmek istedi. Yeni yol Haiku'yu çağırmaz; mevcut `POST /coach/komut/uygula` uç noktasını yapılandırılmış işlemlerle (add/update/delete) kullanır. Komut kutusu olduğu gibi duruyor.
+
+**Ne:**
+- **Açık pozisyon:** "Kapat" (satış ekle: fiyat, adet ±/yazı, en çok açık adet, saat; varsayılan şimdi İstanbul HH:MM, gün = seçili gün; alıştan önce olamaz), "Düzenle" (giriş fiyatı, toplam adet, strike, C/P, vade, saat → `update` yalnız değişen alanlarla), "Sil" (onay → alış + bağlı kapanış dolumları).
+- **Eşleşmiş işlem:** "Düzenle" (giriş fiyat/saat, adet, strike, tür, vade; çıkış fiyat/saat) ve "Sil" (onay → alış + satış dolumları). Çıkış alanları yalnız **tek, paylaşılmayan** satış dolumu varsa açık; kademeli çıkış ya da başka güne düşen/paylaşılan dolum kilitli (neden gösterilir).
+- **Ortak uygulama:** `applyChanges()` (Koc.tsx) komut onayı, kapat, düzenle, sil için aynı yol: `applyKomut` → görünüm → `coachLoop()` (koçluk döngüsü, eski komut akışından taşındı) → yenile.
+- **Saf yardımcılar** `src/lib/coach/manual.ts`: fiyat (virgül/nokta), strike, adet, saat HH:MM, vade (YYYY-MM-DD veya GG.AA; yıl yoksa seçili gün yılı, geçmişse sonraki yıl), İstanbul şimdi, kapat/düzenle/sil eylem kurucuları, sig'den dolum kimliği (`tradeFillIds`).
+- **UI:** `src/ui/CoachEdit.tsx` (RN Modal, koyu tema, ≥44 pt, büyük yazı; numerik ondalık klavye). Yeni native bağımlılık yok.
+- **Görünüm tipi (küçük sunucu değişikliği):** `CoachOpenView` ↑ `entryFillId?`, `legFillIds?` (`server/app/coach.ts` tek satır). Açık pozisyonun giriş dolumu başka günde olabildiği için yalnız görünüm günü `fills` yetmiyordu. Sunucu eski sürümdeyken açık pozisyonda Düzenle/Sil kapalı kalır (Kapat çalışır).
+
+**Dosyalar:** `src/lib/coach/manual.ts` (yeni), `src/ui/CoachEdit.tsx` (yeni), `src/screens/Koc.tsx`, `src/lib/coach/types.ts`, `server/app/coach.ts` (1 satır), `test/coach-manual.test.ts` (yeni), `package.json` (test zinciri).
+
+**Doğrulama:** `npm test` ✓ (yeni `coach-manual.test.ts` dahil; sunucu `komut-test` de geçti); `npx tsc --noEmit` ✓; `npm run lint` ✓ (uyarı yok). Cihazda (Expo Go) görsel kontrol **yapılmadı**; sunucuya canlı istek atılmadı.
+
+**Açık / dikkat:**
+- **Sunucu deploy gerekir** (yalnız açık pozisyon Düzenle/Sil için `entryFillId`). Deploy edilmeden uygulama çalışır, o iki düğme pasif kalır.
+- Silme ve çıkış düzenleme dolum düzeyinde çalışır: paylaşılan bir satış dolumu silinirse başka pozisyonun eşleşmesi de değişir. Onay metni silinecek dolumları listeler; çıkış düzenlemesi paylaşılan dolumda kilitlidir.
+- Koçluk: düzeltme sonrası değişen işlemlerin raporu silinir ve yeniden üretilir (sunucu kuralı). Bu da Haiku çağrısı doğurabilir (mevcut komut akışıyla aynı).
+- Düzenleme önizlemesi yok (Kaydet doğrudan uygular, yalnız Kapat ve Sil'de onay var). İstenirse eklenir.
+- Yükleme akışının kendi koçluk döngüsü bilerek dokunulmadı.
+
+## 2026-11-14 — Claude — Bilanço takvimi: Nasdaq → Finnhub (sunucu önbelleği), görsel ekranlar, favoriler ve sonuç bildirimi
+
+**Neden:** Bilanço takvimi resmî olmayan Nasdaq uç noktasına bağlıydı (kırılgan, sürpriz/gerçek EPS yok). Kaan görsel bir takvim, sürpriz yüzdesi, grafikler, favori yıldızı ve gerçek EPS açıklanınca bildirim istedi. Anahtar yalnız sunucuda kalır.
+
+**Ne:**
+- **Sunucu (`server/app`):** `GET /earnings?from&to&watch` (x-app-key, en çok 31 gün, varsayılan bugün..+6); `GET /earnings/history?symbol`; `POST /earnings/favs {token,symbols}`. Finnhub `calendar/earnings`, `stock/profile2` (piyasa değeri, haftalık), `stock/earnings` (24 sa). SQLite tabloları: earn_items/days/fetch_log (önceden), earn_caps, earn_hist, earn_favs, earn_notified. Tick 15 dk, bugün−3..+14; geçmiş günler 08:00 ve 16:30 ET kontrol noktalarından sonra bir kez yenilenir (gerçek EPS dolsun).
+- **Küçük şirket filtresi:** ≥ 2 mlr $ veya izleme listesi / favori. Değeri bilinmeyen küçük şirket gizli. `watch` parametresi uygulama tarafından izleme + favori sembollerinden gönderilir.
+- **Favori bildirimi (seçim: sunucu push):** Sunucu zaten Expo push gönderiyor (`push_tokens`, Akış ve raporlar). Uygulama favorileri ve Expo tokenını sunucuya bildirir; yeni çekimde favori sembolün `epsActual`'i boştan dolunca o cihaza push atılır (aynı cihaz+gün+sembol bir kez). Yerel bildirim yolu eklenmedi: uygulama kapalıyken de çalışır, OTA gerektirmez. Sınır: cihaz push kaydı (izin) yoksa token yoktur; favori yerel kalır, bildirim gelmez.
+- **Uygulama:** `src/lib/earnings/{model,calendar,charts,client}.ts` (saf + istemci), `src/ui/{earnStore.ts,EarnCharts.tsx}` (favoriler, SVG grafikler), `src/screens/{Bilanco,BilancoDetay}.tsx` (yeniden tasarım: ay/hafta ızgarası, gün sayaçları, BMO/AMC gruplu sıkı satırlar, yıldız; detayda EPS/gelir kartları, EPS geçmişi, beklenen hareket ve strike OI/hacim çubukları, 5 gün akış primi, haber). `src/ui/flowPush.ts` → `currentPushToken()` eklendi.
+- **Kaldırıldı:** `src/lib/earnings/fetch.ts` (Nasdaq), eski `parseEarningsCalendar` / `parseUsd` / `summarizeChain` yolu.
+- **Beklenen hareket:** en yakın vade (≥ bilanço günü) ATM straddle (call orta + put orta) ÷ spot.
+- **Sürpriz:** (gerçek − beklenti) / |beklenti| × 100, kodda hesaplanır; yeşil pozitif, kırmızı negatif.
+
+**Dosyalar:** `server/app/{earnings.ts,http.ts,main.ts,push.ts,sources.ts,store.ts}`, `server/README.md`; `src/lib/earnings/*`, `src/ui/{earnStore.ts,EarnCharts.tsx,flowPush.ts}`, `src/screens/{Bilanco,BilancoDetay}.tsx`; testler `test/earnings.test.ts` (saf), `test/earnings-server.test.ts` (sahte kaynak + `:memory:` SQLite); `package.json` (test betiği).
+
+**Doğrulama:** `npm test` ✓ (yeni iki bilanço testi dahil); `npx eslint` (değişen uygulama dosyaları) ✓; `npm run flow:selftest` ✓; `npx tsc --noEmit`: uygulama tarafında hata yok; sunucu dosyalarında yalnız önceden var olan `node:*` / `@types/node` eksikliği hataları (`config.ts`, `poller.ts`, `store.ts`; bu ortamda `@types/node` yok, AGENTS.md notu). Canlı Finnhub çağrısı YAPILMADI (anahtar bu oturumda kullanılmadı); görsel kontrol Expo Go'da yapılmadı.
+
+**Açık / dikkat:**
+- **Deploy yapılmadı.** Sunucuda `server/deploy.sh` ve yeni tablolar için yeniden başlatma gerekir. Uygulama OTA yayınlanmadı (Kaan isteyince).
+- Finnhub `profile2` ve `stock/earnings` ücretsiz planda kısıtlı olabilir. 403 alınırsa piyasa değeri bilinmez → küçük şirketler (izleme dışı) hiç görünmez. İlk canlı çekimde doğrulanmalı.
+- Piyasa değeri tüm takvim penceresi için birkaç tick'te dolar (tick başına 120 sorgu); ilk açılışta liste eksik görünebilir.
+- Favori yıldızı bildirim izni ister (`syncEarnFavsToServer` → `currentPushToken`). Favori yoksa açılışta izin istenmez.
+- Gelir sürpriz yüzdesi yok (yalnız EPS için); gelir gerçek/beklenti gösterilir.
+- Sürpriz yüzdesi beklenti sıfır/negatifken yanıltıcı olabilir; kodda beklenti 0 ise null.
+
 ## 2026-11-14 — Claude — Akış: filtreler, Dağılım, kural yorumu, AI yorum (Haiku)
 
 **Neden:** Kaan Akış olaylarını daraltmak, strike bazında call/put primini görmek ve okunabilir bir yorum istedi. Yorum ücretsiz ve kural tabanlı; Haiku yorumu yalnız butona basınca, sunucuda üretilir (anahtar uygulamada yok).

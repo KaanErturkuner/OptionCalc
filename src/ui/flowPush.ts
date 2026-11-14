@@ -26,3 +26,15 @@ export async function registerFlowPush(key: string): Promise<string> {
     return `Uzak bildirim kaydı olmadı: ${(e as Error)?.message ?? 'bilinmeyen hata'}`;
   }
 }
+
+/** Expo push tokenı (izin yoksa / web'de / hata → null; asla fırlatmaz). Bilanço favorisi bildirimi için. */
+export async function currentPushToken(): Promise<string | null> {
+  if (Platform.OS === 'web') return null;
+  try {
+    if (!(await ensurePermission())) return null;
+    const projectId: string | undefined = (Constants.expoConfig as any)?.extra?.eas?.projectId;
+    return (await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined)).data;
+  } catch {
+    return null;
+  }
+}

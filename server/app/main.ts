@@ -23,6 +23,7 @@ import { Reporter } from './reporter.ts';
 import { YahooClient, FinnhubClient } from './sources.ts';
 import { Coach } from './coach.ts';
 import { FlowYorum } from './flowyorum.ts';
+import { EarningsCache, EARN_TICK_MS } from './earnings.ts';
 
 const log = (m: string) => console.log(`${new Date().toISOString()} ${m}`);
 const args = process.argv.slice(2);
@@ -79,8 +80,10 @@ async function serve(cfg: Config) {
   if (!cfg.appKey) log('UYARI: uygulama anahtarı yok (app_key) — tüm uç noktalar 401 döner');
   const store = new Store(cfg.dbPath);
   const md = new MdClient(cfg.mdToken, store, { flowDailyCap: cfg.flowDailyCap, proxyDailyCap: cfg.proxyDailyCap, creditReserve: cfg.creditReserve });
-  const push: PushSender = new ExpoPush(store, cfg.expoAccessToken, fetch, log);
-  const reporter = new Reporter({ cfg, store, yahoo: new YahooClient(), finnhub: cfg.finnhubKey ? new FinnhubClient(cfg.finnhubKey) : null, push, log });
+  const expo = new ExpoPush(store, cfg.expoAccessToken, fetch, log);
+  const push: PushSender = expo;
+  const finnhub = cfg.finnhubKey ? new FinnhubClient(cfg.finnhubKey) : null;
+  const reporter = new Reporter({ cfg, store, yahoo: new YahooClient(), finnhub, push, log });
   const poller = new Poller(cfg, store, {
     chain: (ticker, q, nowMs) => md.get(`/options/chain/${ticker}/?dte=${encodeURIComponent(q.dte)}&mode=cached&maxage=${encodeURIComponent(q.maxage)}`, 'flow', { nowMs }),
     quote: (occ, nowMs) => md.get(`/options/quotes/${occ}/`, 'flow', { nowMs }),
@@ -91,12 +94,16 @@ async function serve(cfg: Config) {
   const coachTimer = setInterval(() => { void coach.autoKarneTick(); }, 60000);
   log(`koç: anahtar ${cfg.anthropicKey ? 'var' : 'yok'}, model ${cfg.coachModel}${cfg.coachFallbackModel ? ' (yedek ' + cfg.coachFallbackModel + ')' : ''}, oto-karne ${cfg.coachAuto ? 'açık' : 'kapalı'}`);
   const yorum = new FlowYorum({ cfg, store });
-  const handler = createHandler({ cfg, store, md, poller, coach, yorum });
+  const earnings = finnhub ? new EarningsCache({ store, src: finnhub, log, notify: msgs => expo.sendTo(msgs) }) : null;
+  const earnTimer = earnings ? setInterval(() => { void earnings.tick(); }, EARN_TICK_MS) : null;
+  if (earnings) setTimeout(() => { void earnings.tick(); }, 20000);
+  log(`bilanço takvimi: ${earnings ? 'açık (Finnhub, 15 dk tick)' : 'kapalı (Finnhub anahtarı yok)'}`);
+  const handler = createHandler({ cfg, store, md, poller, coach, yorum, earnings: earnings ?? undefined });
   const server = createServer((req, res) => { void handler(req, res); });
   server.listen(cfg.port, cfg.host, () => log(`dinleniyor ${cfg.host}:${cfg.port}`));
   const timer = poller.start();
   log(`tarayıcı: ${cfg.pollEnabled ? 'açık' : 'kapalı'}, ${cfg.intervalMin} dk, ${cfg.tickers.join(' ')}`);
-  const stop = () => { clearInterval(timer); clearInterval(reportTimer); clearInterval(coachTimer); server.close(); store.close(); log('kapanıyor'); process.exit(0); };
+  const stop = () => { clearInterval(timer); clearInterval(reportTimer); clearInterval(coachTimer); if (earnTimer) clearInterval(earnTimer); server.close(); store.close(); log('kapanıyor'); process.exit(0); };
   process.on('SIGTERM', stop); process.on('SIGINT', stop);
 }
 

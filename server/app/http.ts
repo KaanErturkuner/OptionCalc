@@ -15,6 +15,15 @@
  *  POST /coach/process?day=      — (anahtar) bekleyen koçlukları işle (en çok 5)
  *  GET  /coach?day=              — (anahtar) günün dolumları, eşleşmiş işlemleri, açık pozisyonlar, karnesi
  *  POST /coach/karne?day=        — (anahtar) günün karnesini üret (Haiku)
+ *  POST /coach/komut {text,day}  — (anahtar) serbest Türkçe komut → değişiklik ÖNERİSİ (Haiku; kayıt DEĞİŞMEZ; en çok 500 karakter)
+ *  POST /coach/komut/uygula {day,actions} — (anahtar) onaylanan öneriyi yeniden doğrular, tek işlemde uygular, {applied, view} döner
+ *  GET  /earnings?from=&to=&watch= — (anahtar) bilanço takvimi (Finnhub, SQLite önbellek): {from,to,fetchedAt,items[]}; en çok 62 gün (31 günlük Finnhub parçaları);
+ *                                  eksikse from=bugün(ET), to=from+6. watch=virgüllü izleme+favori sembolleri (piyasa değeri filtresini geçer).
+ *                                  Satır: date,symbol,hour(bmo|amc|dmh|''),epsEstimate/Actual,revenueEstimate/Actual,surprisePct,quarter,year,marketCapUsd.
+ *                                  Hata: 400 (aralık), 502 (Finnhub), 503 (anahtar yok)
+ *  GET  /earnings/history?symbol= — (anahtar) geçmiş EPS çeyrekleri (Finnhub /stock/earnings, günlük önbellek): {symbol,fetchedAt,items[]}
+ *  POST /earnings/favs {token,symbols[]} — (anahtar) cihazın favori listesi (tam değiştirme); favori sembolün EPS'i açıklanınca o cihaza push.
+ *                                  409 = cihaz sınırı. Token geçerli Expo tokenı olmalı.
  * Anahtar: başlık x-app-key (sabit zamanlı karşılaştırma). Anahtar/token asla loglanmaz.
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -31,11 +40,14 @@ import type { Poller } from './poller.ts';
 import { errText } from './poller.ts';
 import { Coach, CoachError } from './coach.ts';
 import { FlowYorum, YorumError } from './flowyorum.ts';
+import { EarningsError, type EarningsCache } from './earnings.ts';
+import { checkRange, cleanSymbol, normalizeSymbols, EARN_MAX_FAVS, EARN_MAX_WATCH } from '../../src/lib/earnings/model.ts';
 
-export interface Deps { cfg: Config; store: Store; md: MdClient; poller: Poller; now?: () => number; coach?: Coach; yorum?: FlowYorum }
+export interface Deps { cfg: Config; store: Store; md: MdClient; poller: Poller; now?: () => number; coach?: Coach; yorum?: FlowYorum; earnings?: EarningsCache }
 
 const MAX_BODY = 4096;
 const MAX_COACH_BODY = 6 * 1024 * 1024;   // base64 (4 MB görüntü ≈ 5,6 MB) + JSON
+const MAX_KOMUT_BODY = 16 * 1024;         // komut metni ≤500 karakter; uygulama listesi ≤10 işlem
 const MAX_PUSH_TOKENS = 50;
 const TICKER_RE = /^[A-Z][A-Z0-9.\-]{0,9}$/;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -139,6 +151,9 @@ export function createHandler(d: Deps) {
         const r = d.store.getReport(Number(path.slice('/reports/'.length)));
         return r ? send(res, 200, { report: r }) : send(res, 404, { error: 'rapor bulunamadı' });
       }
+      if (method === 'GET' && path === '/earnings') return earningsRoute(res, url, t);
+      if (method === 'GET' && path === '/earnings/history') return earningsHistoryRoute(res, url);
+      if (method === 'POST' && path === '/earnings/favs') return earningsFavsRoute(req, res);
       if (method === 'GET' && path.startsWith(MD_PROXY_PREFIX + '/')) return mdProxy(req, res, url, t);
       if (path === '/coach' || path.startsWith('/coach/')) return coachRoute(req, res, url, method, path);
       return send(res, 404, { error: 'bulunamadı' });
@@ -147,6 +162,52 @@ export function createHandler(d: Deps) {
       if (!res.headersSent) send(res, 500, { error: 'sunucu hatası' });
     }
   };
+
+  /** /earnings?from=&to=&watch=: bilanço takvimi (önbellekli). watch = izleme listesi + favori semboller (piyasa değeri filtresini geçer). */
+  async function earningsRoute(res: ServerResponse, url: URL, t: number) {
+    if (!d.earnings) return send(res, 503, { error: 'bilanço takvimi kapalı (Finnhub anahtarı yok)' });
+    const r = checkRange(url.searchParams.get('from'), url.searchParams.get('to'), etDate(t));
+    if ('error' in r) return send(res, 400, { error: r.error });
+    const watch = normalizeSymbols(url.searchParams.get('watch') ?? '', EARN_MAX_WATCH);
+    try {
+      const out = await d.earnings.range(r.from, r.to, watch);
+      return send(res, 200, out);
+    } catch (e) {
+      console.error('bilanço takvimi hatası: ' + errText(e));
+      return send(res, 502, { error: 'bilanço takvimi geçici olarak kullanılamıyor' });
+    }
+  }
+
+  /** /earnings/history?symbol=: geçmiş bilanço çeyrekleri (sembol başına günlük önbellek). */
+  async function earningsHistoryRoute(res: ServerResponse, url: URL) {
+    if (!d.earnings) return send(res, 503, { error: 'bilanço takvimi kapalı (Finnhub anahtarı yok)' });
+    const sym = cleanSymbol(url.searchParams.get('symbol'));
+    if (!sym) return send(res, 400, { error: 'geçersiz hisse' });
+    try {
+      return send(res, 200, await d.earnings.history(sym));
+    } catch (e) {
+      console.error('geçmiş bilanço hatası: ' + errText(e));
+      return send(res, 502, { error: 'geçmiş bilanço geçici olarak kullanılamıyor' });
+    }
+  }
+
+  /** POST /earnings/favs {token, symbols[]}: cihazın favori listesini tam değiştirir (favori bilanço sonucu bildirimi için). */
+  async function earningsFavsRoute(req: IncomingMessage, res: ServerResponse) {
+    if (!d.earnings) return send(res, 503, { error: 'bilanço takvimi kapalı (Finnhub anahtarı yok)' });
+    const raw = await readBody(req);
+    if (raw == null) return send(res, 413, { error: 'istek çok büyük' });
+    let j: any;
+    try { j = JSON.parse(raw); } catch { return send(res, 400, { error: 'geçersiz JSON' }); }
+    const token = String(j?.token ?? '');
+    if (!isExpoPushToken(token)) return send(res, 400, { error: 'geçersiz push tokenı' });
+    const symbols = normalizeSymbols(j?.symbols, EARN_MAX_FAVS);
+    try {
+      return send(res, 200, { ok: true, count: d.earnings.setFavs(token, symbols) });
+    } catch (e) {
+      if (e instanceof EarningsError) return send(res, e.status, { error: e.message });
+      throw e;
+    }
+  }
 
   /** /flow/yorum: ticker+gün başına tek kayıt. Girdi doğrulanır; payload sunucuda kurulur (istemci gövdesi yok). */
   async function flowYorumRoute(res: ServerResponse, url: URL, method: string) {
@@ -200,6 +261,26 @@ export function createHandler(d: Deps) {
         const day = url.searchParams.get('day') ?? undefined;
         if (day != null && !/^\d{4}-\d{2}-\d{2}$/.test(day)) return reply(400, { error: 'day=YYYY-MM-DD gerekli' });
         return reply(200, await d.coach.process(day));
+      }
+      if (method === 'POST' && path === '/coach/komut') {
+        const raw = await readBody(req, MAX_KOMUT_BODY);
+        if (raw == null) return reply(413, { error: 'komut çok büyük' });
+        let body: { text?: unknown; day?: unknown };
+        try { body = JSON.parse(raw); } catch { return reply(400, { error: 'geçersiz JSON' }); }
+        // Komut metni günlüğe yazılmaz (kişisel işlem notu); yalnız uzunluk.
+        info = ` metin=${typeof body?.text === 'string' ? body.text.length : 0}ch`;
+        const out = await d.coach.komutPropose(body ?? {});
+        info += ` gün=${out.day} öneri=${out.actions.length}`;
+        return reply(200, out);
+      }
+      if (method === 'POST' && path === '/coach/komut/uygula') {
+        const raw = await readBody(req, MAX_KOMUT_BODY);
+        if (raw == null) return reply(413, { error: 'istek çok büyük' });
+        let body: { day?: unknown; actions?: unknown };
+        try { body = JSON.parse(raw); } catch { return reply(400, { error: 'geçersiz JSON' }); }
+        const out = d.coach.komutApply(body ?? {});
+        info = ` komut-uygula=${out.applied}`;
+        return reply(200, out);
       }
       if (method === 'POST' && path === '/coach/karne') {
         const day = url.searchParams.get('day') ?? '';

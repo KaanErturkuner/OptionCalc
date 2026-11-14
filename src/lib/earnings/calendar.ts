@@ -1,71 +1,122 @@
 /*
- * Bilanço takvimi (saf): anahtarsız takvim yanıtının ayrıştırılması, saat dilimine göre gruplama, tarih şeridi.
- * Ağ çağrısı src/lib/earnings/fetch.ts'te. Piyasa öncesi = time-pre-market, sonrası = time-after-hours.
+ * Bilanço takvimi (saf, uygulama + sunucu): gruplama, ay/hafta ızgarası, biçimlendirme, bildirim metni, zincir özeti.
+ * Veri: sunucu GET /earnings (Finnhub) → src/lib/earnings/client.ts. Ayrıştırma ve yenileme politikası: model.ts.
+ * Piyasa öncesi = bmo, piyasa sonrası = amc, diğer (dmh / boş) = saat belirtilmemiş.
  */
-import { addDaysStr, etDate, isTradingDay } from '../usmarket.ts';
-import type { OptQuote } from '../market/types.ts';
+import { addDaysStr } from '../usmarket.ts';
+import { timingOfHour, type EarnTiming, type EarningsItem } from './model.ts';
 
-export type EarnTiming = 'pre' | 'post' | 'unknown';
-export interface EarningsRow {
-  symbol: string; name: string; timing: EarnTiming;
-  epsForecast: number | null; estimates: number | null;
-  lastYearEps: number | null; lastYearDate: string | null; marketCap: string | null;
-}
-
-/** "$2.50" → 2.5; "(0.12)" → −0.12; boş / "N/A" → null */
-export function parseUsd(v: unknown): number | null {
-  if (typeof v === 'number') return isFinite(v) ? v : null;
-  if (typeof v !== 'string') return null;
-  const t = v.trim();
-  if (!t || /^n\/?a$/i.test(t) || t === '--') return null;
-  const neg = /^\(.*\)$/.test(t) || t.startsWith('-');
-  const n = Number(t.replace(/[^0-9.]/g, ''));
-  return isFinite(n) && t.match(/\d/) ? (neg ? -n : n) : null;
-}
-export const timingOf = (code: unknown): EarnTiming =>
-  code === 'time-pre-market' ? 'pre' : code === 'time-after-hours' ? 'post' : 'unknown';
-
-/** Nasdaq benzeri takvim JSON'u → satırlar. Yapı: { data: { rows: [...] } } */
-export function parseEarningsCalendar(json: unknown): EarningsRow[] {
-  const rows = (json as { data?: { rows?: unknown[] } })?.data?.rows;
-  if (!Array.isArray(rows)) return [];
-  const out: EarningsRow[] = [];
-  for (const r0 of rows) {
-    const r = r0 as Record<string, unknown>;
-    const symbol = typeof r.symbol === 'string' ? r.symbol.trim().toUpperCase() : '';
-    if (!symbol || !/^[A-Z][A-Z0-9.\-]{0,9}$/.test(symbol)) continue;
-    out.push({
-      symbol, name: typeof r.name === 'string' ? r.name.trim() : symbol, timing: timingOf(r.time),
-      epsForecast: parseUsd(r.epsForecast), estimates: parseUsd(r.noOfEsts),
-      lastYearEps: parseUsd(r.lastYearEPS), lastYearDate: typeof r.lastYearRptDt === 'string' ? r.lastYearRptDt : null,
-      marketCap: typeof r.marketCap === 'string' ? r.marketCap : null,
-    });
-  }
-  return out;
-}
+export type { EarnTiming } from './model.ts';
 
 /** Piyasa öncesi / sonrası / saat belirtilmemiş gruplar; her grupta sembole göre sıralı */
-export function groupByTiming(rows: EarningsRow[]): Record<EarnTiming, EarningsRow[]> {
-  const g: Record<EarnTiming, EarningsRow[]> = { pre: [], post: [], unknown: [] };
-  for (const r of rows) g[r.timing].push(r);
+export function groupByTiming(items: EarningsItem[]): Record<EarnTiming, EarningsItem[]> {
+  const g: Record<EarnTiming, EarningsItem[]> = { pre: [], post: [], unknown: [] };
+  for (const r of items) g[timingOfHour(r.hour)].push(r);
   for (const k of ['pre', 'post', 'unknown'] as EarnTiming[]) g[k].sort((a, b) => a.symbol.localeCompare(b.symbol));
   return g;
 }
 
-/** Tarih şeridi: bugünden önceki `back` işlem günü, bugün (işlem günüyse) ve sonraki `fwd` işlem günü. Hafta sonu/tatil atlanır. */
-export function tradingStrip(nowMs: number, back = 2, fwd = 7): string[] {
-  const today = etDate(nowMs);
-  const before: string[] = [];
-  for (let d = addDaysStr(today, -1); before.length < back; d = addDaysStr(d, -1)) if (isTradingDay(d)) before.unshift(d);
-  const after: string[] = [];
-  for (let d = isTradingDay(today) ? addDaysStr(today, 1) : today; after.length < fwd; d = addDaysStr(d, 1)) if (isTradingDay(d)) after.push(d);
-  return [...before, ...(isTradingDay(today) ? [today] : []), ...after];
+/** Saat etiketi (kısa, Türkçe) */
+export const timingOfHourLabel = (h: EarningsItem['hour']): string => (h === 'bmo' ? 'Piyasa öncesi (BMO)' : h === 'amc' ? 'Piyasa sonrası (AMC)' : 'Saat belirtilmedi');
+export const TIMING_TITLE: Record<EarnTiming, string> = { pre: 'Piyasa öncesi', post: 'Piyasa sonrası', unknown: 'Saat belirtilmedi' };
+
+/** Bir günde kaç şirket, hangi saatte (ızgara noktası ve sayaç için) */
+export interface DayCount { total: number; pre: number; post: number }
+export function countsByDay(items: EarningsItem[]): Map<string, DayCount> {
+  const m = new Map<string, DayCount>();
+  for (const it of items) {
+    const c = m.get(it.date) ?? { total: 0, pre: 0, post: 0 };
+    c.total++;
+    const t = timingOfHour(it.hour);
+    if (t === 'pre') c.pre++; else if (t === 'post') c.post++;
+    m.set(it.date, c);
+  }
+  return m;
 }
 
-export interface ChainSummary { expiry: string; callOi: number; putOi: number; callVol: number; putVol: number; topCalls: OptQuote[]; topPuts: OptQuote[] }
-/** En yakın vade zincirinden OI/hacim özeti ve OI'ye göre en yoğun 4 strike (çağrı ve put) */
-export function summarizeChain(expiry: string, calls: OptQuote[], puts: OptQuote[]): ChainSummary {
-  const sum = (l: OptQuote[], k: 'oi' | 'volume') => l.reduce((a, o) => a + (o[k] || 0), 0);
-  const top = (l: OptQuote[]) => [...l].filter(o => o.oi > 0).sort((a, b) => b.oi - a.oi).slice(0, 4);
-  return { expiry, callOi: sum(calls, 'oi'), putOi: sum(puts, 'oi'), callVol: sum(calls, 'volume'), putVol: sum(puts, 'volume'), topCalls: top(calls), topPuts: top(puts) };
+/** Ay ızgarası (pazartesi başlangıç). Her satır 7 hücre; ayın dışındaki hücreler null. */
+export function monthGrid(year: number, month: number): (string | null)[][] {
+  const first = `${year}-${String(month).padStart(2, '0')}-01`;
+  const daysIn = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const lead = (new Date(first + 'T12:00:00Z').getUTCDay() + 6) % 7;   // pazartesi = 0
+  const cells: (string | null)[] = [];
+  for (let i = 0; i < lead; i++) cells.push(null);
+  for (let d = 1; d <= daysIn; d++) cells.push(`${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+  while (cells.length % 7) cells.push(null);
+  const rows: (string | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
+  return rows;
+}
+
+/** Ayın ilk ve son günü (ISO). Ay ızgarası için istek aralığı monthFetchSpan (ay ± 7 gün). */
+export function monthSpan(year: number, month: number): { from: string; to: string } {
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const mm = String(month).padStart(2, '0');
+  return { from: `${year}-${mm}-01`, to: `${year}-${mm}-${String(last).padStart(2, '0')}` };
+}
+
+/** Görünen ayın istek aralığı: ay ± `buffer` gün (ayın kenarındaki hafta yanında da olsun). En çok 45 gün (sunucu sınırı 62). */
+export function monthFetchSpan(year: number, month: number, buffer = 7): { from: string; to: string } {
+  const s = monthSpan(year, month);
+  return { from: addDaysStr(s.from, -buffer), to: addDaysStr(s.to, buffer) };
+}
+
+/** Ay kaydır (dir = ±1…): {y,m} → {y,m}. Yıl sınırını geçer. */
+export function shiftMonth(year: number, month: number, dir: number): { y: number; m: number } {
+  const idx = year * 12 + (month - 1) + dir;
+  return { y: Math.floor(idx / 12), m: (((idx % 12) + 12) % 12) + 1 };
+}
+
+/** Hafta başlığı: "9–15 Kas" (gün ve kısa ay; iki ay arasında "28 Eki – 3 Kas") */
+export function weekTitle(mon: string, sun: string): string {
+  const f = (iso: string) => new Date(iso + 'T12:00:00Z').toLocaleDateString('tr-TR', { timeZone: 'UTC', day: 'numeric', month: 'short' });
+  const sameMonth = mon.slice(0, 7) === sun.slice(0, 7);
+  return sameMonth ? `${Number(mon.slice(8))}–${f(sun)}` : `${f(mon)} – ${f(sun)}`;
+}
+
+/** Anchor gününü içeren pazartesi–pazar (ISO, 7 gün) */
+export function weekOf(anchor: string): string[] {
+  const dow = (new Date(anchor + 'T12:00:00Z').getUTCDay() + 6) % 7;
+  const mon = addDaysStr(anchor, -dow);
+  return Array.from({ length: 7 }, (_, i) => addDaysStr(mon, i));
+}
+
+/** "$2,50" biçimi; null → "—" */
+export function fmtEps(x: number | null): string {
+  return x == null ? '—' : `${x < 0 ? '−' : ''}$${Math.abs(x).toFixed(2).replace('.', ',')}`;
+}
+
+/** Gelir: tam dolar → "$12,3 mlr" / "$450 mln" / "$12,5 bin" (tr-TR ondalık). null → "—" */
+export function fmtRevenue(x: number | null): string {
+  if (x == null) return '—';
+  const a = Math.abs(x), s = x < 0 ? '−' : '';
+  const f = (v: number) => v.toFixed(1).replace('.', ',');
+  if (a >= 1e9) return `${s}$${f(a / 1e9)} mlr`;
+  if (a >= 1e6) return `${s}$${f(a / 1e6)} mln`;
+  if (a >= 1e3) return `${s}$${f(a / 1e3)} bin`;
+  return `${s}$${Math.round(a)}`;
+}
+
+/** Sürpriz %: "+4,2%" / "−3,1%"; null → null (gösterilmez) */
+export function fmtSurprise(x: number | null): string | null {
+  if (x == null) return null;
+  const sign = x > 0 ? '+' : x < 0 ? '−' : '';
+  return `${sign}${Math.abs(x).toFixed(1).replace('.', ',')}%`;
+}
+
+/** Piyasa değeri: "$2,4 mlr" / "$860 mln"; null → null */
+export function fmtCap(x: number | null): string | null {
+  return x == null ? null : fmtRevenue(x);
+}
+
+/** Sürpriz rengi: pozitif yeşil, negatif kırmızı, sıfır/yok nötr. */
+export const surpriseTone = (x: number | null): 'pos' | 'neg' | 'muted' => (x == null || x === 0 ? 'muted' : x > 0 ? 'pos' : 'neg');
+
+/** Gerçekleşen EPS bildirim metni (sunucu push'u ile aynı biçim). */
+export function earnActualText(it: Pick<EarningsItem, 'symbol' | 'epsActual' | 'epsEstimate' | 'surprisePct'>): { title: string; body: string } {
+  const sur = fmtSurprise(it.surprisePct);
+  return {
+    title: `Bilanço açıklandı · ${it.symbol}`,
+    body: `EPS ${fmtEps(it.epsActual)} · beklenti ${fmtEps(it.epsEstimate)}${sur ? ` · sürpriz ${sur}` : ''}`,
+  };
 }

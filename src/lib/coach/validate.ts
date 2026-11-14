@@ -2,8 +2,9 @@
  * Model çıktısının ayrıştırılması ve doğrulanması (saf). Model metni güvenilmez girdidir: JSON ayıklanır, tipler
  * ve enum'lar denetlenir, uzunluklar kırpılır. Geçersiz çıktı → { ok:false, error } (asla kısmi/uydurma sonuç yok).
  */
-import type { Conf, Karne, ModelFeedback } from './types.ts';
+import type { Conf, Karne, KomutAction, KomutFill, KomutFieldKey, ModelFeedback } from './types.ts';
 import { istToMs } from './time.ts';
+import { checkFillTime } from './sanity.ts';
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -137,4 +138,122 @@ export function validateKarne(o: Record<string, unknown>): Result<Karne> {
   const list = (x: unknown) => (Array.isArray(x) ? x.map(v => str(v, 240)).filter(Boolean).slice(0, 5) : []);
   if (!ozet || !yarinOdak) return { ok: false, error: 'Karne eksik alan içeriyor' };
   return { ok: true, value: { ozet, guclu: list(o.guclu), tekrarlayanHata: list(o.tekrarlayanHata), yarinOdak } };
+}
+
+export const KOMUT_MAX_ACTIONS = 10;
+export const KOMUT_TEXT_MAX = 500;
+
+/** Komut doğrulaması sonucu. dropped: reddedilen (düşürülen) işlem sayısı. Uygulama yalnız dropped=0 ile kabul eder. */
+export interface KomutValid { actions: KomutAction[]; note: string | null; warnings: string[]; dropped: number }
+
+const KOMUT_KEYS: readonly KomutFieldKey[] = ['t', 'tk', 'exp', 'k', 'cp', 'q', 'side', 'px'];
+const isYmdValid = (s: string): boolean => {
+  if (!YMD.test(s)) return false;
+  const d = new Date(s + 'T00:00:00Z');
+  return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === s;
+};
+
+/** Vade, dolum gününden önce olamaz. Model yılı yanlış yazarsa (ör. "21.11" → 2021-11-21) aynı GG.AA dolum yılına,
+ *  o da geçmişse sonraki yıla taşınır. Dönüş: düzeltilmiş vade ve düzeltildi mi. */
+export function fixExpYear(exp: string, tDay: string): { exp: string; fixed: boolean } {
+  if (!YMD.test(exp) || !YMD.test(tDay) || exp >= tDay) return { exp, fixed: false };
+  const y = Number(tDay.slice(0, 4));
+  for (const yy of [y, y + 1]) {
+    const c = `${yy}${exp.slice(4)}`;
+    if (isYmdValid(c) && c >= tDay) return { exp: c, fixed: true };
+  }
+  return { exp, fixed: false };
+}
+
+/** Tek alan denetimi. Dönüş: normalleştirilmiş değer veya hata metni. */
+function komutField(key: KomutFieldKey, v: unknown): { ok: true; v: string | number } | { ok: false; msg: string } {
+  const bad = (m: string) => ({ ok: false as const, msg: `${key}: ${m}` });
+  switch (key) {
+    case 't': return typeof v === 'string' && istToMs(v.trim()) != null ? { ok: true, v: v.trim() } : bad('YYYY-MM-DDTHH:MM (İstanbul) bekleniyor');
+    case 'tk': {
+      const s = typeof v === 'string' ? v.trim().toUpperCase() : '';
+      return /^[A-Z]{1,6}$/.test(s) ? { ok: true, v: s } : bad('1–6 harf (büyük)');
+    }
+    case 'exp': return typeof v === 'string' && isYmdValid(v.trim()) ? { ok: true, v: v.trim() } : bad('geçerli YYYY-MM-DD bekleniyor');
+    case 'k': return typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100000 ? { ok: true, v } : bad('pozitif sayı bekleniyor');
+    case 'cp': {
+      const s = typeof v === 'string' ? v.trim().toUpperCase() : '';
+      return s === 'C' || s === 'P' ? { ok: true, v: s } : bad('C veya P bekleniyor');
+    }
+    case 'q': return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 100000 ? { ok: true, v } : bad('pozitif tam sayı bekleniyor');
+    case 'side': return v === 'buy' || v === 'sell' ? { ok: true, v } : bad('buy veya sell bekleniyor');
+    case 'px': return typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 10000 ? { ok: true, v } : bad('pozitif sayı bekleniyor');
+  }
+}
+
+/** Komut önerisini doğrular (saf). Model çıktısı güvenilmez: bilinmeyen op, geçersiz alan, bilinmeyen dolum kimliği düşürülür
+ *  (dropped sayılır). knownIds: kimlik → mevcut vade (update'te t denetimi için). Saat denetimi (checkFillTime) add/update t için
+ *  uygulanır: düzeltilirse uyarı eklenir. */
+export function validateKomut(input: unknown, knownIds: ReadonlyMap<number, string>): Result<KomutValid> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: false, error: 'Komut yanıtı nesne değil' };
+  const o = input as Record<string, unknown>;
+  const list = o.actions == null ? [] : o.actions;
+  if (!Array.isArray(list)) return { ok: false, error: 'Komut yanıtında "actions" dizisi yok' };
+  const warnings: string[] = [];
+  let dropped = 0;
+  const actions: KomutAction[] = [];
+  const drop = (why: string) => { dropped++; warnings.push(why); };
+  if (list.length > KOMUT_MAX_ACTIONS) { const extra = list.length - KOMUT_MAX_ACTIONS; for (let i = 0; i < extra; i++) drop('en çok 10 işlem; fazlası atıldı'); }
+  for (const x of list.slice(0, KOMUT_MAX_ACTIONS)) {
+    const r = x && typeof x === 'object' && !Array.isArray(x) ? x as Record<string, unknown> : null;
+    if (!r) { drop('işlem nesnesi değil'); continue; }
+    if (r.op === 'delete' || r.op === 'update') {
+      const id = r.id;
+      if (typeof id !== 'number' || !Number.isInteger(id) || id <= 0) { drop(`${r.op}: geçersiz dolum kimliği`); continue; }
+      if (!knownIds.has(id)) { drop(`bilinmeyen dolum kimliği #${id}`); continue; }
+      const curExp = knownIds.get(id) ?? '';
+      if (r.op === 'delete') { actions.push({ op: 'delete', id }); continue; }
+      const set = r.set && typeof r.set === 'object' && !Array.isArray(r.set) ? r.set as Record<string, unknown> : null;
+      if (!set) { drop(`update #${id}: "set" yok`); continue; }
+      const out: Partial<KomutFill> = {};
+      let err: string | null = null;
+      for (const key of Object.keys(set)) {
+        if (!(KOMUT_KEYS as readonly string[]).includes(key)) { err = `update #${id}: bilinmeyen alan ${key}`; break; }
+        const c = komutField(key as KomutFieldKey, set[key]);
+        if (!c.ok) { err = `update #${id}: ${c.msg}`; break; }
+        (out as Record<string, unknown>)[key] = c.v;
+      }
+      if (err) { drop(err); continue; }
+      if (!Object.keys(out).length) { drop(`update #${id}: değişecek alan yok`); continue; }
+      if (out.exp != null && out.t != null) {
+        const fx = fixExpYear(out.exp as string, (out.t as string).slice(0, 10));
+        if (fx.fixed) { warnings.push(`#${id} vade yılı düzeltildi: ${out.exp} → ${fx.exp}`); out.exp = fx.exp; }
+      }
+      if (out.t != null) {
+        const c = checkFillTime(out.t as string, (out.exp as string | undefined) ?? curExp);
+        if (c.corrected) { out.t = c.t; warnings.push(`#${id} ${c.warn ?? ''}`); }
+      }
+      actions.push({ op: 'update', id, set: out });
+      continue;
+    }
+    if (r.op === 'add') {
+      const f = r.fill && typeof r.fill === 'object' && !Array.isArray(r.fill) ? r.fill as Record<string, unknown> : null;
+      if (!f) { drop('add: "fill" yok'); continue; }
+      const out: Record<string, unknown> = {};
+      let err: string | null = null;
+      for (const key of KOMUT_KEYS) {
+        const c = komutField(key, f[key]);
+        if (!c.ok) { err = `ekle: ${c.msg}`; break; }
+        out[key] = c.v;
+      }
+      if (err) { drop(err); continue; }
+      const fill = out as unknown as KomutFill;
+      const fx = fixExpYear(fill.exp, fill.t.slice(0, 10));
+      if (fx.fixed) { warnings.push(`ekle: vade yılı düzeltildi: ${fill.exp} → ${fx.exp}`); fill.exp = fx.exp; }
+      if (fill.exp < fill.t.slice(0, 10)) { drop(`ekle: vade (${fill.exp}) dolum gününden önce`); continue; }
+      const c = checkFillTime(fill.t, fill.exp);
+      if (c.corrected) { fill.t = c.t; warnings.push(`ekle: ${c.warn ?? ''}`); }
+      else if (c.warn) warnings.push(`ekle: ${c.warn}`);
+      actions.push({ op: 'add', fill });
+      continue;
+    }
+    drop(`bilinmeyen işlem türü: ${String(r.op ?? '?').slice(0, 20)}`);
+  }
+  const note = typeof o.note === 'string' && o.note.trim() ? o.note.trim().slice(0, 300) : null;
+  return { ok: true, value: { actions, note, warnings, dropped } };
 }
