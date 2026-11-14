@@ -751,6 +751,16 @@ Kaan'ın talebiyle (`docs/tasks/FLOW.md`). Commit'ler: `95f2b71` (sunucu + saf a
 
 **Sonraki:** Başkan (Grok) inceleme. Veri zip'i gelince adım 9–11 (ayrıca TASKS #26).
 
+## 2026-11-14 — Claude — [claude] time: kullanıcıya görünen saatler İstanbul (UTC+3)
+
+**Ne:** Kullanıcıya gösterilen tüm ET saatleri İstanbul saatine (UTC+3, yaz saati yok) çevrildi. Dönüşüm ABD yaz saatine göre dinamik (`etToIst`, `istHM` — `src/lib/usmarket.ts`). Örnek: 15:45 ET = kışın 23:45 TR, yazın 22:45 TR. İç mantık (piyasa saatleri, kural kontrolleri) ET'de kalır; yalnız gösterim değişti.
+
+**Dosyalar:** `src/lib/usmarket.ts`, `src/lib/alerts.ts` (`etHM` → `trHM`), `src/lib/signals/trade.ts`, `src/lib/signals/confidence.ts`, `src/lib/odte/signal.ts`, `src/lib/market/marketdata.ts`, `server/app/md.ts` (hata metni; sunucu deploy gerektirir), `src/screens/{Calc,Firsat,Journal,Odte}.tsx`, `test/timezone.test.ts` (yeni), `test/run.ts`, `test/signals.test.ts`, `test/trade-card.test.ts`.
+
+**Doğrulama:** `npm run check` yeşil (uyarısız). Kış ve yaz DST testleri eklendi.
+
+**Açık:** `server/app/md.ts` değişikliği için sunucu deploy gerekir. Dokümanlardaki (docs, README) ET saatleri değiştirilmedi.
+
 ## 2026-11-14 — Claude — [claude] menu: Haberler kartı
 
 **Ne:** Menü'ye "Haberler" kartı eklendi. Radar izleme listesinin son 48 saat haberleri Yahoo RSS'ten (anahtarsız) listelenir; başlığa dokununca kaynak açılır; aşağı çekerek yenilenir. Chat'teki haber portalının uygulamadaki karşılığı.

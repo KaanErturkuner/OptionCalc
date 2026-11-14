@@ -1,3 +1,4 @@
+import { etToIst } from '@/lib/usmarket';
 import { FreshnessPill } from '@/ui/FreshnessPill';
 import { useEffect, useState } from 'react';
 import { ScrollView, Switch, Text, View } from 'react-native';
@@ -72,7 +73,7 @@ function OpportunityCard({ c, now, open, toggle, n, locked }: { c: OppCard; now:
         {c.delayedMin > 0 ? ` · ≈ gecikmeli (${c.delayedMin} dk)` : ''}
       </Text>
       <Text style={{ color: c.overnightOk ? C.blue : C.muted, fontSize: 12 }}>
-        {c.overnightOk ? 'Gece taşınabilir (15:45 kararı, 1–3 DTE)' : '0DTE: 15:45 ET\'de kapanır'}
+        {c.overnightOk ? `Gece taşınabilir (${etToIst(15, 45)} TR kararı, 1–3 DTE)` : `0DTE: ${etToIst(15, 45)} TR kapanış`}
       </Text>
       {pending ? <Countdown card={c} now={now} /> : (
         <Text style={{ color: C.muted, fontSize: 12 }}>{STATE_TXT[c.state]}{c.note ? ` · ${c.note}` : ''}{c.decidedAt ? ` · ${istHM(c.decidedAt)}` : ''}</Text>

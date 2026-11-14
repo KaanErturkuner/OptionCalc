@@ -58,7 +58,7 @@ const BEKLE = card({ ...BASE, vwap: 688, orHigh: 695, orLow: 680, flip: 700 }); 
 // ───── 3) Gece etiketi ─────
 {
   const z = T.overnightOf(0, NOW);
-  ok('0DTE: 15:45 ET\'de kapat', !z.carry && z.label === "15:45 ET'de kapat");
+  ok('0DTE: kapanış TR saatiyle (15:45 ET)', !z.carry && /^Kapat: \d{2}:\d{2} TR$/.test(z.label), z.label);
   const n = T.overnightOf(1, NOW);
   ok('1 gün, blokaj yok: gece taşınabilir', n.carry && n.label === 'Gece taşınabilir', n.label);
   const cpi = T.overnightOf(2, etMs('2026-11-09', '10:00'));   // yarın (10 Kas) CPI

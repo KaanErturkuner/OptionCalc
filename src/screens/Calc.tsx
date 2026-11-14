@@ -8,7 +8,7 @@ import {
   G, STRATS, applyChain, buildLegs, fillFromQuote, clearState, defaultState, loadState, mkLeg, priceRange, priceStep, roundK, tableRows, MAX_ROWS, saveState, scnDate, scnWhen,
   strikeStep, stratName, type AppState, type StratId,
 } from '@/lib/state';
-import { expirations, etDate, etOffset, isMonthly } from '@/lib/usmarket';
+import { expirations, etDate, etOffset, etToIst, isMonthly } from '@/lib/usmarket';
 import * as MD from '@/lib/market';
 import ChainPicker from '@/ui/ChainPicker';
 import { num, pct, shortDate, trDate, usd } from '@/lib/format';
@@ -364,7 +364,7 @@ export default function Calc() {
           {/* 3. Vade */}
           <View style={[s.row, { justifyContent: 'space-between', marginTop: 4 }]}>
             <Text style={st.section}>Vade</Text>
-            <Text style={{ color: C.muted, fontSize: 12.5 }}>{trDate(state.expiry)} · 16:00 ET · {Math.max(St.daysBetween(state.today, state.expiry), 0)} gün</Text>
+            <Text style={{ color: C.muted, fontSize: 12.5 }}>{trDate(state.expiry)} · kapanış {etToIst(16, 0)} TR · {Math.max(St.daysBetween(state.today, state.expiry), 0)} gün</Text>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -12, marginBottom: 12 }}
             contentContainerStyle={{ paddingHorizontal: 12, gap: 8 }}>
@@ -637,7 +637,7 @@ export default function Calc() {
 
           <Text style={[s.hint, { textAlign: 'center', paddingHorizontal: 8 }]}>
             ABD hisse/ETF opsiyonları · Amerikan tipi (erken kullanım dahil): Leisen-Reimer binom ağacı + Richardson, nakit temettü destekli.
-            Süre 16:00 ET kapanışına göre (takvim günü/365). Kontrat = 100 hisse. Komisyon ve bid/ask dahil değil. Yatırım tavsiyesi değildir.
+            Süre ABD kapanışına (TR {etToIst(16, 0)}) göre (takvim günü/365). Kontrat = 100 hisse. Komisyon ve bid/ask dahil değil. Yatırım tavsiyesi değildir.
           </Text>
         </View>
       </ScrollView>
