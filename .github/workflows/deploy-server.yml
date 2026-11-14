@@ -23,6 +23,8 @@ jobs:
         env: { HOST: '${{ secrets.DEPLOY_HOST }}' }
         run: |
           ssh -i ~/.ssh/deploy -o BatchMode=yes -o IdentitiesOnly=yes root@"$HOST" 'cd /var/lib/optioncalc-flow && B=flow.db.bak-ci-$(date -u +%Y%m%dT%H%M%SZ) && node -e "const {DatabaseSync}=require(\"node:sqlite\");new DatabaseSync(\"flow.db\").exec(\"VACUUM INTO '"'"'$B'"'"'\")" && chown ocflow:ocflow "$B" && chmod 600 "$B" && echo "yedek: $B"'
+      - name: Web build (statik site)
+        run: npx expo export --platform web --output-dir dist-web
       - name: deploy.sh
         env: { FLOW_SSH_KEY: /home/runner/.ssh/deploy, HOST: '${{ secrets.DEPLOY_HOST }}' }
         run: FLOW_SSH_HOST="root@$HOST" server/deploy.sh

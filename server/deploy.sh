@@ -15,6 +15,8 @@ cp server/package.json "$STAGE/server/package.json"
 cp server/package.json "$STAGE/package.json"        # kökte "type": "module" → src/lib/*.ts de ESM olarak yüklenir
 cp -R src/lib "$STAGE/src/lib"
 cp server/optioncalc-flow.service server/Caddyfile "$STAGE/"
+[ -d dist-web ] || { echo "dist-web yok: önce npx expo export --platform web --output-dir dist-web" >&2; exit 1; }
+cp -R dist-web "$STAGE/web"
 tar -C "$STAGE" -czf "$STAGE.tgz" .
 scp "${SSHOPT[@]}" "$STAGE.tgz" "$HOST:/tmp/optioncalc-flow.tgz"
 rm -f "$STAGE.tgz"
@@ -22,7 +24,7 @@ rm -f "$STAGE.tgz"
 ssh "${SSHOPT[@]}" "$HOST" bash -s <<'REMOTE'
 set -euo pipefail
 install -d -m 755 /opt/optioncalc-flow
-rm -rf /opt/optioncalc-flow/server /opt/optioncalc-flow/src
+rm -rf /opt/optioncalc-flow/server /opt/optioncalc-flow/src /opt/optioncalc-flow/web
 tar -C /opt/optioncalc-flow -xzf /tmp/optioncalc-flow.tgz
 rm -f /tmp/optioncalc-flow.tgz
 # Koç erişim günlüğü: dosya caddy kullanıcısına ait olmalı (root olarak açılırsa Caddy başlamaz → site düşer)

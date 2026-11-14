@@ -51,6 +51,8 @@ const MAX_KOMUT_BODY = 16 * 1024;         // komut metni ≤500 karakter; uygula
 const MAX_PUSH_TOKENS = 50;
 const TICKER_RE = /^[A-Z][A-Z0-9.\-]{0,9}$/;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** Web sürümünün kaynağı (Caddy statik site). Yalnız bu origin'e CORS izni verilir. */
+const WEB_ORIGINS = ['https://web.162-243-88-42.sslip.io'];
 
 /** Sabit zamanlı anahtar karşılaştırması (özet üzerinden: uzunluk sızıntısı yok) */
 export function keyOk(given: string | undefined, expected: string): boolean {
@@ -102,6 +104,15 @@ export function createHandler(d: Deps) {
     const url = new URL(req.url ?? '/', 'http://local');
     const path = url.pathname;
     const method = req.method ?? 'GET';
+    const origin = req.headers.origin;
+    if (typeof origin === 'string' && WEB_ORIGINS.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Headers', `${APP_KEY_HEADER}, content-type, accept`);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Max-Age', '600');
+      res.setHeader('Vary', 'Origin');
+    }
+    if (method === 'OPTIONS') { res.writeHead(204); return res.end(); }
     try {
       if (method === 'GET' && path === '/health') return health(res, t);
       const coachReq = path === '/coach' || path.startsWith('/coach/');

@@ -3,6 +3,15 @@
 # (Önceki sürüm tüm siteye 8 KB koydu → Koç görüntü yüklemesi Caddy'de 413 alıyordu.)
 # Erişim günlüğü: yalnız /coach* → /var/log/caddy/coach-access.log (JSON, 10 MB × 5 döndürme). Başlıklar silinir
 # (x-app-key asla yazılmaz). Diğer uçlar loglanmaz (gürültü ve gizlilik). Hatalar JSON {"error": "..."} döner.
+# Web sürümü (statik, Expo export): web.162-243-88-42.sslip.io → /opt/optioncalc-flow/web. API'ye CORS izni server/app/http.ts'te.
+web.162-243-88-42.sslip.io {
+	encode gzip
+	header -Server
+	root * /opt/optioncalc-flow/web
+	try_files {path} /index.html
+	file_server
+}
+
 162-243-88-42.sslip.io {
 	encode gzip
 	header -Server
