@@ -3,12 +3,15 @@
  * Gün: ET takvimi (days.ts + usmarket.ts). Vade: 0DTE = expiry === day; Haftalık = Cuma vadesi
  * (Cuma tatilse önceki işlem günü; expiry.ts ile aynı kural).
  */
-import { addDaysStr, etDate, isTradingDay, prevTradingDay } from '../usmarket.ts';
+import { addDaysStr, etDate, isMonthly, isTradingDay, prevTradingDay } from '../usmarket.ts';
+import { addMonthsStr } from './expiry.ts';
 import { DEFAULT_TICKERS, type FlowEvent } from './model.ts';
 
 export type DayFilter = 'bugun' | 'dun' | 'uc';
 export type SideFilter = 'all' | 'call' | 'put';
-export type ExpiryFilter = 'all' | 'zero' | 'weekly';
+export type ExpiryFilter = 'all' | 'zero' | 'weekly' | 'monthly';
+/** Aylık opex penceresi: bugünden itibaren en çok MONTHLY_WINDOW_MONTHS ay */
+export const MONTHLY_WINDOW_MONTHS = 2;
 export const MIN_PREM_OPTIONS = [0, 50_000, 100_000, 500_000, 1_000_000] as const;
 export type MinPrem = typeof MIN_PREM_OPTIONS[number];
 
@@ -27,6 +30,12 @@ const dow = (s: string) => new Date(s + 'T12:00:00Z').getUTCDay();
 export function expiryKind(e: Pick<FlowEvent, 'expiry' | 'day'>): 'zero' | 'weekly' | 'other' {
   if (e.expiry === e.day) return 'zero';
   return isWeeklyExpiry(e.expiry) ? 'weekly' : 'other';
+}
+
+/** Aylık opex (ayın 3. Cuması; tatilse önceki işlem günü) ve bugünden itibaren en çok MONTHLY_WINDOW_MONTHS ay içinde mi? */
+export function isMonthlyWindow(expiry: string, nowMs: number): boolean {
+  const today = etDate(nowMs);
+  return isMonthly(expiry) && expiry >= today && expiry <= addMonthsStr(today, MONTHLY_WINDOW_MONTHS);
 }
 
 /** Vade bir haftalık (Cuma) seri vadesi mi? Cuma işlem günüyse Cuma; tatilse aynı haftanın önceki işlem günü. */
@@ -61,7 +70,8 @@ export function applyFlowFilters(events: FlowEvent[], f: FlowFilters, nowMs: num
     if (f.day === 'bugun' && e.day !== bugun) return false;
     if (f.day === 'dun' && e.day !== dun) return false;
     if (f.minPrem > 0 && !(e.prem >= f.minPrem)) return false;
-    if (f.expiry !== 'all' && expiryKind(e) !== f.expiry) return false;
+    if (f.expiry === 'monthly') { if (!isMonthlyWindow(e.expiry, nowMs)) return false; }
+    else if (f.expiry !== 'all' && expiryKind(e) !== f.expiry) return false;
     return true;
   });
 }

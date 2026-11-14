@@ -1,6 +1,7 @@
 /* Akış filtre çubuğu: hisse, taraf, gün, min prim, vade. Liste ve Dağılım aynı filtreyi paylaşır. */
 import { Text, View } from 'react-native';
-import { Chip, Seg } from '@/ui/controls';
+import { useState } from 'react';
+import { Chip, Seg, TextField } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import { MIN_PREM_OPTIONS, type DayFilter, type ExpiryFilter, type FlowFilters, type MinPrem, type SideFilter } from '@/lib/flow/filter';
 
@@ -9,12 +10,14 @@ const PREM_LABEL: Record<MinPrem, string> = { 0: 'Hepsi', 50_000: '50 bin $', 10
 export function AkisFiltre({ filters, tickers, shown, total, onChange }: {
   filters: FlowFilters; tickers: string[]; shown: number; total: number; onChange: (p: Partial<FlowFilters>) => void;
 }) {
+  const [query, setQuery] = useState('');
   return (
     <View style={{ backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 12, gap: 10 }}>
       <Label t="Hisse" />
+      <TextField label="Hisse ara (örn. MU)" value={query} placeholder="Sembol yaz" onChange={v => { setQuery(v); const q = v.trim().toUpperCase(); onChange({ ticker: q || null }); }} />
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-        <Chip label="Hepsi" active={filters.ticker == null} onPress={() => onChange({ ticker: null })} />
-        {tickers.map(t => (
+        <Chip label="Hepsi" active={filters.ticker == null} onPress={() => { setQuery(''); onChange({ ticker: null }); }} />
+        {tickers.filter(t => !query.trim() || t.includes(query.trim().toUpperCase())).map(t => (
           <Chip key={t} label={t} active={filters.ticker === t} onPress={() => onChange({ ticker: t })} />
         ))}
       </View>
@@ -36,7 +39,7 @@ export function AkisFiltre({ filters, tickers, shown, total, onChange }: {
 
       <Label t="Vade" />
       <Seg<ExpiryFilter> small value={filters.expiry} onChange={v => onChange({ expiry: v })}
-        options={[['all', 'Hepsi'], ['zero', '0DTE'], ['weekly', 'Haftalık']]} />
+        options={[['all', 'Hepsi'], ['zero', '0DTE'], ['weekly', 'Haftalık'], ['monthly', 'Aylık opex (2 ay)']]} />
 
       <Text style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>{shown} / {total} olay</Text>
     </View>
