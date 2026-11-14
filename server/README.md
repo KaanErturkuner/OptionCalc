@@ -152,6 +152,9 @@ uygulamada yeni anahtarı gir.
 
 ## Koç (işlem koçu, Haiku)
 
+**Günlük (2026-11-14):** her `/coach*` isteğinin sonucu `journalctl -u optioncalc-flow | grep "koç istek"` ile görülür (durum, süre, gövde, mime, kısa not; görüntü ve anahtar yazılmaz). Caddy erişim günlüğü yalnız `/coach*` için: `/var/log/caddy/coach-access.log` (JSON; başlıklar silinir). `server/deploy.sh` Caddyfile'ı `caddy` kullanıcısıyla doğrular; geçersizse dağıtımı durdurur.
+
+
 Midas ekran görüntülerinden işlemleri çıkarır, alış ile satışı **kodda** eşleştirir ve her kapanmış işlem için Türkçe koçluk
 raporu yazar. Eğitim amaçlıdır; tavsiye değildir. Uygulama: Menü › **Koç** (`src/screens/Koc.tsx`).
 

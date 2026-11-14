@@ -1,5 +1,40 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude (commit prefix [grok], Kaan isteği) — Koç yükleme hatası: görüntü dönüşümü, gerçek hata gösterimi, sunucu günlüğü
+
+**Neden:** Expo Go'da 22 Midas görüntüsü yüklenemedi ("0/22 görüntü işlendi · 0 yeni dolum"). Sunucuya hiçbir `/coach` çağrısı Haiku'ya ulaşmadı: `koç extract` satırı yok, `coach_calls`/`coach_shots` bugün boş. Sunucu 400/413/429 yanıtlarını loglamıyordu; Caddy'de erişim günlüğü yoktu. İstemci tarafında üç kök neden vardı:
+1. **Hata gizleniyordu:** `upload()` sonrası `load(day)` başarılı olunca `err` temizleniyordu → görüntü hataları ekrana hiç gelmedi; ekranda GET'in sonucu kaldı.
+2. **Görüntü dönüştürülmüyordu:** seçicinin base64'ü "her zaman JPEG" varsayılıyor, boyut sınırı yoktu (tam çözünürlük, PNG/HEIC olabilir). Büyük/yanlış biçimli gövde sunucuda ya da Caddy'de düşüyor, istemci yalnızca genel bir ağ hatası görüyordu.
+3. **Sunucu günlüğü yoktu:** 400/413/429 sessizdi; Caddy erişim günlüğü yoktu.
+
+**Ne:**
+- `src/ui/coachPicker.ts`: her görüntü `expo-image-manipulator` ile JPEG'e çevrilir (genişlik ≤1600, uzun kenar ≤2000, en-boy korunur, kalite 0,7, base64). Çevirme başarısızsa seçicinin base64'üne düşülür; yalnız gerçek JPEG ise kabul edilir. Dönüşüm sırasında "hazırlanıyor n/N". Atlanan her görüntü için neden döner.
+- `src/lib/coach/image.ts`: `scaleDims` (boyut hesabı, büyütme yok), `sniffMime` (JPEG/PNG/GIF/WebP/HEIC sihirli bayt), `b64Head` 12 bayta kadar okur.
+- `src/lib/coach/uploadError.ts` (yeni, saf): HTTP durumu + sunucu mesajı → Türkçe metin (ağ, zaman aşımı, 401, 413, günlük/hız 429, 422, 400, 5xx). `majorityDay`: yüklenen dolumların en çok geçen tarihi.
+- `src/screens/Koc.tsx`: **"Yükleme (görüntü başına)"** kartı: her görüntü için durum (hazırlanıyor/gönderiliyor/yeniden deneniyor/tamam/hata + nedeni, KB). GET hatası ayrı kartta ("Veri alınamadı"); yükleme hataları artık silinmez. Yüklemeden sonra gün seçici dolumların tarihine geçer. Anahtar yoksa yükleme başlamadan durur.
+- `src/lib/coach/client.ts`: ağ hatasına tarayıcı/RN mesajı eklenir ("Sunucuya ulaşılamadı (Network request failed)").
+- `server/app/http.ts`: `/coach*` her isteğin sonucunu tek satırda loglar (`koç istek POST /coach 200 1850ms gövde=95448B mime=image/jpeg gün=… dolum=… yeni=… koçluk=…`). 401/429 dâhil. Görüntü verisi, anahtar ve başlıklar yazılmaz. Gövde sınırı aşılırsa bağlantı kopmaz, 413 JSON döner (önceden istemci ağ hatası görüyordu). Gövde sınırları tutarlı: Caddy /coach 7 MB, Node 6 MB base64 (4 MB görüntü ≈ 5,6 MB).
+- `server/Caddyfile`: yalnız `/coach*` için JSON erişim günlüğü `/var/log/caddy/coach-access.log` (10 MB × 5 döndürme); `request>headers` silinir (x-app-key asla yazılmaz — doğrulandı: 0 eşleşme). Caddy'nin kendi hataları (413 dâhil) `{"error": "..."}` JSON döner.
+- `server/deploy.sh`: Caddyfile **caddy kullanıcısıyla** doğrulanır (önce `caddy` sahipli kopya); geçersizse dağıtım durur. Günlük dosyası dizin/sahip olarak oluşturulur.
+- `package.json`: `expo-image-manipulator ~58.0.16` (SDK 58 bundled sürümü; JS + Expo Go'da hazır). `npm test` zincirine `test/coach-image.test.ts`.
+
+**Doğrulama:**
+- Birim testleri (`test/coach-image.test.ts`): ölçek (1290×2796 → 923×2000; 4032×3024 → 1600×1200; büyütme yok), sihirli bayt (JPEG/PNG/GIF/WebP/HEIC/AVIF), `checkImage` davranışı, hata metni eşlemesi (ağ, zaman aşımı, 401, 413, 429 günlük/hız, 422, 400, 5xx), `majorityDay`.
+- `npm run check` geçti (test, typecheck, lint, bt:selftest, flow:selftest).
+- Dağıtım: `server/deploy.sh` (servis yeniden başlatıldı; Caddy yeniden yüklendi).
+- **Gerçek yükleme (tek):** 1290×2796 test görüntüsü (Midas benzeri tek ALIŞ dolumu) → uygulamanın dönüşümü (923×2000 JPEG q70) → `POST https://162-243-88-42.sslip.io/coach`: **HTTP 200**, 1,85 sn, 1 dolum (NVDA 150 C, alış, 3 adet, 3,20), 1 Haiku çağrısı (girdi 4514 / çıktı 215 token), koçluk 0. Node günlüğü ve Caddy erişim günlüğü satırı oluştu; anahtar günlüklerde yok.
+- **Temizlik:** test kaydı silindi (`coach_shots` 1, `coach_fills` 1, `coach_calls` 1). Silme sonrası koç tabloları boş. Yedek: `/var/lib/optioncalc-flow/flow.db.bak-koc-test-20261114T103249` (test öncesi; silinebilir).
+
+**Kök neden (kanıtlanan / kanıtlanmayan):** Kanıtlanan: hatalar ekrana düşmüyordu (kod), sunucu 4xx'i loglamıyordu, Caddy erişim günlüğü yoktu. Kanıtlanamayan: telefondan hangi aşamada düştüğü — 07:10–07:35 arası için sunucuda hiçbir kayıt yok, bu yüzden tam neden bilinmiyor. Yeni günlük bir sonraki denemede tam durumu verir (`journalctl -u optioncalc-flow | grep "koç istek"` ve `/var/log/caddy/coach-access.log`).
+
+**Olay (07:28–07:31 UTC, ~3 dk site kesintisi):** Dağıtım, Caddy günlük dosyasını root olarak oluşturdu (`caddy validate` root olarak çalıştı) → Caddy yeniden başlamadı. Dosya `caddy` sahibine alındı, sonra servis başladı. Ayrıca doğrulama sırasında yanlış ana bilgisayar adıyla (nokta, `162.243.88.42.sslip.io`) test ettim; gerçek site adı `162-243-88-42.sslip.io` (tire). Bu hata bir süre yanlış teşhise yol açtı; eski sertifika yeniden alındı (Let's Encrypt, `OLD-162-243-88-42.sslip.io` klasörü ve `/root/caddy-certs-backup-*` yedeği duruyor).
+
+**Açık / dikkat:**
+- Görüntü boyutu: 1290×2796 → 923×2000 (uzun kenar sınırı nedeniyle genişlik 923). Haiku tarafı zaten ~1568 px'e küçültüyor; okunabilirlik için yeterli görünüyor ama gerçek Midas ekranıyla kontrol edilmeli.
+- `coach_trades` tablosu şemada var, sunucu kodunda kullanılmıyor (eski kalıntı; dokunulmadı).
+- 13.11 test verisi (15 çağrı, 2 görüntü, 23:01–23:37 UTC) 00:12 yedeğinden önce kaybolmuş; neden bilinmiyor (sıfırlanma ya da yeniden kurulum). Sunucudaki yedeklerde mevcut.
+- Expo Go'da cihaz testi yapılmadı (yükleme akışı Kaan'da). Yayın yok; Kaan isteyince.
+
 ## 2026-11-14 — Claude (commit prefix [grok], Kaan isteği) — para kuralı: prim stopu −%40 (eskiden %67)
 
 **Neden:** Kaan kararı: sert stop prim girişten %40 düşünce (eskiden %67). Risk = giriş × 0,40; 1:5 hedef = giriş + 5R (×3,0), yedek 1:4 = ×2,6. Örnek: giriş 3,00 → stop 1,80, hedef 9,00, yedek 7,80. Uyarlanabilir ÇIK otomatik çıkış yapmaz, yalnız uyarır.

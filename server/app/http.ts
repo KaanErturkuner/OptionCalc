@@ -67,11 +67,17 @@ export function createHandler(d: Deps) {
     res.writeHead(status, { 'Content-Type': typeof body === 'string' ? 'application/json' : 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra });
     res.end(text);
   };
+  /** Gövde okuma. Sınır aşılırsa null döner ve bağlantı KOPARILMAZ (akış boşaltılır): 413 JSON yanıtı istemciye ulaşır. */
   const readBody = (req: IncomingMessage, max = MAX_BODY): Promise<string | null> => new Promise(resolve => {
-    let size = 0; const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => { size += c.length; if (size > max) { resolve(null); req.destroy(); } else chunks.push(c); });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', () => resolve(null));
+    let size = 0, over = false; const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => {
+      if (over) return;
+      size += c.length;
+      if (size > max) { over = true; chunks.length = 0; resolve(null); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => { if (!over) resolve(Buffer.concat(chunks).toString('utf8')); });
+    req.on('error', () => { if (!over) { over = true; resolve(null); } });
   });
 
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -81,8 +87,15 @@ export function createHandler(d: Deps) {
     const method = req.method ?? 'GET';
     try {
       if (method === 'GET' && path === '/health') return health(res, t);
-      if (!keyOk(headerStr(req, APP_KEY_HEADER), d.cfg.appKey)) return send(res, 401, { error: 'yetkisiz' });
-      if (!rl.take(t)) return send(res, 429, { error: 'istek sınırı — biraz sonra dene' }, { 'Retry-After': '30' });
+      const coachReq = path === '/coach' || path.startsWith('/coach/');
+      if (!keyOk(headerStr(req, APP_KEY_HEADER), d.cfg.appKey)) {
+        if (coachReq) coachLog(method, path, 401, t, req, '', 'yetkisiz');
+        return send(res, 401, { error: 'yetkisiz' });
+      }
+      if (!rl.take(t)) {
+        if (coachReq) coachLog(method, path, 429, t, req, '', 'istek sınırı');
+        return send(res, 429, { error: 'istek sınırı — biraz sonra dene' }, { 'Retry-After': '30' });
+      }
 
       if (method === 'GET' && path === '/status') return status(res, t);
       if (method === 'GET' && path === '/flow') {
@@ -129,36 +142,48 @@ export function createHandler(d: Deps) {
     }
   };
 
+  /** /coach*: her isteğin sonucu tek satırda loglanır (durum, süre, gövde boyutu, mime, kısa hata). Görüntü verisi/anahtar YOK. */
   async function coachRoute(req: IncomingMessage, res: ServerResponse, url: URL, method: string, path: string) {
-    if (!d.coach) return send(res, 503, { error: 'koç kapalı' });
+    const t0 = Date.now();
+    let info = '', note = '';
+    res.once('finish', () => coachLog(method, path, res.statusCode, t0, req, info, note));
+    const reply = (status: number, body: unknown, extra?: Record<string, string>) => {
+      if (body && typeof body === 'object' && 'error' in body) note = String((body as { error: unknown }).error);
+      return send(res, status, body, extra);
+    };
+    if (!d.coach) return reply(503, { error: 'koç kapalı' });
     try {
       if (method === 'GET' && path === '/coach') {
         const day = url.searchParams.get('day') ?? '';
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return send(res, 400, { error: 'day=YYYY-MM-DD gerekli' });
-        return send(res, 200, d.coach.view(day));
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return reply(400, { error: 'day=YYYY-MM-DD gerekli' });
+        return reply(200, d.coach.view(day));
       }
       if (method === 'POST' && path === '/coach') {
         const raw = await readBody(req, MAX_COACH_BODY);
-        if (raw == null) return send(res, 413, { error: 'görüntü 4 MB sınırını aşıyor' });
+        if (raw == null) return reply(413, { error: 'görüntü çok büyük (en çok ~4 MB görüntü)' });
         let body: { image?: unknown; mime?: unknown; day?: unknown };
-        try { body = JSON.parse(raw); } catch { return send(res, 400, { error: 'geçersiz JSON' }); }
-        return send(res, 200, await d.coach.coachImage(body ?? {}));
+        try { body = JSON.parse(raw); } catch { return reply(400, { error: 'geçersiz JSON' }); }
+        const mime = body?.mime === 'image/jpeg' || body?.mime === 'image/png' ? body.mime : 'diğer';
+        info = ` mime=${mime} görüntü=${typeof body?.image === 'string' ? body.image.length : 0}ch`;
+        const out = await d.coach.coachImage(body ?? {});
+        info += ` gün=${out.day} dolum=${out.fills.length} yeni=${out.added}${out.duplicate ? ' (önbellek)' : ''} koçluk=${out.coached}`;
+        return reply(200, out);
       }
       if (method === 'POST' && path === '/coach/process') {
         const day = url.searchParams.get('day') ?? undefined;
-        if (day != null && !/^\d{4}-\d{2}-\d{2}$/.test(day)) return send(res, 400, { error: 'day=YYYY-MM-DD gerekli' });
-        return send(res, 200, await d.coach.process(day));
+        if (day != null && !/^\d{4}-\d{2}-\d{2}$/.test(day)) return reply(400, { error: 'day=YYYY-MM-DD gerekli' });
+        return reply(200, await d.coach.process(day));
       }
       if (method === 'POST' && path === '/coach/karne') {
         const day = url.searchParams.get('day') ?? '';
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return send(res, 400, { error: 'day=YYYY-MM-DD gerekli' });
-        return send(res, 200, await d.coach.karne(day));
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return reply(400, { error: 'day=YYYY-MM-DD gerekli' });
+        return reply(200, await d.coach.karne(day));
       }
-      return send(res, 405, { error: 'yöntem desteklenmiyor' });
+      return reply(405, { error: 'yöntem desteklenmiyor' });
     } catch (e) {
-      if (e instanceof CoachError) return send(res, e.status, { error: e.message, ...e.extra });
+      if (e instanceof CoachError) return reply(e.status, { error: e.message, ...e.extra });
       console.error('koç hatası: ' + errText(e));
-      return send(res, 502, { error: 'koç geçici olarak kullanılamıyor' });
+      return reply(502, { error: 'koç geçici olarak kullanılamıyor' });
     }
   }
 
@@ -202,6 +227,13 @@ export function createHandler(d: Deps) {
     res.writeHead(e.status, { ...h, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(e.text);
   }
+}
+
+/** /coach istek sonucu: tek satır (durum, süre, gövde boyutu, kısa not). Görüntü verisi, anahtar ve başlıklar YAZILMAZ. */
+function coachLog(method: string, path: string, status: number, t0: number, req: IncomingMessage, info: string, note: string): void {
+  const len = Number(headerStr(req, 'content-length') ?? 0) || 0;
+  const tail = note ? ` — ${note.replace(/\s+/g, ' ').slice(0, 120)}` : '';
+  console.log(`koç istek ${method} ${path} ${status} ${Date.now() - t0}ms gövde=${len}B${info}${tail}`);
 }
 
 function headerStr(req: IncomingMessage, name: string): string | undefined {

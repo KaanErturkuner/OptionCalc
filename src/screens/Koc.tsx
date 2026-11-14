@@ -9,7 +9,8 @@ import { C } from '@/ui/theme';
 import { loadState } from '@/lib/state';
 import { flowKeyOf } from '@/lib/flow/client';
 import { fetchCoachDay, makeKarne, processCoach, uploadScreenshot, type CoachDayView, type UploadResult } from '@/lib/coach/client';
-import { runUploadQueue, type QueueProgress } from '@/lib/coach/queue';
+import { runUploadQueue, type QueueItem, type QueueProgress } from '@/lib/coach/queue';
+import { describeUploadError, majorityDay, type UploadFailure } from '@/lib/coach/uploadError';
 import { addDaysStr, etDate } from '@/lib/usmarket';
 import { pickScreenshots, MAX_PICK, PICKER_MISSING } from '@/ui/coachPicker';
 import CoachReport from '@/ui/CoachReport';
@@ -20,13 +21,18 @@ const dayLabel = (d: string) => d.split('-').reverse().join('.');
 const px = (x: number | null | undefined) => (x == null ? '—' : x.toFixed(2).replace('.', ','));
 const hm = (t: string) => t.slice(11, 16);
 const cpLabel = (cp: 'C' | 'P') => (cp === 'C' ? 'C' : 'P');
+const kb = (b64: string) => Math.round((b64.length * 3) / 4 / 1024);
+/** Yükleme kartındaki her görüntü satırı (ayrı durum; GET hatalarından bağımsız) */
+interface UploadRow { label: string; state: 'bekliyor' | 'gonderiliyor' | 'yeniden' | 'ok' | 'hata'; text: string }
 
 export default function Koc({ active, onBack }: { active: boolean; onBack?: () => void }) {
   const insets = useSafeAreaInsets();
   const [day, setDay] = useState(() => etDate(Date.now()));
   const [view, setView] = useState<CoachDayView | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);          // yükleme / koçluk / karne hataları
+  const [loadErr, setLoadErr] = useState<string | null>(null);  // GET /coach hatası (yükleme hatasından ayrı)
   const [notice, setNotice] = useState<string | null>(null);
+  const [rows, setRows] = useState<UploadRow[]>([]);
   const [busy, setBusy] = useState<'load' | 'upload' | 'karne' | null>(null);
   const [noKey, setNoKey] = useState(false);
   const [pickerOk, setPickerOk] = useState(true);
@@ -38,11 +44,11 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
       const st = await loadState();
       const key = flowKeyOf(st?.flowKey);
       setNoKey(!key);
-      if (!key) { setView(null); setErr(null); return; }
+      if (!key) { setView(null); setLoadErr(null); return; }
       setView(await fetchCoachDay(key, d));
-      setErr(null);
+      setLoadErr(null);
     } catch (e) {
-      setErr((e as Error).message || 'Veri alınamadı');
+      setLoadErr((e as Error).message || 'Veri alınamadı');
     } finally {
       setBusy(null);
     }
@@ -57,39 +63,59 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
 
   const upload = async () => {
     tap();
-    const p = await pickScreenshots();
+    let key = '';
+    try {
+      key = flowKeyOf((await loadState())?.flowKey);
+    } catch (e) {
+      setErr((e as Error).message); return;
+    }
+    if (!key) { setErr('Akış anahtarı girilmedi (Hesapla › Ayarlar). Anahtar olmadan yükleme yapılmaz.'); return; }
+    setBusy('upload'); setErr(null); setNotice(null); setRows([]); setProgress('hazırlanıyor');
+    const p = await pickScreenshots((d, n) => setProgress(`hazırlanıyor ${d}/${n}`));
     if (!p.ok) {
+      setBusy(null); setProgress(null);
       if (p.kind === 'cancel') return;
       if (p.kind === 'missing') setPickerOk(false);
       setErr(p.reason);
       return;
     }
+    const uploadDay = day;
     const n = p.images.length;
-    setBusy('upload'); setErr(null); setNotice(null); setProgress(`0/${n}`);
-    let key = '';
-    try {
-      key = flowKeyOf((await loadState())?.flowKey);
-    } catch (e) {
-      setErr((e as Error).message); setBusy(null); setProgress(null); return;
-    }
+    const items: QueueItem[] = p.images.map(img => ({ base64: img.base64, mime: img.mime, label: img.label }));
+    setRows(p.images.map(img => ({ label: img.label, state: 'bekliyor', text: `${kb(img.base64)} KB${img.source === 'picker' ? ' · yedek kodlama' : ''}` })));
+    const setRow = (i: number, patch: Partial<UploadRow>) => setRows(prev => prev.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+    setProgress(`0/${n}`);
     const sent: UploadResult[] = [];
-    const items = p.images.map((img, i) => ({ base64: img.base64, mime: img.mime, label: `${i + 1}. görüntü` }));
     const res = await runUploadQueue(items, {
       send: async item => {
-        const r = await uploadScreenshot(key, { base64: item.base64, mime: item.mime, day });
-        sent.push(r);
-        return { added: r.added, inTok: r.usage.inTok, outTok: r.usage.outTok, warnings: r.warnings };
+        const i = items.indexOf(item);
+        setRow(i, { state: 'gonderiliyor', text: `gönderiliyor (${kb(item.base64)} KB)` });
+        try {
+          const r = await uploadScreenshot(key, { base64: item.base64, mime: item.mime, day: uploadDay });
+          sent.push(r);
+          const extra = [r.duplicate ? 'daha önce yüklü (atlandı)' : null, r.coached ? `${r.coached} işlem koçlandı` : null, ...r.warnings].filter(Boolean);
+          setRow(i, { state: 'ok', text: `${r.added} yeni dolum${extra.length ? ` · ${extra.join(' · ')}` : ''}` });
+          return { added: r.added, inTok: r.usage.inTok, outTok: r.usage.outTok, warnings: r.warnings };
+        } catch (e) {
+          setRow(i, { state: 'hata', text: describeUploadError(e as UploadFailure) });
+          throw e;
+        }
       },
       sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
-      onProgress: (q: QueueProgress) => setProgress(progressText(q)),
+      onProgress: (q: QueueProgress) => {
+        setProgress(progressText(q));
+        if (q.phase === 'retry') setRow(q.index, { state: 'yeniden', text: `yeniden deneniyor (${Math.ceil((q.waitMs ?? 0) / 1000)} sn)` });
+      },
     });
+    // Yüklenen dolumların tarihine geç (yoksa seçili gün)
+    const targetDay = majorityDay(sent.flatMap(r => r.fills.map(f => f.t.slice(0, 10)))) ?? uploadDay;
     // Bekleyen koçluklar (yükleme başına en çok birkaç; kalanı istemci döngüsü)
     let coachedExtra = 0; let pendingLeft = sent.length ? sent[sent.length - 1].pending : 0;
     const coachErrors: string[] = [];
     for (let k = 0; k < PROCESS_LOOPS && pendingLeft > 0; k++) {
       setProgress(`koçluk ${pendingLeft} kaldı`);
       try {
-        const r = await processCoach(key, day);
+        const r = await processCoach(key, targetDay);
         coachedExtra += r.processed; pendingLeft = r.pending; coachErrors.push(...r.errors);
         if (r.processed === 0 || r.errors.length) break;
       } catch (e) {
@@ -104,20 +130,19 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
       `${res.done}/${n} görüntü işlendi · ${added} yeni dolum${dup ? ` · ${dup} önceden yüklü (atlandı)` : ''} · ${coached} işlem koçlandı${pendingLeft ? ` · ${pendingLeft} koçluk bekliyor` : ''}.`,
       `Token: girdi ${tok.i} / çıktı ${tok.o}.`,
     ];
-    if (res.skipped) parts.push(`Gönderilmeyen: ${res.skipped} görüntü.`);
+    if (targetDay !== uploadDay) parts.push(`Gün ${dayLabel(targetDay)} olarak açıldı (dolumların tarihi).`);
     if (res.stopped) parts.push(`Durduruldu: ${res.stopped}.`);
+    if (res.skipped) parts.push(`Gönderilmeyen: ${res.skipped} görüntü.`);
     if (p.skipped.length) parts.push(`Seçimde atlanan: ${p.skipped.join(' · ')}`);
     const warn = [...new Set([...res.warnings, ...sent.flatMap(r => r.warnings)])];
     if (warn.length) parts.push(`Uyarı: ${warn.join(' · ')}`);
     setNotice(parts.join(' '));
-    const errs = [...res.failed.map(f => `${f.label}: ${f.message}`), ...coachErrors];
-    if (errs.length) setErr(errs.join(' · '));
+    const errs = [...(res.failed.length ? [`${res.failed.length} görüntü yüklenemedi (ayrıntı Yükleme kartında)`] : []), ...coachErrors];
+    setErr(errs.length ? errs.join(' · ') : null);
     setProgress(null);
-    try {
-      await load(day);
-    } finally {
-      setBusy(null);
-    }
+    setBusy(null);
+    if (targetDay !== day) setDay(targetDay);
+    await load(targetDay);
   };
 
   const karne = async () => {
@@ -167,8 +192,20 @@ export default function Koc({ active, onBack }: { active: boolean; onBack?: () =
       </Card>
 
       {noKey ? <Card title="Anahtar"><Text style={{ color: C.muted }}>Akış anahtarı girilmedi (Hesapla › Ayarlar). Koç aynı anahtarla çalışır.</Text></Card> : null}
+      {rows.length ? (
+        <Card title="Yükleme (görüntü başına)">
+          <View style={{ gap: 4 }}>
+            {rows.map(r => (
+              <Text key={r.label} style={{ color: r.state === 'hata' ? C.neg : C.text, fontSize: 12 }}>
+                {r.label}: {r.text}
+              </Text>
+            ))}
+          </View>
+        </Card>
+      ) : null}
       {err ? <Card title="Hata"><Text style={{ color: C.neg }}>{err}</Text></Card> : null}
       {notice ? <Card><Text style={{ color: C.muted, fontSize: 13 }}>{notice}</Text></Card> : null}
+      {loadErr ? <Card title="Veri alınamadı"><Text style={{ color: C.neg }}>{loadErr}</Text></Card> : null}
       {busy === 'load' && !view ? <Text style={{ color: C.muted }}>Yükleniyor…</Text> : null}
 
       {view && view.trades.length === 0 && view.open.length === 0 && view.orphans.length === 0 ? (

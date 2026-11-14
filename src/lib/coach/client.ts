@@ -55,7 +55,7 @@ async function call<T>(url: string, init: RequestInit & { timeoutMs?: number }):
   } catch (e: any) {
     if (e instanceof CoachHttpError) throw e;
     if (e?.name === 'AbortError') throw httpErr('Zaman aşımı — tekrar dene');
-    if (e instanceof TypeError) throw httpErr('Sunucuya ulaşılamadı (ağ)');
+    if (e instanceof TypeError) throw httpErr(`Sunucuya ulaşılamadı${e.message ? ` (${String(e.message).slice(0, 80)})` : ''}`);
     throw e;
   } finally {
     clearTimeout(timer);

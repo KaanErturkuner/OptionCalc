@@ -25,6 +25,15 @@ install -d -m 755 /opt/optioncalc-flow
 rm -rf /opt/optioncalc-flow/server /opt/optioncalc-flow/src
 tar -C /opt/optioncalc-flow -xzf /tmp/optioncalc-flow.tgz
 rm -f /tmp/optioncalc-flow.tgz
+# Koç erişim günlüğü: dosya caddy kullanıcısına ait olmalı (root olarak açılırsa Caddy başlamaz → site düşer)
+install -d -o caddy -g caddy -m 755 /var/log/caddy
+[ -e /var/log/caddy/coach-access.log ] || install -o caddy -g caddy -m 640 /dev/null /var/log/caddy/coach-access.log
+# Caddyfile geçersizse dağıtımı durdur; doğrulama caddy kullanıcısıyla (günlük dosyası root'a ait olmasın)
+if command -v caddy >/dev/null 2>&1; then
+  install -o caddy -g caddy -m 644 /opt/optioncalc-flow/Caddyfile /tmp/Caddyfile.validate
+  runuser -u caddy -- caddy validate --config /tmp/Caddyfile.validate --adapter caddyfile >/dev/null 2>&1 || { rm -f /tmp/Caddyfile.validate; echo "Caddyfile GEÇERSİZ — dağıtım durduruldu" >&2; exit 1; }
+  rm -f /tmp/Caddyfile.validate
+fi
 chown -R root:root /opt/optioncalc-flow
 chmod -R a+rX,go-w /opt/optioncalc-flow
 install -m 644 /opt/optioncalc-flow/optioncalc-flow.service /etc/systemd/system/optioncalc-flow.service
