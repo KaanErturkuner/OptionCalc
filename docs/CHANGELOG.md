@@ -1,5 +1,19 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude (commit prefix [grok] hotfix) — Fırsat ekranı çökmesi (eski Sonuç kartları)
+
+**Neden:** Üretimde Fırsat ekranı "TypeError: Cannot read property 'S' of undefined" ile çöküyordu. `status` kayıtları AsyncStorage'da (firsat-v1) saklanıyor; eski sürümden kalan Sonuç kartlarında `levels` (ve `crits`/`fired`) yok, `tradeOf` ve `triggerText` bunları doğrudan okuyordu.
+
+**Ne:**
+- `src/lib/signals/trade.ts`: `normalizeVerdict` (eksik alan → varsayılan; spot bilinmiyorsa NaN ve işlem kartı yok). `tradeOf`, `triggerText`, `buildBoard` bunu kullanır; bozuk girişler panoda atlanır.
+- `src/ui/ErrorBoundary.tsx` (yeni): kart başına hata sınırı, hata olursa "veri yok" kutusu. Fırsat pano bölümü, her işlem/BEKLE kartı, Detaylar'daki Sonuç kartları ve Odte Sonuç bloğu sarılı.
+- `src/ui/VerdictCard.tsx`: normalize edilemeyen kart "veri yok" satırı. Firsat `buildBoard` try/catch ve `setups` için `?.` koruması.
+- Test: `test/trade-card.test.ts` bölüm 7 (eksik levels/crits/fired, null girdi, hafta sonu/veri yok → BEKLE, throw yok).
+
+**Doğrulama:** `npm run check` geçti (exit 0).
+
+**Açık:** `OpportunityCard` (Onay bekliyor / Geçmiş kartlar) henüz ErrorBoundary ile sarılı değil; eski `cards` kayıtlarında eksik alan görülürse aynı yöntemle sarılmalı.
+
 ## 2026-11-14 — Claude (commit prefix [grok], Kaan isteği) — uyarlanabilir çıkış (ÇIK/TUT/DİKKAT) ve rejim histerezisi
 
 **Neden:** Kaan onayı (2026-11-14, bu oturum): "düşünsün eğer dönüyorsa piyasa geçsin, yok devam edeceğine dair gösterge olursa devam". T1/T2 sabit tetikleri yerine açık kâğıt pozisyonda dönüş ↔ devam tartısı istendi. Rejim değişimleri 13/11 20:00–20:40 arasında ham olarak titreşiyordu (TASKS D14).

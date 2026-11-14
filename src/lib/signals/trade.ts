@@ -2,7 +2,8 @@
  * Yalnız sunum ve türetilmiş işlem alanları: vade/strike/prim/stop/hedef zaten verdict.ts'te; burada
  * adet (sizing.ts), komisyon ve net K/Z (costs.ts), gece etiketi (releases.ts) ve BEKLE tetikleyici metni hesaplanır.
  * Kağıt üstü; tavsiye değildir (AGENTS.md §1). */
-import { MIN_SUM, type VerdictCard, type Crit } from './verdict.ts';
+import { MIN_SUM, strengthLabel, type VerdictCard, type VerdictDir, type Crit } from './verdict.ts';
+import type { Band } from '../market/regime.ts';
 import { sizePosition } from '../paper/sizing.ts';
 import { netPnl } from '../paper/costs.ts';
 import type { Kademe } from '../paper/types.ts';
@@ -78,6 +79,39 @@ export function tradeSizing(a: TradeAccount, entry: number, stop: number, t5: nu
   };
 }
 
+const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+const str = (x: unknown): string | null => (typeof x === 'string' && x !== '' ? x : null);
+const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null;
+
+/**
+ * Eski sürümden / AsyncStorage'dan gelen veya eksik alanlı Sonuç kartını güvenli biçime çevirir.
+ * Tanınmayan (nesne olmayan) kart null döner. Eksik levels/crits/fired/… varsayılana düşer; S bilinmiyorsa NaN
+ * (tradeOf bu durumda işlem kartı üretmez). Her okuyucu (tradeOf, triggerText, buildBoard, VerdictBlock) bunu kullanır.
+ */
+export function normalizeVerdict(raw: unknown): VerdictCard | null {
+  if (!isObj(raw)) return null;
+  const lv: Record<string, unknown> = isObj(raw.levels) ? raw.levels : {};
+  const band = isObj(lv.band) && num(lv.band.high) != null && num(lv.band.low) != null
+    ? (lv.band as unknown as Band) : null;
+  const crits = Array.isArray(raw.crits)
+    ? raw.crits.filter((c): c is Crit => isObj(c) && typeof c.id === 'string' && num(c.pts) != null)
+    : [];
+  const dir: VerdictDir = raw.dir === 'call' || raw.dir === 'put' ? raw.dir : 'bekle';
+  const strength = num(raw.strength) ?? 0;
+  return {
+    dir, strength, strengthText: str(raw.strengthText) ?? strengthLabel(strength), sum: num(raw.sum) ?? 0,
+    crits,
+    fired: Array.isArray(raw.fired) ? raw.fired.filter((f): f is string => typeof f === 'string') : [],
+    levels: { S: num(lv.S) ?? NaN, vwap: num(lv.vwap), orHigh: num(lv.orHigh), orLow: num(lv.orLow), flip: num(lv.flip), band },
+    regime: str(raw.regime),
+    expiry: str(raw.expiry), dte: num(raw.dte),
+    strike: num(raw.strike), bid: num(raw.bid), ask: num(raw.ask), mid: num(raw.mid),
+    entry: num(raw.entry), stop: num(raw.stop), t5: num(raw.t5), t4: num(raw.t4), riskPerContract: num(raw.riskPerContract),
+    tierPct: num(raw.tierPct), contracts: num(raw.contracts),
+    rationale: str(raw.rationale) ?? '', note: str(raw.note) ?? '',
+  };
+}
+
 /** Düz Türkçe gerekçe: "Yükseliş yönünde: VWAP üstünde, açılış aralığı yukarı kırıldı." */
 export function rationaleOf(v: VerdictCard): string {
   const side = v.dir === 'call' ? 'Yükseliş' : v.dir === 'put' ? 'Düşüş' : '';
@@ -88,11 +122,13 @@ export function rationaleOf(v: VerdictCard): string {
 
 /** Tek işlem kartı. Yön, strike, prim yoksa null (işlem önerilmez). */
 export function tradeOf(e: BoardEntry, nowMs: number, acct: TradeAccount | null): TradeCard | null {
-  const v = e.verdict;
+  const v = normalizeVerdict(e?.verdict);
+  if (!v || !e.ticker) return null;
   if (v.dir === 'bekle' || v.strike == null || v.entry == null || v.stop == null || v.t5 == null || v.t4 == null
     || v.dte == null || !v.expiry || v.riskPerContract == null) return null;
   const dir = v.dir;
   const spot = v.levels.S;
+  if (!Number.isFinite(spot)) return null;                  // spot bilinmiyor → işlem kartı yok
   return {
     key: `${e.ticker}|${dir}|${v.strike}|${v.expiry}`,
     ticker: e.ticker, dir, typeLabel: dir === 'call' ? 'CALL' : 'PUT',
@@ -111,7 +147,9 @@ export function tradeOf(e: BoardEntry, nowMs: number, acct: TradeAccount | null)
  * BEKLE tetikleyicisi: net puanı eşiğe (±MIN_SUM) en az değiştirecek yönü seçer, o yönün seviyelerini sıralar
  * ve gerekli puanı tamamlayan en küçük kümeyi yazar. Örnek: "QQQ 690 üstü + VWAP 688 üstü → CALL".
  */
-export function triggerText(ticker: string, v: VerdictCard): string {
+export function triggerText(ticker: string, raw: VerdictCard | unknown): string {
+  const v = normalizeVerdict(raw);
+  if (!v) return `${ticker}: tetikleyici seviye verisi yok`;
   if (v.levels.band && v.regime?.startsWith('Bekle – bant')) {
     return `${ticker} bant üstü ${px(v.levels.band.high)} → CALL · bant altı ${px(v.levels.band.low)} → PUT`;
   }
@@ -143,7 +181,13 @@ export function triggerText(ticker: string, v: VerdictCard): string {
  * Board: en güçlü en fazla 3 işlem kartı (güç azalan, eşitlikte |puan| büyük). Hiç işlem yoksa BEKLE kartı.
  * Yön var ama strike/prim yoksa BEKLE satırı bunu söyler.
  */
-export function buildBoard(entries: BoardEntry[], nowMs: number, acct: TradeAccount | null): Board {
+export function buildBoard(input: BoardEntry[] | null | undefined, nowMs: number, acct: TradeAccount | null): Board {
+  // Bozuk/eski girişler (ticker yok, kart tanınmıyor) atlanır; geri kalanı normalize edilmiş kartla çalışır.
+  const entries: { ticker: string; verdict: VerdictCard }[] = [];
+  for (const e of Array.isArray(input) ? input : []) {
+    const verdict = normalizeVerdict(e?.verdict);
+    if (verdict && typeof e.ticker === 'string' && e.ticker) entries.push({ ticker: e.ticker, verdict });
+  }
   const trades = entries
     .map(e => tradeOf(e, nowMs, acct))
     .filter((t): t is TradeCard => t != null)

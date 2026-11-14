@@ -3,14 +3,19 @@ import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { C } from '@/ui/theme';
 import { fmt } from '@/lib/format';
-import type { VerdictCard as V } from '@/lib/signals/verdict';
 import { CARD_NOTE } from '@/lib/signals/verdict';
+import { normalizeVerdict } from '@/lib/signals/trade';
 import { cardCalendarLines } from '@/lib/calendar/releases';
 
 const DIR_LABEL = { call: 'CALL al', put: 'PUT al', bekle: 'Bekle' } as const;
 
-export default function VerdictBlock({ ticker, v }: { ticker: string; v: V }) {
+/** raw: eski/eksik alanlı kart da gelebilir (AsyncStorage); normalize edilemezse "veri yok" kutusu. */
+export default function VerdictBlock({ ticker, v: raw }: { ticker: string; v: unknown }) {
   const [nowMs] = useState(() => Date.now());   // kart açıldığı andaki saat (render saf kalsın)
+  const v = normalizeVerdict(raw);
+  if (!v) {
+    return <Text style={{ color: C.muted, fontSize: 12 }}>{`Sonuç · ${ticker}: veri yok`}</Text>;
+  }
   const col = v.dir === 'call' ? C.pos : v.dir === 'put' ? C.neg : C.muted;
   return (
     <View style={{ borderRadius: 14, borderWidth: 1, borderColor: col, backgroundColor: 'rgba(255,255,255,.03)', padding: 10, gap: 6 }}>

@@ -108,5 +108,40 @@ const BEKLE = card({ ...BASE, vwap: 688, orHigh: 695, orLow: 680, flip: 700 }); 
   ok('veri yokken BEKLE (tarama bekleniyor)', empty.wait !== null && empty.wait.reason.includes('Tarama'));
 }
 
+// ───── 7) Hotfix: eski / eksik alanlı kartlar (AsyncStorage) asla fırlatmaz ─────
+{
+  const { levels: _l, crits: _c, fired: _f, ...noLv } = BULL as Record<string, unknown> & V.VerdictCard;
+  const oldCard = noLv as unknown as V.VerdictCard;                                  // levels/crits/fired yok
+  const sat = etMs('2026-11-14', '10:00');                                           // Cumartesi: veri/seans yok
+  const sized = { capital: 300, kademe: 0.5, commission: 1.5 } as const;
+
+  ok('normalize: null/sayı/string → null', T.normalizeVerdict(null) === null && T.normalizeVerdict(42) === null && T.normalizeVerdict('x') === null);
+  const nv = T.normalizeVerdict(oldCard)!;
+  ok('normalize: eksik levels → S NaN, crits/fired []', nv !== null && Number.isNaN(nv.levels.S) && nv.crits.length === 0 && nv.fired.length === 0, JSON.stringify(nv?.levels));
+  ok('normalize: bozuk dir → bekle, bozuk band → null', T.normalizeVerdict({ dir: 'xx', levels: { S: 690, band: { high: 'a' } } })!.dir === 'bekle'
+    && T.normalizeVerdict({ levels: { S: 690, band: { high: 'a' } } })!.levels.band === null);
+  ok('tradeOf: levels yok → işlem kartı yok (throw yok)', (() => { try { return T.tradeOf({ ticker: 'QQQ', verdict: oldCard }, NOW, sized) === null; } catch { return false; } })());
+  ok('tradeOf: spot NaN/yok → kart yok', T.tradeOf({ ticker: 'QQQ', verdict: { ...BULL, levels: { ...BULL.levels, S: NaN } } }, NOW, null) === null);
+  const noCrit = T.tradeOf({ ticker: 'QQQ', verdict: { ...BULL, crits: undefined as unknown as V.Crit[], fired: undefined as unknown as string[] } }, NOW, sized);
+  ok('tradeOf: crits/fired yok → kart var, gerekçe yine yazılır', noCrit !== null && noCrit.rationale.startsWith('Yükseliş yönünde'), noCrit?.rationale);
+  ok('tradeOf: null entry/verdict → null', T.tradeOf(null as unknown as T.BoardEntry, NOW, null) === null
+    && T.tradeOf({ ticker: 'QQQ', verdict: null as unknown as V.VerdictCard }, NOW, null) === null);
+  ok('triggerText: levels/crits yok → throw yok, metin döner',
+    (() => { try { return T.triggerText('QQQ', oldCard).startsWith('QQQ'); } catch { return false; } })());
+  ok('triggerText: null verdict → seviye verisi yok', T.triggerText('QQQ', null) === 'QQQ: tetikleyici seviye verisi yok');
+  ok('buildBoard: eksik levels/crits/fired → BEKLE, throw yok',
+    (() => { try { const b = T.buildBoard([{ ticker: 'QQQ', verdict: oldCard }], NOW, sized); return b.trades.length === 0 && b.wait !== null; } catch { return false; } })());
+  const mixed = T.buildBoard([null as unknown as T.BoardEntry, { ticker: 'SPY', verdict: BULL }, { ticker: '', verdict: BULL },
+    { ticker: 'GLD', verdict: 'bozuk' as unknown as V.VerdictCard }, { ticker: 'NVDA', verdict: oldCard }], NOW, sized);
+  ok('buildBoard: bozuk girişler atlanır, geçerli kart kalır', mixed.trades.length === 1 && mixed.trades[0].ticker === 'SPY', JSON.stringify(mixed.trades.map(t => t.ticker)));
+  ok('buildBoard: boş pano → tarama bekleniyor', T.buildBoard([], NOW, null).wait?.reason.includes('Tarama') === true);
+  ok('buildBoard: null/undefined girdi → tarama bekleniyor (throw yok)', T.buildBoard(null, NOW, null).wait?.reason.includes('Tarama') === true
+    && T.buildBoard(undefined, NOW, null).trades.length === 0);
+  const wk = T.buildBoard([], sat, null);
+  ok('hafta sonu, veri yok → BEKLE', wk.trades.length === 0 && wk.wait !== null);
+  const wkBekle = T.buildBoard([{ ticker: 'QQQ', verdict: { ...BEKLE, levels: undefined as unknown as V.VerdictLevels } }], sat, null);
+  ok('hafta sonu, bekle kartı eksik levels → BEKLE satırı', wkBekle.trades.length === 0 && wkBekle.wait!.lines.length === 1);
+}
+
 if (fail) { console.log(`\n${fail} test başarısız`); process.exit(1); }
 console.log('\ntrade-card testleri tamam');

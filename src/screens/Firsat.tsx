@@ -16,8 +16,9 @@ import { KADEMELER } from '@/lib/paper/sizing';
 import type { PaperMode } from '@/lib/paper/types';
 import { TRIGGER_AD } from '@/lib/signals/riskwatch';
 import { isQ, type QSettings } from '@/lib/signals/qull/policy';
-import { buildBoard, type BoardEntry } from '@/lib/signals/trade';
+import { buildBoard, type Board, type BoardEntry } from '@/lib/signals/trade';
 import { TradeCardView, WaitCardView } from '@/ui/TradeCard';
+import { ErrorBoundary } from '@/ui/ErrorBoundary';
 
 /** Qullamaggie ayar satırları (Qullamaggie uyarlaması — Kaan onayı yok). */
 const Q_ROWS: [keyof QSettings, string][] = [
@@ -120,8 +121,14 @@ export default function Firsat() {
   const pos = p?.position ?? null;
   const commOpt: [number, string][] = [[BROKER_COMMISSION.midas, 'Midas 1,50 $'], [BROKER_COMMISSION.ibkr, 'IBKR 0,65 $']];
   // Fırsat panosu: her ticker'ın Sonuç kararından en güçlü 1–3 işlem kartı; yoksa BEKLE kartı (saf türetim: lib/signals/trade.ts)
-  const entries: BoardEntry[] = Object.entries(D.status).flatMap(([t, s]) => (s.verdict ? [{ ticker: t, verdict: s.verdict }] : []));
-  const board = buildBoard(entries, now, p ? { capital: p.capital, kademe: p.kademe, commission: p.settings.commission } : null);
+  // Eski sürümden kalan durum kayıtları için savunmacı: eksik/bozuk kart atlanır, hata olursa BEKLE.
+  const entries: BoardEntry[] = Object.entries(D.status).flatMap(([t, s]) => (s?.verdict ? [{ ticker: t, verdict: s.verdict }] : []));
+  let board: Board;
+  try {
+    board = buildBoard(entries, now, p ? { capital: p.capital, kademe: p.kademe, commission: p.settings.commission } : null);
+  } catch {
+    board = { trades: [], wait: { reason: 'Veri okunamadı; bekliyorum.', lines: [] } };
+  }
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 12, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 40, gap: 10 }}>
@@ -147,7 +154,11 @@ export default function Firsat() {
       </Card>
 
       {/* 2) Ana karar: işlem kartları (en güçlü 3) ya da BEKLE */}
-      {board.trades.length ? board.trades.map(t => <TradeCardView key={t.key} c={t} />) : board.wait ? <WaitCardView w={board.wait} /> : null}
+      <ErrorBoundary label="Fırsat panosu">
+        {board.trades.length
+          ? board.trades.map(t => <ErrorBoundary key={t.key} label={t.ticker}><TradeCardView c={t} /></ErrorBoundary>)
+          : board.wait ? <ErrorBoundary label="BEKLE"><WaitCardView w={board.wait} /></ErrorBoundary> : null}
+      </ErrorBoundary>
       <Text style={{ color: C.muted, fontSize: 11, lineHeight: 15 }}>
         Kâğıt üstü · tavsiye değildir. Prim brüt; komisyon ayrıca gösterilir.
       </Text>
@@ -190,17 +201,17 @@ export default function Firsat() {
             {entries.length ? (
               <View style={{ gap: 10 }}>
                 <Text style={{ color: C.muted, fontSize: 12, fontWeight: '700' }}>Ticker bazlı koşullar</Text>
-                {entries.map(e => <VerdictBlock key={e.ticker} ticker={e.ticker} v={e.verdict} />)}
+                {entries.map(e => <ErrorBoundary key={e.ticker} label={e.ticker}><VerdictBlock ticker={e.ticker} v={e.verdict} /></ErrorBoundary>)}
                 <Text style={{ color: C.muted, fontSize: 11 }}>
                   {`Veri: ${Object.values(D.status).map(s => s.source).filter(Boolean)[0] ?? '—'} · dayanak 1 dk barı (Yahoo) varsa ondan; yoksa kotasyon (gecikmeli olabilir).`}
                 </Text>
               </View>
             ) : null}
 
-            {Object.values(D.status).some(s => s.setups.length) ? (
+            {Object.values(D.status).some(s => s?.setups?.length) ? (
               <View style={{ gap: 2 }}>
                 <Text style={{ color: C.muted, fontSize: 12, fontWeight: '700' }}>Tarama notları</Text>
-                {Object.entries(D.status).flatMap(([t, s]) => s.setups.map(x => `${t}: ${x}`)).slice(0, 20).map((x, i) => (
+                {Object.entries(D.status).flatMap(([t, s]) => (s?.setups ?? []).map(x => `${t}: ${x}`)).slice(0, 20).map((x, i) => (
                   <Text key={i} style={{ color: C.muted, fontSize: 11 }}>{x}</Text>
                 ))}
               </View>

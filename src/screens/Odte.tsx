@@ -16,6 +16,7 @@ import { checkAlerts, DEF_NOTIF, loadNotifCfg, saveNotifCfg, syncBackgroundTask,
 import { exitAtMs, localHM, MAX_SIGNALS_PER_DAY, signalAllowed } from '@/lib/alerts';
 import { C, plColor } from '@/ui/theme';
 import VerdictBlock from '@/ui/VerdictCard';
+import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { flowKeyOf } from '@/lib/flow/client';
 
 export const DEFAULT_WATCH = ['QQQ', 'MU', 'AXTI', 'AAOI', 'MRVL', 'GLW', 'NBIS', 'CRWV', 'DRAM', 'AMD', 'INTC', 'SPCX', 'NVDA', 'TSLA', 'RKLB'];
@@ -278,7 +279,7 @@ function TickerCard({ it, open, toggle, onLog, busy }: { it: ScanItem; open: boo
             : <Text style={{ color: it.error ? C.neg : C.muted, fontSize: 13 }}>{it.error ? 'Hata' : busy ? 'Yükleniyor…' : '—'}</Text>}
         </View>
       </Pressable>
-      {it.ok && it.verdict ? <View style={{ marginTop: 8 }}><VerdictBlock ticker={it.ticker} v={it.verdict} /></View> : null}
+      {it.ok && it.verdict ? <View style={{ marginTop: 8 }}><ErrorBoundary label="Sonuç"><VerdictBlock ticker={it.ticker} v={it.verdict} /></ErrorBoundary></View> : null}
       {it.ok ? (
         <View style={[s.row, { marginTop: 6 }]}>
           <Text style={{ color: C.muted, fontSize: 12, width: 58 }}>Puan {score > 0 ? '+' : ''}{score.toFixed(1)}</Text>
