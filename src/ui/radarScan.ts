@@ -13,8 +13,9 @@ import { applyCooldown, buildAlerts, type Alert } from '@/lib/radar/engine';
 import { priceAt, nextSessionOpen, eodOf, barrierOf, H30, H2 } from '@/lib/radar/track';
 import { isEtf, SECTOR } from '@/lib/radar/universe';
 import type { DayRecord, Snapshot, Signal } from '@/lib/radar/types';
-import { NewsHub, type NewsItem } from '@/lib/news';
+import { NewsHub, SEC_POLL_GAP_MS, type NewsItem } from '@/lib/news';
 import { etDate } from '@/lib/usmarket';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { radar } from './radarStore';
 import { notifyRadar } from './notify';
 
@@ -50,12 +51,18 @@ async function pool<T, R>(xs: T[], n: number, f: (x: T) => Promise<R>): Promise<
   return out;
 }
 
-/** SEC 8-K / Form 4 için sık döngü (uygulama açıkken, ~2 dk). Yeni filing'leri son haberlere ekler; döner: eklenen sayı. */
+/** SEC 8-K / Form 4: günde 1 (uygulama açılışında / öne gelince). Son kontrol cihazda saklanır; 24 sa dolmadıysa atlanır.
+ *  Yeni filing'leri son haberlere ekler; döner: eklenen sayı. */
+const SEC_LAST_KEY = 'sec_last_check_v1';
 export async function pollSecNews(): Promise<number> {
   await radar.load();
   const st = radar.get().settings, now = Date.now();
   if (!st.secUa.trim()) return 0;
-  const fresh = await hub.pollSec(st.watch, now - NEWS_KEEP_MS, { secUa: st.secUa, finnhubKey: st.finnhubKey }, now).catch(() => [] as NewsItem[]);
+  const last = Number(await AsyncStorage.getItem(SEC_LAST_KEY).catch(() => null)) || 0;
+  if (now - last < SEC_POLL_GAP_MS) return 0;
+  await AsyncStorage.setItem(SEC_LAST_KEY, String(now)).catch(() => {});
+  const since = Math.min(last || now - NEWS_KEEP_MS, now - NEWS_KEEP_MS);
+  const fresh = await hub.pollSec(st.watch, since, { secUa: st.secUa, finnhubKey: st.finnhubKey }, now).catch(() => [] as NewsItem[]);
   recentNews = [...recentNews.filter(n => now - n.publishedAt < NEWS_KEEP_MS), ...fresh];
   return fresh.length;
 }

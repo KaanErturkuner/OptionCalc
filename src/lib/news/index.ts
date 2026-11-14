@@ -11,8 +11,8 @@ export { tickersIn, NAMES } from './names.ts';
 
 export interface NewsSettings { secUa?: string; finnhubKey?: string }
 export const POLL_GAP_MS = 5 * 60000;
-/** SEC ayrı ve daha sık çekilir (EDGAR fair access: ~10 istek/sn; sembol başına 1 istek). */
-export const SEC_POLL_GAP_MS = 2 * 60000;
+/** SEC ayrı çekilir: günde 1 (Kaan kararı). Son kontrol zamanı cihazda saklanır (src/ui/radarScan.ts pollSecNews). */
+export const SEC_POLL_GAP_MS = 24 * 3600000;
 export const RELATED_WINDOW_MS = 6 * 3600000;
 
 export class NewsHub {

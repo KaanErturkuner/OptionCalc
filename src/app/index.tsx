@@ -63,12 +63,12 @@ export default function Home() {
     }, RADAR_EVERY_MS);
     return () => clearInterval(id);
   }, []);
-  // SEC 8-K / Form 4: uygulama açıkken ~2 dk'da bir (SEC'in kendi kapısı; secUa yoksa atlanır)
+  // SEC 8-K / Form 4: günde 1 — açılışta ve öne gelince; 24 sa dolmadıysa pollSecNews atlar (secUa yoksa da)
   useEffect(() => {
-    const id = setInterval(() => {
-      if (AppState.currentState === 'active' && radar.get().settings.auto) pollSecNews().catch(() => {});
-    }, 2 * 60000);
-    return () => clearInterval(id);
+    const run = () => { radar.load().then(() => (radar.get().settings.auto ? pollSecNews() : 0)).catch(() => {}); };
+    run();
+    const sub = AppState.addEventListener('change', s => { if (s === 'active') run(); });
+    return () => sub.remove();
   }, []);
   // Fırsat taraması: seans içinde ve uygulama açıkken, ayarlanan aralıkta (varsayılan 2 dk; kontrol dakikada bir)
   useEffect(() => {
