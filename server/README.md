@@ -257,6 +257,15 @@ hız sınırı (gap/daily) → karne → anahtar sızıntısı yok. Saf eşleşt
 - Duvar anlık görüntüsü: yalnız rapor anından önce yazılmışsa (`snap`); akış olayı: `events.ts < rapor anı`. Kayıt yoksa “veri alınamadı” (sahte “birikim yok” yazılmaz).
 - **MarketData çağrısı YOK** (`md.ts` içe aktarılmaz). Push YOK. Başlık öneki “Örnek · …”, `example = 1` (API'de `example: true`), gövde başında “ÖRNEK RAPOR” notu.
 - Anahtar `ornek:<gün>:<tür>` ile saklanır (gerçek rapor anahtarıyla çakışmaz). Yeniden yazma: `--force` yalnız örnekleri siler.
+- **Duvar ve birikim (önceki kapanış):** canlı akış kaydı yoksa rapor, **önceki işlem gününün** tarihsel EOD opsiyon zincirinden kurulur (`hist_chain` tablosu). Her bölüm başlığı “önceki kapanış (12/11) zincirine göre” diye etiketlenir; intra raporlarda açılış anı olmadığı için kayma yazılmaz ve “Gözlem” notu yazılmaz (spot önceki kapanıştır). Gün sonu raporunda kayma yalnız 12/11 → gün sonu (13/11) zincirleri varsa hesaplanır. Birikim = OI × orta fiyat × 100 (işlem akışı değil).
+- Zincir çekimi (**yalnız sunucu, tek MarketData istemcisi**, `server/app/histfetch.ts`): ticker × vade başına bir istek (`date=`, `expiration=`); vade kümesi akışla aynı (0DTE + 3 ay Cuma). Kredi: tarihsel yanıt 1000 sembol başına 1 kredi (başlık `x-api-ratelimit-consumed`); bir istek en az 1 kredi.
+  ```bash
+  ssh -i ~/.ssh/do_flow root@162.243.88.42 'systemd-run --pipe --wait --collect -q -p User=ocflow -p Group=ocflow -p WorkingDirectory=/opt/optioncalc-flow \
+    -p EnvironmentFile=-/etc/optioncalc-flow/env -p StateDirectory=optioncalc-flow -p LoadCredential=md_token:/etc/optioncalc-flow/md_token \
+    -p Environment=FLOW_DB=/var/lib/optioncalc-flow/flow.db \
+    /usr/bin/node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON /opt/optioncalc-flow/server/app/histfetch.ts --date 2026-11-12 --report-day 2026-11-13 --max-credits 450'
+  ```
+  Önce 12/11 (zorunlu), sonra gün sonu için `--date 2026-11-13`. Kredi tavanı (`--max-credits`) aşılırsa durur. Backfill MarketData'ya **çağrı yapmaz**; yalnız `hist_chain` okur.
 
 Çalıştırma (droplet; servis kullanıcısı `ocflow` olarak, Finnhub anahtarı `LoadCredential` ile — anahtar ekrana basılmaz; DB sahibi değişmez):
 

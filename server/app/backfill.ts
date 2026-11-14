@@ -22,7 +22,8 @@ import { pctOf, sma } from '../../src/lib/reports/sources.ts';
 import { dailyDoneBy, exampleReport, MIN_MS, openAndLast, pitPeriods, pitPrice, prevCloseBefore } from '../../src/lib/reports/pit.ts';
 import type { FlowAgg, Move, MacroLite, NewsLite, ReportInput, SmaRow, WallSnap } from '../../src/lib/reports/types.ts';
 import { eventsOn } from '../../src/lib/calendar/releases.ts';
-import { exDivMs, isTradingDay } from '../../src/lib/usmarket.ts';
+import { addDaysStr, exDivMs, isTradingDay, prevTradingDay } from '../../src/lib/usmarket.ts';
+import type { HistSnap } from '../../src/lib/reports/histchain.ts';
 import type { NewsItem } from '../../src/lib/news/types.ts';
 
 const DAY_MS = 86400000;
@@ -93,6 +94,17 @@ async function gatherPit(slot: Slot, deps: { cfg: ReturnType<typeof loadConfig>;
   };
   const walls = (): ReportInput['walls'] => watch.map(t => ({ ticker: t, open: wall(t, 'open'), now: wall(t, 'last') }));
 
+  /** Önceki kapanış (tarihsel EOD) özeti: yalnız zincir tarihi rapor anından önce tamamlanmışsa (PIT kapısı: kapanış < rapor anı) */
+  const prevDay = prevTradingDay(addDaysStr(day, -1));
+  const histOf = (src: string, t: string): HistSnap | null => {
+    const h = store.histGet<HistSnap>(src, t);
+    return h && h.asOf < cutoff ? h : null;
+  };
+  /** Canlı akış kaydı yoksa ve önceki kapanış zinciri varsa: rapor önceki kapanış verisiyle kurulur (etiketli) */
+  const useHist = !flowKnown && watch.some(t => histOf(prevDay, t) != null);
+  const dm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+  const histMissing = (xs: string[]) => { if (xs.length) fails.push(`${dm(prevDay)} kapanış zinciri yok (MarketData geçmiş zincir kaydı alınmadı): ${xs.join(', ')}`); };
+
   const base: ReportInput = {
     kind, day, nowMs: cutoff, watch, asia: [], europe: [], futures: [], preMarket: [], moves: [], walls: [], flow: [],
     news: [], newsOk: false, macro: { today: macroOn(day), tomorrow: [] }, earnings: null, sma: [], failures: fails, flowKnown,
@@ -129,9 +141,21 @@ async function gatherPit(slot: Slot, deps: { cfg: ReturnType<typeof loadConfig>;
       }
     }
     base.sma = smaRows;
-    base.walls = walls();
-    base.flow = store.flowAgg(day, cutoff) as FlowAgg[];
-    if (!flowKnown) fails.push(`Opsiyon akışı ve duvarlar: ${day} için ${istHm(cutoff)} öncesi kayıt yok (MarketData kredisi kullanılmadı)`);
+    if (useHist) {
+      // Duvar kayması: önceki kapanış (12/11) → gün sonu (13/11) zinciri. Gün sonu zinciri yoksa kayma ölçülemez (dürüstlük).
+      const rows = watch.map(t => ({ t, o: histOf(prevDay, t), n: histOf(day, t) }));
+      base.walls = rows.map(({ t, o, n }) => ({ ticker: t, open: o?.wall ?? null, now: n?.wall ?? null }));
+      base.flow = rows.flatMap(({ o }) => o?.flow ?? []);
+      base.flowKnown = true;
+      base.basis = { wallsHead: `Duvar kayması — önceki kapanış (${dm(prevDay)}) → gün sonu (${dm(day)}) zincirine göre`, openLabel: dm(prevDay),
+        flowHead: `Opsiyon birikimi — önceki kapanış (${dm(prevDay)}) zincirine göre (en büyük açık pozisyon)` };
+      if (!rows.some(x => x.n)) fails.push(`${dm(day)} gün sonu zinciri yok: duvar kayması ölçülemez`);
+      histMissing(rows.filter(x => !x.o).map(x => x.t));
+    } else {
+      base.walls = walls();
+      base.flow = store.flowAgg(day, cutoff) as FlowAgg[];
+      if (!flowKnown) fails.push(`Opsiyon akışı ve duvarlar: ${day} için ${istHm(cutoff)} öncesi kayıt yok (MarketData kredisi kullanılmadı)`);
+    }
     Object.assign(base, await news(cutoff - DAY_MS));
     earningsNote();
     base.macro.tomorrow = macroOn(nextTradingDay(day));
@@ -151,9 +175,20 @@ async function gatherPit(slot: Slot, deps: { cfg: ReturnType<typeof loadConfig>;
       base.moves.push({ name: t, pct: null, price: null });
     }
   }
-  base.walls = walls();
-  base.flow = store.flowAgg(day, cutoff) as FlowAgg[];
-  if (!flowKnown) fails.push(`Opsiyon akışı ve duvarlar: ${day} için ${istHm(cutoff)} öncesi kayıt yok (MarketData kredisi kullanılmadı)`);
+  if (useHist) {
+    // Açılış anı (açılış duvarı) yok: yalnız önceki kapanış zincirinden duvar ve birikim; kayma ölçülemez, spot notu yazılmaz
+    const rows = watch.map(t => ({ t, h: histOf(prevDay, t) }));
+    base.walls = rows.map(({ t, h }) => ({ ticker: t, open: null, now: h?.wall ?? null }));
+    base.flow = rows.flatMap(({ h }) => h?.flow ?? []);
+    base.flowKnown = true;
+    base.basis = { wallsHead: `Duvarlar — önceki kapanış (${dm(prevDay)}) zincirine göre (açılış anı yok; kayma ölçülemez)`,
+      flowHead: `Opsiyon birikimi — önceki kapanış (${dm(prevDay)}) zincirine göre (en büyük açık pozisyon)` };
+    histMissing(rows.filter(x => !x.h).map(x => x.t));
+  } else {
+    base.walls = walls();
+    base.flow = store.flowAgg(day, cutoff) as FlowAgg[];
+    if (!flowKnown) fails.push(`Opsiyon akışı ve duvarlar: ${day} için ${istHm(cutoff)} öncesi kayıt yok (MarketData kredisi kullanılmadı)`);
+  }
   Object.assign(base, await news(cutoff - 3 * 3600000));
   return base;
 }

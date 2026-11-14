@@ -37,7 +37,7 @@ export function intraDirection(moves: Move[]): { label: string; avg: number | nu
 }
 
 /** Duvar kayması satırı: "QQQ · call duvarı 585 (açılış 580, ↑5) · put duvarı 570 (=) · flip 578 · max pain 580" */
-export function wallLine(ticker: string, open: WallSnap | null, now: WallSnap | null): string {
+export function wallLine(ticker: string, open: WallSnap | null, now: WallSnap | null, openLabel = 'açılış'): string {
   if (!now) return `${ticker}: ${NA}`;
   const shift = (a: number | null, b: number | null) => {
     if (a == null || b == null) return '';
@@ -45,8 +45,8 @@ export function wallLine(ticker: string, open: WallSnap | null, now: WallSnap | 
     if (Math.abs(d) < 1e-9) return ' (=)';
     return ` (${d > 0 ? '↑' : '↓'}${fmt(Math.abs(d), Math.abs(d) % 1 ? 2 : 0)})`;
   };
-  const ref = (v: number | null, o: number | null | undefined) => `${levelTr(v)}${o != null ? ` [açılış ${levelTr(o)}${shift(o, v)}]` : ''}`;
-  return `${ticker}: call duvarı ${ref(now.callWall, open?.callWall)} · put duvarı ${ref(now.putWall, open?.putWall)} · gamma flip ${levelTr(now.flip)}${open?.flip != null ? ` (açılış ${levelTr(open.flip)})` : ''} · max pain ${levelTr(now.maxPain)}`;
+  const ref = (v: number | null, o: number | null | undefined) => `${levelTr(v)}${o != null ? ` [${openLabel} ${levelTr(o)}${shift(o, v)}]` : ''}`;
+  return `${ticker}: call duvarı ${ref(now.callWall, open?.callWall)} · put duvarı ${ref(now.putWall, open?.putWall)} · gamma flip ${levelTr(now.flip)}${open?.flip != null ? ` (${openLabel} ${levelTr(open.flip)})` : ''} · max pain ${levelTr(now.maxPain)}`;
 }
 
 /** Akış birikimi (ticker'a göre en büyük 5 kontrat-grubu, prime göre) */
@@ -126,9 +126,10 @@ function premarket(input: ReportInput, ts: number, fails: string[]): Report {
 
 function intra(input: ReportInput, ts: number, fails: string[]): Report {
   const dir = intraDirection(input.moves);
-  const wallRows = input.walls.length ? input.walls.map(w => '  ' + wallLine(w.ticker, w.open, w.now)) : [`  ${NA}`];
-  const notes = input.walls.map(w => spotNote(w.now) && `  ${w.ticker}: ${spotNote(w.now)}`).filter((x): x is string => !!x);
-  const fl = flowLines(input.flow);
+  const wallRows = input.walls.length ? input.walls.map(w => '  ' + wallLine(w.ticker, w.open, w.now, input.basis?.openLabel)) : [`  ${NA}`];
+  // Önceki kapanış temelli raporda spot önceki kapanıştır: gamma flip/duvar yakınlığı notu yazılmaz
+  const notes = input.basis ? [] : input.walls.map(w => spotNote(w.now) && `  ${w.ticker}: ${spotNote(w.now)}`).filter((x): x is string => !!x);
+  const fl = flowLines(input.flow, input.basis ? 30 : 5);
   const flNone = input.flowKnown === false ? NA : 'Eşik üstü birikim yok';
   const minsLeft = Math.max(0, Math.round((closeMs(input.day) - ts) / 60000));
   const lines = [
@@ -136,9 +137,9 @@ function intra(input: ReportInput, ts: number, fails: string[]): Report {
     'Açılıştan beri', ...moveRows(input.moves),
     `  Yön: ${dir.label}${dir.avg != null ? ` (ortalama ${sign(dir.avg)}${fmt(dir.avg, 2)}%)` : ''}`,
     ...todayMacroBlock(input, ts),
-    '', 'Duvarlar (açılış → şimdi)', ...wallRows,
+    '', input.basis?.wallsHead ?? 'Duvarlar (açılış → şimdi)', ...wallRows,
     ...(notes.length ? ['', 'Gözlem', ...notes] : []),
-    '', 'Opsiyon birikimi (bugün, en büyük)', ...(fl.length ? fl.map(x => '  ' + x) : [`  ${flNone}`]),
+    '', input.basis?.flowHead ?? 'Opsiyon birikimi (bugün, en büyük)', ...(fl.length ? fl.map(x => '  ' + x) : [`  ${flNone}`]),
     '', 'Haberler', ...(input.newsOk ? (input.news.length ? newsLines(input.news, 3).map(x => '  ' + x) : ['  Önemli yeni haber yok']) : [`  ${NA}`]),
     '', 'Beklenti (kural tabanlı)',
     `  Kalan seans (~${minsLeft} dk): ${dir.label === NA ? 'yön verisi yok' : dir.label === 'yatay' ? 'yatay seyir, duvarlar arasında kalma eğilimi' : `${dir.label} yönlü devam ihtimali; ters yön için gamma flip ve duvar seviyeleri izlenir`}`,
@@ -157,6 +158,7 @@ function eod(input: ReportInput, ts: number, fails: string[]): Report {
     return `  ${s.ticker} ${levelTr(s.price)} · SMA20 ${levelTr(s.sma20)} (${pos(s.sma20)}) · SMA50 ${levelTr(s.sma50)} (${pos(s.sma50)}) · SMA200 ${levelTr(s.sma200)} (${pos(s.sma200)})`;
   }) : [`  ${NA}`];
   const tomorrow = input.macro.tomorrow;
+  const fl = flowLines(input.flow, input.basis ? 30 : 5);
   const trend = input.sma.find(s => s.ticker === 'QQQ') ?? input.sma.find(s => s.ticker === 'SPY');
   const trendTxt = trend && trend.price != null && trend.sma200 != null
     ? (trend.price >= trend.sma200 ? 'uzun vadede yukarı eğilim (200 günlük üstünde)' : 'uzun vadede zayıf (200 günlük altında)')
@@ -165,9 +167,9 @@ function eod(input: ReportInput, ts: number, fails: string[]): Report {
     header('eod', input), '',
     'Gün değişimi', ...moveRows(input.moves),
     ...todayMacroBlock(input, ts),
-    '', 'Duvar kayması (açılış → kapanış)', ...(input.walls.length ? input.walls.map(w => '  ' + wallLine(w.ticker, w.open, w.now)) : [`  ${NA}`]),
+    '', input.basis?.wallsHead ?? 'Duvar kayması (açılış → kapanış)', ...(input.walls.length ? input.walls.map(w => '  ' + wallLine(w.ticker, w.open, w.now, input.basis?.openLabel)) : [`  ${NA}`]),
     '', 'Hareketli ortalamalar (günlük)', ...smaLines,
-    '', 'Opsiyon birikimi (bugün, en büyük)', ...(flowLines(input.flow).length ? flowLines(input.flow).map(x => '  ' + x) : [`  ${input.flowKnown === false ? NA : 'Eşik üstü birikim yok'}`]),
+    '', input.basis?.flowHead ?? 'Opsiyon birikimi (bugün, en büyük)', ...(fl.length ? fl.map(x => '  ' + x) : [`  ${input.flowKnown === false ? NA : 'Eşik üstü birikim yok'}`]),
     '', 'Haberler (bugün)', ...(input.newsOk ? (input.news.length ? newsLines(input.news).map(x => '  ' + x) : ['  Önemli haber yok']) : [`  ${NA}`]),
     '', 'Yarın beklentisi (kural tabanlı)',
     `  Trend: ${trendTxt}`,

@@ -46,6 +46,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS coach_reports (sig TEXT PRIMARY KEY, day TEXT NOT NULL, ts INTEGER NOT NULL, model TEXT NOT NULL,
         trade TEXT NOT NULL, rules TEXT NOT NULL, feedback TEXT NOT NULL, context TEXT);
       CREATE INDEX IF NOT EXISTS coach_reports_day ON coach_reports (day);
+      CREATE TABLE IF NOT EXISTS hist_chain (src_day TEXT NOT NULL, ticker TEXT NOT NULL, asof INTEGER NOT NULL, data TEXT NOT NULL,
+        PRIMARY KEY (src_day, ticker));
       CREATE TABLE IF NOT EXISTS coach_karne (day TEXT PRIMARY KEY, ts INTEGER NOT NULL, model TEXT NOT NULL, body TEXT NOT NULL);
     `);
     // Geçmiş sürüm migrasyonu: örnek rapor bayrağı (eski satırlar 0 = gerçek rapor)
@@ -152,6 +154,14 @@ export class Store {
   }
   snapGet<T = unknown>(day: string, ticker: string, kind: 'open' | 'last'): T | null {
     const r = this.db.prepare('SELECT data FROM snap WHERE day = ? AND ticker = ? AND kind = ?').get(day, ticker, kind) as { data: string } | undefined;
+    return r ? JSON.parse(r.data) as T : null;
+  }
+  // ── önceki kapanış (tarihsel EOD zinciri) özetleri: sunucuda bir kez çekilir (server/app/histfetch.ts); ham zincir saklanmaz ──
+  histPut(srcDay: string, ticker: string, asOf: number, data: object): void {
+    this.db.prepare('INSERT OR REPLACE INTO hist_chain (src_day, ticker, asof, data) VALUES (?, ?, ?, ?)').run(srcDay, ticker, asOf, JSON.stringify(data));
+  }
+  histGet<T = unknown>(srcDay: string, ticker: string): T | null {
+    const r = this.db.prepare('SELECT data FROM hist_chain WHERE src_day = ? AND ticker = ?').get(srcDay, ticker) as { data: string } | undefined;
     return r ? JSON.parse(r.data) as T : null;
   }
   /** Bugünkü teyitli+teyitsiz olayların kontrat bazlı toplamı (dV ve prim) */

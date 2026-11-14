@@ -23,6 +23,12 @@ export interface ReportInput {
   sma: SmaRow[];
   failures: string[];                               // "Yahoo: ^N225 alınamadı" gibi
   flowKnown?: boolean;                              // false: o an için akış/duvar kaydı yok → "veri alınamadı" (undefined = var)
+  /**
+   * Önceki kapanış (tarihsel EOD zinciri) ile kurulmuş rapor. Varsa başlıklar bu etiketleri kullanır; yoksa canlı başlıklar.
+   * Intra: duvarlar ve birikim 12/11 kapanış zincirinden (açılış anı yok → kayma ölçülemez; "Gözlem" notları yazılmaz,
+   * çünkü spot önceki kapanıştır). EOD: duvar kayması önceki kapanış → gün sonu zinciri (yoksa "veri alınamadı").
+   */
+  basis?: { wallsHead: string; openLabel?: string; flowHead: string };
 }
 
 export interface Report { kind: ReportKind; day: string; ts: number; title: string; body: string; pushTitle: string; pushBody: string }
