@@ -2,6 +2,7 @@
  * Çıkışlar onay beklemez (kâğıt hesapta otomatik). Tetik fonksiyonları girdiyi hazır alır; veri çekmez. */
 import type { Bar } from '../odte/analytics.ts';
 import type { OpenPosition, PaperMode, ExitReason } from '../paper/types.ts';
+import type { AdaptiveDecision } from './adaptive.ts';
 
 export const PRIM_STOP_MAX = 0.67;      // Kaan kararı (§6.1, K5, D8)
 export const RANGE_BODY_MIN = 0.6;      // T1: gövde/aralık
@@ -92,46 +93,55 @@ export interface TickInput {
   etMin: number;
   mode: PaperMode;
   flags: Partial<Record<TriggerId, boolean>>;
+  /** Uyarlanabilir çıkış (adaptive.ts). Tanımlıysa T1/T2/T3 yerine kullanılır (ÇIK/TUT/DİKKAT). Tanımsızsa eski T1–T7 davranışı. */
+  adaptive?: AdaptiveDecision | null;
 }
 
 export interface RiskDecision {
   action: 'hold' | 'warn' | 'close';
   reason?: ExitReason;
-  /** Güncellenmiş pozisyon alanları (maxR, stopPrem, warned). */
+  /** Güncellenmiş pozisyon alanları (maxR, stopPrem, warned, adaptive). */
   pos: OpenPosition;
   triggers: TriggerId[];
   message?: string;          // Türkçe bildirim metni (kısa)
+  adaptive?: AdaptiveDecision | null;
 }
 
 /**
- * Tek tick kararı. Sıra: hedef → stop (iz süren dâhil) → 15:45 zorunlu çıkış → risk tetikleri.
+ * Tek tick kararı. Sıra: hedef → stop (iz süren dâhil, %67 prim stopu) → 15:45 zorunlu çıkış → uyarlanabilir ÇIK
+ * → risk tetikleri (T4–T7 ve, uyarlanabilir yoksa, T1–T3). ÇIK her kâr düzeyinde çıkarır; TUT/DİKKAT çıkarmaz.
  * Kâr ≥ eşik + tetik → çıkış. 1R–eşik arası + tetik → uyarı, stop girişe; ikinci tetik → çıkış.
  */
 export function evaluatePosition(pos: OpenPosition, t: TickInput): RiskDecision {
-  const trig = strongWeakCount(t.flags);
+  const flags = t.adaptive === undefined ? t.flags : { ...t.flags, T1: false, T2: false, T3: false };
+  const trig = strongWeakCount(flags);
   const triggers = [...trig.strong, ...trig.weak];
   const R = profitR(pos, t.bid);
   const maxR = Math.max(pos.maxR, R);
   let next: OpenPosition = { ...pos, maxR };
   next.stopPrem = trailPrem(next, maxR);
   if (next.warned) next.stopPrem = Math.max(next.stopPrem, next.fill); // uyarıdan sonra stop en az girişte
+  if (t.adaptive) next.adaptive = t.adaptive.verdict;
+  const ad = t.adaptive ?? null;
 
-  if (t.bid >= pos.targetPrem) return { action: 'close', reason: 'hedef', pos: next, triggers, message: 'hedefe ulaşıldı' };
+  if (t.bid >= pos.targetPrem) return { action: 'close', reason: 'hedef', pos: next, triggers, message: 'hedefe ulaşıldı', adaptive: ad };
   if (t.bid <= next.stopPrem) {
     const reason: ExitReason = next.stopPrem > pos.stopPrem0 ? 'iz-suren-stop' : 'stop';
-    return { action: 'close', reason, pos: next, triggers, message: 'stop vurdu' };
+    return { action: 'close', reason, pos: next, triggers, message: 'stop vurdu', adaptive: ad };
   }
-  if (pos.dte === 0 && t.etMin >= EOD_FORCE_ET_MIN) return { action: 'close', reason: 'zaman', pos: next, triggers, message: '15:45 zorunlu çıkış' };
+  if (pos.dte === 0 && t.etMin >= EOD_FORCE_ET_MIN) return { action: 'close', reason: 'zaman', pos: next, triggers, message: '15:45 zorunlu çıkış', adaptive: ad };
+  if (ad?.verdict === 'CIK') return { action: 'close', reason: 'risk', pos: next, triggers, message: ad.reason, adaptive: ad };
+  const note = ad?.verdict === 'DIKKAT' ? ad.reason : undefined;
 
-  if (!triggered(trig)) return { action: 'hold', pos: next, triggers };
+  if (!triggered(trig)) return { action: 'hold', pos: next, triggers, message: note, adaptive: ad };
   const threshold = exitThresholdR(t.mode);
   if (R >= threshold) {
-    return { action: 'close', reason: 'risk', pos: next, triggers, message: `risk artıyor, çıkıyorum (kâr ${R.toFixed(1)}R)` };
+    return { action: 'close', reason: 'risk', pos: next, triggers, message: `risk artıyor, çıkıyorum (kâr ${R.toFixed(1)}R)`, adaptive: ad };
   }
   if (R >= 1) {
-    if (next.warned) return { action: 'close', reason: 'risk', pos: next, triggers, message: `risk artıyor, çıkıyorum (kâr ${R.toFixed(1)}R)` };
+    if (next.warned) return { action: 'close', reason: 'risk', pos: next, triggers, message: `risk artıyor, çıkıyorum (kâr ${R.toFixed(1)}R)`, adaptive: ad };
     next = { ...next, warned: true, stopPrem: Math.max(next.stopPrem, next.fill) };
-    return { action: 'warn', pos: next, triggers, message: `risk artıyor, stop girişe çekildi (kâr ${R.toFixed(1)}R)` };
+    return { action: 'warn', pos: next, triggers, message: `risk artıyor, stop girişe çekildi (kâr ${R.toFixed(1)}R)`, adaptive: ad };
   }
-  return { action: 'hold', pos: next, triggers };
+  return { action: 'hold', pos: next, triggers, message: note, adaptive: ad };
 }

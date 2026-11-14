@@ -11,7 +11,7 @@
  */
 import { fmt } from '../format.ts';
 import { exDivMs } from '../usmarket.ts';
-import { regimeAt, regimeChanges, MIN_MS, type Dir, type RegimeKind, type RegimeResult, type TapeBar } from '../market/regime.ts';
+import { confirmedRegimeAt, regimeChanges, REGIME_K, MIN_MS, type Dir, type RegimeKind, type RegimeResult, type TapeBar } from '../market/regime.ts';
 import { istHm } from './schedule.ts';
 import { pctTr } from './rules.ts';
 import type { Bias, IntraScenario, IntraView, ReportInput } from './types.ts';
@@ -99,7 +99,8 @@ export function intraView(tapes: { ticker: string; bars: TapeBar[] }[], nowMs: n
   const pick = tapes.find(t => t.bars.some(b => b.t >= sessionStartMs && b.t + MIN_MS <= nowMs));
   if (!pick) return null;
   const bars = pick.bars;
-  const r = regimeAt(bars, nowMs, sessionStartMs);
+  const cr = confirmedRegimeAt(bars, nowMs, sessionStartMs);
+  const r = cr.confirmed;   // rapor onaylı rejimi gösterir (histerezis); ham rejim yalnız aday bilgisi olarak
   if (r.last == null || r.open == null) return null;
   const session = bars.filter(b => b.t >= sessionStartMs && b.t + MIN_MS <= nowMs);
   const hi = session.reduce((a, b) => (b.h > a.h ? b : a));
@@ -135,13 +136,14 @@ export function intraView(tapes: { ticker: string; bars: TapeBar[] }[], nowMs: n
     changes.length
       ? `Rejim: ${changes.map(c => `${istHm(c.t)} ${SHORT[c.kind]}`).join(' → ')}`
       : `Rejim değişmedi: ${SHORT[r.kind]}`,
+    ...(cr.pending ? [`Onay bekleniyor: ${SHORT[cr.pending.kind]} (${cr.pending.run}/${REGIME_K.HYST_BARS} kapanış)`] : []),
     ...(keyMove ? [keyMove] : []),
   ];
 
   return {
     method: INTRA_METHOD, ticker: pick.ticker, asOf: nowMs,
     kind: r.kind, label: r.label, reason: r.reason, bias: BIAS_OF[r.kind], dir: r.dir,
-    band: r.band, plan: intraPlan(r), recap, scenarios,
+    band: r.band, plan: intraPlan(r), recap, scenarios, rawKind: cr.raw.kind, pending: cr.pending,
     reversal: r.reversal ? `${r.reversal.status === 'onayli' ? 'onaylı' : 'aday'} ${r.reversal.dir === 'up' ? 'yukarı' : 'aşağı'} dönüş: ${r.reversal.signals.join(', ')}` : null,
   };
 }

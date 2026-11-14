@@ -7,7 +7,8 @@ import { trimChain } from '@/lib/odte/scan';
 import { sessionBars, unusual, vwap, type Bar } from '@/lib/odte/analytics';
 import { spotPrice } from '@/lib/signals/spot';
 import { buildVerdict, pickExpiry, type QuoteLite, type VerdictCard } from '@/lib/signals/verdict';
-import { regimeSummary } from '@/lib/market/regime';
+import { regimeSummary, type RegimeKind } from '@/lib/market/regime';
+import { adaptiveDecision, type AdaptiveDecision } from '@/lib/signals/adaptive';
 import { openRange } from '@/lib/odte/strategies/util';
 import { buildSnapshot } from '@/lib/radar/snapshot';
 import { profileFor, auxSymbols } from '@/lib/signals/profiles';
@@ -25,7 +26,7 @@ import { etMinutes, sessionLeftMin, timeToExpiryMin, timeToExpiryYears, scaleEm 
 import { calendarCheck, isEtf, type CalendarCheck, type EarningsInfo } from '@/lib/calendar/events';
 import { fetchFinnhubEarnings } from '@/lib/news/finnhub';
 import { buildOpp, minRrFor, type Opp, type OppInput } from '@/lib/signals/opp';
-import { t1ReversalCandle, t2VwapLoss, t3RegimeFlip, t6Theta, modeTargetR, profitR, type TriggerId } from '@/lib/signals/riskwatch';
+import { t6Theta, modeTargetR, profitR, type TriggerId } from '@/lib/signals/riskwatch';
 import { gateCheck, gateRecord, COOL_MS, type Sent } from '@/lib/signals/gate';
 import { appendLog, type SignalLog } from '@/lib/signals/log';
 import type { SetupCtx } from '@/lib/signals/types';
@@ -55,7 +56,7 @@ const emptyStatus = (at: number): TickerStatus => ({
 export interface Scan {
   ticker: string; status: TickerStatus; cands: Opp[]; quotes: Quote[];
   S: number; ivAtm: number | null; sb: Bar[]; leftMin: number; etMin: number; emRemain: number;
-  ratio: number; regimeSideNow: 1 | -1 | null; chainAgeSec: number; barAgeSec: number; delayedMin: number; source: string;
+  ratio: number; regimeSideNow: 1 | -1 | null; regimeKind: RegimeKind | null; chainAgeSec: number; barAgeSec: number; delayedMin: number; source: string;
 }
 interface Acct { mode: PaperAccount['mode']; capital: number; kademe: Kademe; commission: number; fractional: boolean; hasPosition: boolean; ttlMin: number | null }
 
@@ -124,6 +125,7 @@ async function scanOne(t: string, now: number, acct: Acct): Promise<Scan> {
   const snap = buildSnapshot({ ticker: t, price, changePct, chain: data.chain, expiry: data.pick, bars: data.bars, now,
     source: srcLabel, delayedMin: dMin, dataTime: data.L.quote.time, prevOi: null, atmIvSession0: null, sector: null });
   const vw = vwap(sb), or = openRange(sb, 15), ratio = volRatio(sb);
+  const regimeNow = regimeSummary(data.bars, now);   // onaylı rejim (histerezis); kart ve risk izleyici aynısını kullanır
   const bullN = FRAMES.filter(m => frameAligned(sb, 'bull', m)).length, bearN = FRAMES.filter(m => frameAligned(sb, 'bear', m)).length;
   const ak = autoK({ rule: p.otm, ratios: [], ivRank: null });
   const dte = dteOf(data.pick, today);
@@ -205,7 +207,7 @@ async function scanOne(t: string, now: number, acct: Acct): Promise<Scan> {
     inputs: { S: price, vwap: vw, orHigh: or ? or.high : null, orLow: or ? or.low : null, flip: snap.flip ?? null,
       callWall: snap.callWall ?? null, putWall: snap.putWall ?? null, emMove: Number.isFinite(em) ? em : null, pcVol: snap.pcVol ?? null,
       unusualCall: uns.filter(u => u.type === 'call').reduce((a, u) => a + u.vol, 0), unusualPut: uns.filter(u => u.type === 'put').reduce((a, u) => a + u.vol, 0),
-      momentum: bullN >= 2 ? 1 : bearN >= 2 ? -1 : 0, regime: regimeSummary(data.bars, now) },
+      momentum: bullN >= 2 ? 1 : bearN >= 2 ? -1 : 0, regime: regimeNow },
     expiries: vOpts, nowMs: now, quotesFor: e => (vPick && e === vPick.date ? vQuotes : null),
     dOf: () => (Number.isFinite(em) ? otmDistance(ak.k, em) : null), kademe: acct.kademe, capital: acct.capital });
   const status: TickerStatus = {
@@ -216,7 +218,7 @@ async function scanOne(t: string, now: number, acct: Acct): Promise<Scan> {
   };
   const quotes: Quote[] = [...data.chain.calls, ...data.chain.puts].map(q => ({ type: q.type, strike: q.strike, bid: q.bid, ask: q.ask, iv: q.iv, volume: q.volume, oi: q.oi }));
   return { ticker: t, status, cands, quotes, S: price, ivAtm: snap.atmIv ?? null, sb, leftMin, etMin, emRemain: Number.isFinite(emRemain) ? emRemain : 0,
-    ratio, regimeSideNow, chainAgeSec, barAgeSec, delayedMin: dMin, source: srcLabel };
+    ratio, regimeSideNow, regimeKind: regimeNow?.kind ?? null, chainAgeSec, barAgeSec, delayedMin: dMin, source: srcLabel };
 }
 
 const acctOf = (a: PaperAccount, ttlMin: number | null): Acct => ({
@@ -225,16 +227,16 @@ const acctOf = (a: PaperAccount, ttlMin: number | null): Acct => ({
 });
 const ensurePaper = (now: number): PaperAccount => firsat.get().paper ?? initAccount(START_CAPITAL, {}, etDate(now));
 
-/** Pozisyon tetikleri (T1, T2, T3, T6). T4/T5/T7 bu turda veri yokluğu nedeniyle kapalıdır. */
+/** Pozisyon tetikleri: yalnız T6 (teta/zaman). T1–T3 yerine uyarlanabilir çıkış (adaptive.ts) kullanılır. */
 function flagsFor(sc: Scan, pos: OpenPosition): Partial<Record<TriggerId, boolean>> {
-  const dirSign = pos.dir === 'call' ? 1 : -1;
-  const last = sc.sb[sc.sb.length - 1], vw = vwap(sc.sb);
   return {
-    T1: last ? t1ReversalCandle(last, dirSign, sc.ratio) : false,
-    T2: last && vw != null ? t2VwapLoss(last.c, vw, dirSign) : false,
-    T3: t3RegimeFlip(sc.regimeSideNow, dirSign),
     T6: pos.und ? t6Theta(pos.dte, sc.leftMin, Math.abs(pos.und.target - sc.S), sc.emRemain) : false,
   };
+}
+
+/** Uyarlanabilir çıkış girdisi: girişten beri 1 dk barlar + onaylı rejim (QQQ/SPY yerine kendi tickerı; kart ile aynı). */
+function adaptiveFor(sc: Scan, pos: OpenPosition, now: number): AdaptiveDecision {
+  return adaptiveDecision({ dirSign: pos.dir === 'call' ? 1 : -1, entryT: pos.openedAt, nowMs: now, bars: sc.sb, regime: sc.regimeKind });
 }
 
 /** Onay girdisi: kartın dayanak seviyeleri ve süresi. */
@@ -331,11 +333,12 @@ function tickPaper(paper: PaperAccount, scans: Scan[], now: number, calendar: Ca
   if (!sc) return paper;
   const q = sc.quotes.find(x => x.type === pos.dir && x.strike === pos.strike);
   const flags = flagsFor(sc, pos);
+  const adaptive = adaptiveFor(sc, pos, now);
   const r = tickPosition(paper, {
-    day: etDate(now), now, etMin: sc.etMin, bid: q ? q.bid : null, flags, S: sc.S, ivAtm: sc.ivAtm ?? NaN,
+    day: etDate(now), now, etMin: sc.etMin, bid: q ? q.bid : null, flags, adaptive, S: sc.S, ivAtm: sc.ivAtm ?? NaN,
     openUnd: sc.sb.length ? sc.sb[0].o : undefined, openBid: q?.bid,
     qExit: qExitTriggers(pos, sc.sb, { lod: firsat.get().settings.q.exitLod, ema: firsat.get().settings.q.exitEma }),
-    calendar: calendar ?? { ok: false, reasons: ['takvim sorgulanmadı'] }, strongTriggerLast30: !!(flags.T1 || flags.T2 || flags.T3), regimeAligned: !flags.T3,
+    calendar: calendar ?? { ok: false, reasons: ['takvim sorgulanmadı'] }, strongTriggerLast30: adaptive.rev > adaptive.cont, regimeAligned: !adaptive.regimeAgainst,
   });
   for (const e of r.events) {
     notifyFirsat(`Fırsat · ${pos.ticker} kâğıt`, e.text, `${pos.id}|${e.kind}|${now}`).catch(() => {});
@@ -346,7 +349,8 @@ function tickPaper(paper: PaperAccount, scans: Scan[], now: number, calendar: Ca
   }
   const np = r.acc.position;
   const live: PosLive | null = np && q
-    ? { bid: q.bid, rMult: profitR(np, q.bid), at: now, triggers: Object.entries(flags).filter(([, v]) => v).map(([k]) => k), stop: np.stopPrem }
+    ? { bid: q.bid, rMult: profitR(np, q.bid), at: now, triggers: Object.entries(flags).filter(([, v]) => v).map(([k]) => k), stop: np.stopPrem,
+      adaptive: adaptive.verdict === 'YOK' ? null : adaptive.reason }
     : null;
   firsat.setPosLive(live);
   return r.acc;

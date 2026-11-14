@@ -39,7 +39,7 @@ export interface Card extends Opp {
 }
 
 /** Açık pozisyonun canlı durumu (son tur). */
-export interface PosLive { bid: number; rMult: number; at: number; triggers: string[]; stop: number }
+export interface PosLive { bid: number; rMult: number; at: number; triggers: string[]; stop: number; adaptive?: string | null }
 
 export interface Archived { at: number; account: PaperAccount }
 

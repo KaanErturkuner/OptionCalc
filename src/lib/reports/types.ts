@@ -53,6 +53,8 @@ export interface IntraView {
   recap: string[];
   scenarios: IntraScenario[];
   reversal: string | null;          // dönüş adayı / onaylı dönüş özeti
+  rawKind?: RegimeKind;             // ham (onaysız) rejim; kind = onaylı
+  pending?: { kind: RegimeKind; run: number } | null;   // onay bekleyen aday
 }
 export interface ReportSections {
   v: 1;

@@ -5,6 +5,7 @@ import { startDay, closePosition } from './account.ts';
 import { exitFill } from './costs.ts';
 import { overnightDecision, gapOpenAction } from './overnight.ts';
 import { evaluatePosition, type TriggerId } from '../signals/riskwatch.ts';
+import type { AdaptiveDecision } from '../signals/adaptive.ts';
 import type { CalendarCheck } from '../calendar/events.ts';
 
 export interface TickIn {
@@ -13,6 +14,8 @@ export interface TickIn {
   etMin: number;               // ET dakika
   bid: number | null;          // kontratın alınabilir bid'i; yoksa karar verilmez
   flags: Partial<Record<TriggerId, boolean>>;
+  /** Uyarlanabilir çıkış kararı (adaptive.ts). Tanımsızsa T1–T3 bayrakları kullanılır. */
+  adaptive?: AdaptiveDecision | null;
   S: number;                   // dayanak (son fiyat)
   ivAtm: number;               // ATM IV (gece riski için)
   openUnd?: number; openBid?: number;   // ertesi sabah ilk bar (gap)
@@ -63,12 +66,15 @@ export function tickPosition(acc0: PaperAccount, t: TickIn): TickResult {
   }
 
   // 2) Risk izleyici önce (hedef/stop/iz süren/risk/0DTE 15:45). 15:45'te hedef veya stop vurmuşsa gece taşınmaz.
-  const dec = evaluatePosition(p, { bid: t.bid, etMin: t.etMin, mode: acc.mode, flags });
+  const dec = evaluatePosition(p, { bid: t.bid, etMin: t.etMin, mode: acc.mode, flags, adaptive: t.adaptive });
   if (dec.action === 'close') {
     const r = dec.reason ?? 'stop';
     const trig = dec.triggers.length ? ` (${dec.triggers.join(', ')})` : '';
-    return close({ ...acc, position: dec.pos }, t.bid, r, `${REASON_TEXT[r]}${r === 'risk' ? trig : ''}`);
+    const adaptiveCik = r === 'risk' && dec.adaptive?.verdict === 'CIK' && dec.message;
+    return close({ ...acc, position: dec.pos }, t.bid, r, adaptiveCik ? dec.message! : `${REASON_TEXT[r]}${r === 'risk' ? trig : ''}`);
   }
+  // DİKKAT geçişinde bir kez bildir (TUT sessiz; çıkış yok)
+  if (dec.adaptive?.verdict === 'DIKKAT' && p.adaptive !== 'DIKKAT') events.push({ kind: 'info', text: `Başkan, ${dec.adaptive.reason}. Çıkmıyorum, izliyorum.` });
   if (t.qExit?.lod) return close({ ...acc, position: dec.pos }, t.bid, 'risk', 'LOD/HOD kırıldı, çıkıyorum (Qullamaggie uyarlaması — Kaan onayı yok)');
   if (t.qExit?.ema) return close({ ...acc, position: dec.pos }, t.bid, 'iz-suren-stop', '5 dk EMA10 kırıldı, çıkıyorum (Qullamaggie uyarlaması — Kaan onayı yok)');
   p = dec.pos;

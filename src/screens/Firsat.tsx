@@ -161,6 +161,7 @@ export default function Firsat() {
             <>
               <Text style={{ color: D.posLive.rMult >= 0 ? C.pos : C.neg, fontSize: 18, fontWeight: '800', marginTop: 4 }}>{`${trNum(D.posLive.rMult, 2)} R · bid ${usd(D.posLive.bid, 2)}`}</Text>
               <Text style={{ color: C.muted, fontSize: 12 }}>{`Stop ${usd(D.posLive.stop, 2)} · hedef ${usd(pos.targetPrem, 2)} · tetikler: ${D.posLive.triggers.length ? D.posLive.triggers.map(t => TRIGGER_AD[t as keyof typeof TRIGGER_AD] ?? t).join(', ') : 'yok'}`}</Text>
+              {D.posLive.adaptive ? <Text style={{ color: C.muted, fontSize: 12 }}>{`Uyarlanabilir çıkış: ${D.posLive.adaptive}`}</Text> : null}
             </>
           ) : <Text style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>Canlı veri bekleniyor.</Text>}
           <Text style={{ color: C.muted, fontSize: 11, marginTop: 4 }}>Çıkışlar otomatik: hedef, stop, iz süren stop, risk tetikleri, 15:45 kuralı.</Text>

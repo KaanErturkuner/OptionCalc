@@ -11,6 +11,8 @@
  * Dönüş (onaylı) = seans uç noktasından ters hareket ≥ REV_COUNTER_PCT % VE son REV_LOOKBACK_MIN dk içinde ≥ REV_CONFIRM teyit
  *   (VWAP geri alma/kaybı, yüksek hacimli ters mum, 5 dk'da yüksek dip / alçak tepe yapısı). Tek teyit = "aday" (rejimi değiştirmez).
  * Hiçbiri değilse "karisik". Öncelik: onaylı dönüş > konsolidasyon > trend.
+ * Histerezis: ham rejim 5 dk kapanışlarında ölçülür; yeni rejim ardışık HYST_BARS (2) kapanış görülmeden onaylanmaz.
+ * Rapor, Sonuç/Fırsat kartı ve risk izleyici ONAYLI rejimi kullanır (confirmedRegimeAt).
  */
 import { closeMs, etDate } from '../usmarket.ts';
 
@@ -50,6 +52,7 @@ export const REGIME_K = {
   REV_VOL_AVG_N: 20,
   REV_WICK_FRAC: 0.5,       // ters fitil / mum aralığı alt sınırı
   VWAP_HOLD_MIN: 15,        // VWAP geri alımından önce altta (üstte) kalma süresi (dk)
+  HYST_BARS: 2,             // yeni rejim onay için ardışık 5 dk kapanışı (histerezis; 1 dk veride ≥ 5 dk)
 } as const;
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -252,14 +255,65 @@ export function regimeAt(tape: TapeBar[], nowMs: number, sessionStartMs: number)
   return { kind: 'karisik', label: 'Karışık / belirsiz', dir: null, band: { high: r2(wHi), low: r2(wLo) }, metrics, reason: stats + rev, ...base };
 }
 
-/** Rejim değişimleri (5 dk adım; yalnız değişen noktalar). Her nokta yalnız o ana kadar tamamlanmış barları görür. */
-export function regimeChanges(tape: TapeBar[], sessionStartMs: number, nowMs: number, stepMin = 5): { t: number; kind: RegimeKind }[] {
+/** Histerezis izi: her 5 dk kapanışında ham rejim + onaylı rejim. Seans 45 dk dolmadan iz boş (rejim "erken"). */
+export interface RegimeTracePoint { t: number; raw: RegimeResult; confirmed: RegimeKind; since: number; pending: { kind: RegimeKind; run: number } | null }
+
+/**
+ * Histerezis durum makinesi (saf). Girdi: ham rejim dizisi (zaman sıralı, 5 dk kapanışları). Onaylı rejim, farklı bir ham
+ * rejim ARDIŞIK `minRun` kapanışta görülürse değişir (ilk değer doğrudan onaylanır). `since`: onaylı rejimin başladığı kapanış
+ * (aday ilk görüldüğünde). Çıktı: her girdi için onaylı tür, since ve bekleyen aday.
+ */
+export function hystConfirm(seq: { t: number; kind: RegimeKind }[], minRun = REGIME_K.HYST_BARS):
+  { t: number; confirmed: RegimeKind; since: number; pending: { kind: RegimeKind; run: number } | null }[] {
+  const out: { t: number; confirmed: RegimeKind; since: number; pending: { kind: RegimeKind; run: number } | null }[] = [];
+  let conf: RegimeKind | null = null, since = 0, cand: RegimeKind | null = null, run = 0, candSince = 0;
+  for (const { t, kind } of seq) {
+    if (conf === null) { conf = kind; since = t; }
+    else if (kind === conf) { cand = null; run = 0; }
+    else if (kind === cand) run++;
+    else { cand = kind; run = 1; candSince = t; }
+    if (conf !== null && cand !== null && cand !== conf && run >= minRun) { conf = cand; since = candSince; cand = null; run = 0; }
+    out.push({ t, confirmed: conf, since, pending: cand ? { kind: cand, run } : null });
+  }
+  return out;
+}
+
+/** Histerezis izi (5 dk kapanışları, QQQ/SPY 1 dk barlardan). Ham rejim her kapanışta regimeAt ile ölçülür. */
+export function regimeTrace(tape: TapeBar[], sessionStartMs: number, nowMs: number): RegimeTracePoint[] {
+  const step = FIVE_MS;
+  const first = Math.ceil((sessionStartMs + REGIME_K.WINDOW_MIN_OK * MIN_MS) / step) * step;
+  const last = Math.floor(nowMs / step) * step;
+  const raws: RegimeResult[] = [];
+  for (let t = first; t <= last; t += step) raws.push(regimeAt(tape, t, sessionStartMs));
+  const h = hystConfirm(raws.map((r, k) => ({ t: first + k * step, kind: r.kind })));
+  return raws.map((raw, k) => ({ t: first + k * step, raw, confirmed: h[k].confirmed, since: h[k].since, pending: h[k].pending }));
+}
+
+export interface ConfirmedRegime {
+  raw: RegimeResult;                                   // şu an ham (anlık, onaysız)
+  confirmed: RegimeResult;                             // onaylı (rapor, kart, risk izleyici bunu kullanır)
+  confirmedSince: number | null;                       // onaylı rejimin başladığı 5 dk kapanışı
+  pending: { kind: RegimeKind; run: number } | null;   // onaylanmayı bekleyen aday (ham, ardışık kapanış sayısı)
+}
+
+/** Onaylı rejim (şu an). Onaylı tür şu anki ham türle aynıysa ham sonuç kullanılır; değilse onaylı türün son ham ölçümü. */
+export function confirmedRegimeAt(tape: TapeBar[], nowMs: number, sessionStartMs: number): ConfirmedRegime {
+  const raw = regimeAt(tape, nowMs, sessionStartMs);
+  const tr = regimeTrace(tape, sessionStartMs, nowMs);
+  if (!tr.length) return { raw, confirmed: raw, confirmedSince: null, pending: null };
+  const end = tr[tr.length - 1];
+  if (raw.kind === end.confirmed) return { raw, confirmed: raw, confirmedSince: end.since, pending: end.pending };
+  let pt = end;
+  for (let i = tr.length - 1; i >= 0; i--) if (tr[i].raw.kind === end.confirmed) { pt = tr[i]; break; }
+  return { raw, confirmed: pt.raw, confirmedSince: end.since, pending: end.pending };
+}
+
+/** Onaylı rejim değişimleri (yalnız değişen noktalar; t = yeni rejimin başladığı 5 dk kapanışı). */
+export function regimeChanges(tape: TapeBar[], sessionStartMs: number, nowMs: number): { t: number; kind: RegimeKind }[] {
   const out: { t: number; kind: RegimeKind }[] = [];
   let prev: RegimeKind | null = null;
-  for (let t = sessionStartMs + REGIME_K.WINDOW_MIN_OK * MIN_MS; t <= nowMs; t += stepMin * MIN_MS) {
-    const kind = regimeAt(tape, t, sessionStartMs).kind;
-    if (kind !== prev) out.push({ t, kind });
-    prev = kind;
+  for (const p of regimeTrace(tape, sessionStartMs, nowMs)) {
+    if (p.confirmed !== prev) { out.push({ t: p.since, kind: p.confirmed }); prev = p.confirmed; }
   }
   return out;
 }
@@ -267,6 +321,6 @@ export function regimeChanges(tape: TapeBar[], sessionStartMs: number, nowMs: nu
 /** Sonuç / Fırsat kartları için rejim özeti (saf). Bar yoksa null. */
 export function regimeSummary(bars: TapeBar[], nowMs: number): { kind: RegimeKind; dir: Dir | null; band: Band | null } | null {
   if (!bars.length) return null;
-  const r = regimeAt(bars, nowMs, sessionStartOf(nowMs));
+  const r = confirmedRegimeAt(bars, nowMs, sessionStartOf(nowMs)).confirmed;
   return { kind: r.kind, dir: r.dir, band: r.band };
 }
