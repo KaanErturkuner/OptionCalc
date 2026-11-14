@@ -1,5 +1,7 @@
 /* Radar tarama turu: veri (CBOE → Yahoo; MarketData'ya HİÇ gitmez) → anlık görüntü → dedektörler → haber → uyarı → bildirim → isabet. */
 import { loadSymbol, loadChain } from '@/lib/market';
+import { loadState } from '@/lib/state';
+import { flowKeyOf } from '@/lib/flow/client';
 import { loadBars } from '@/lib/market/bars';
 import type { Chain } from '@/lib/market/types';
 import type { Bar } from '@/lib/odte/analytics';
@@ -22,13 +24,21 @@ let recentNews: NewsItem[] = [];
 const NEWS_KEEP_MS = 24 * 3600000;
 
 interface Collected { ticker: string; price: number; changePct: number; chain: Chain; expiry: string; bars: Bar[]; source: string; delayedMin: number; dataTime: number }
+/** Radar verisi: spot Yahoo kotasyonundan (gecikme alanı kotasyondan), zincir MarketData `cached` (sunucu proxy'si, ~1 sn taze);
+ *  anahtar yoksa ya da MarketData düşerse CBOE zinciri (15 dk gecikmeli) — o durumda gecikme 15 dk olarak işaretlenir. */
 async function collect(t: string): Promise<Collected | null> {
   try {
-    const L = await loadSymbol(t, 'auto', {});
-    const exp = L.expirations[0]; if (!exp) return null;
-    const [chRaw, B] = await Promise.all([loadChain(L.provider, t, exp, {}, 40), loadBars(t)]);
-    return { ticker: t, price: L.quote.price, changePct: L.quote.changePct, chain: trimChain(chRaw, L.quote.price), expiry: exp,
-      bars: B.bars, source: L.quote.source, delayedMin: L.quote.delayedMin, dataTime: L.quote.time };
+    const st = await loadState().catch(() => null);
+    const mdKey = flowKeyOf(st?.flowKey) || undefined;
+    const Y = await loadSymbol(t, 'yahoo', {});
+    const exp = Y.expirations[0]; if (!exp) return null;
+    let chainRaw: Chain | null = null, chainSrc = 'MarketData', chainDelay = 0;
+    if (mdKey) chainRaw = await loadChain('marketdata', t, exp, { marketdata: mdKey }, 40, { mdMode: 'cached', mdMaxAge: '2min' }).catch(() => null);
+    if (!chainRaw) { chainRaw = await loadChain('cboe', t, exp, {}, 40).catch(() => null); chainSrc = 'CBOE'; chainDelay = 15; }
+    if (!chainRaw) return null;
+    const B = await loadBars(t);
+    return { ticker: t, price: Y.quote.price, changePct: Y.quote.changePct, chain: trimChain(chainRaw, Y.quote.price), expiry: exp,
+      bars: B.bars, source: `Yahoo + ${chainSrc}`, delayedMin: Math.max(Y.quote.delayedMin, chainDelay), dataTime: Y.quote.time };
   } catch { return null; }
 }
 async function pool<T, R>(xs: T[], n: number, f: (x: T) => Promise<R>): Promise<R[]> {

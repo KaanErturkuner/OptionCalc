@@ -116,6 +116,7 @@ console.log('\n— Dedektörler: pozitif / negatif örnekler —');
   ok('trend yok: VWAP hold bozuk (son bar VWAP altı)', trend(snap({ ...T, bars: [...UP_BARS.slice(0, 4), { ...UP_BARS[4], c: 98.9 }] })).length === 0);
   ok('trend yok: 15:50 ET (pencere dışı)', trend(snap({ ...T, now: Date.parse('2026-11-13T20:50:00Z') })).length === 0);
   ok('trend yok: 09:45 ET (açılış gürültüsü)', trend(snap({ ...T, now: Date.parse('2026-11-13T14:45:00Z') })).length === 0);
+  ok('trend yok: spot 4 dk eski (bayat veri)', trend(snap({ ...T, dataAgeSec: 240 })).length === 0);
   ok('trend yok: bar sayısı yetersiz', trend(snap({ ...T, bars: UP_BARS.slice(0, 3) })).length === 0);
   const sFar = trend(snap({ ...T, spot: 101.5 }))[0]?.severity ?? 0, sNear = trend(snap(T))[0]?.severity ?? 0;
   ok('trend şiddeti kırılım mesafesiyle artar', sFar > sNear && sNear >= 0.55, `(${sNear} → ${sFar})`);

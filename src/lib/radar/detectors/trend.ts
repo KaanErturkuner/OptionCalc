@@ -3,14 +3,15 @@
  *   1) Fiyat OR dışına %0,1 tampon ile çıkmış (yukarı: spot ≥ orHigh·1,001; aşağı: spot ≤ orLow·0,999). Gürültülü dokunuşlar elenir.
  *   2) VWAP hold: fiyat VWAP'ın yön tarafında VE son 5 tamamlanmış barın kapanışı da o tarafta.
  *   3) EMA9/EMA21 yön ile hizalı.
- *   4) Giriş penceresi ET 10:00–15:30 (açılış gürültüsü hariç; 15:45 zorunlu çıkıştan önce).
+ *   4) Spot verisi en çok 3 dk eski (bayat veriyle giriş yok).
+ *   5) Giriş penceresi ET 10:00–15:30 (açılış gürültüsü hariç; 15:45 zorunlu çıkıştan önce).
  * Şiddet: 0,55 + min(0,25; mesafe × 15) — kırılım ne kadar belirgin o kadar güçlü. Aday strike: spot ± k × günlük beklenen hareket. */
 import type { Signal, Snapshot } from '../types.ts';
 import { strikeMult, roundStrike, isEtf } from '../universe.ts';
 import { etOffset } from '../../usmarket.ts';
 import { sig } from './util.ts';
 
-export const OR_BUFFER = 0.001, HOLD_BARS = 5, WINDOW_START = 600, WINDOW_END = 930; // dakika (ET)
+export const MAX_DATA_AGE_SEC = 180, OR_BUFFER = 0.001, HOLD_BARS = 5, WINDOW_START = 600, WINDOW_END = 930; // dakika (ET)
 
 /** ET saat diliminde gün içi dakika (0–1439) */
 export function etMinute(now: number): number {
@@ -20,6 +21,7 @@ export function etMinute(now: number): number {
 
 export function trend(s: Snapshot): Signal[] {
   if (s.orHigh == null || s.orLow == null || s.vwap == null || s.ema9 == null || s.ema21 == null || s.expectedMove == null || s.expectedMove <= 0) return [];
+  if (s.dataAgeSec > MAX_DATA_AGE_SEC) return [];           // bayat spot ile kırılım sinyali üretme
   const m = etMinute(s.now);
   if (m < WINDOW_START || m > WINDOW_END) return [];
   const last = s.bars.slice(-HOLD_BARS);
