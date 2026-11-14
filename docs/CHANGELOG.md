@@ -1,5 +1,30 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — Bilanço takvimi: Nasdaq → Finnhub (sunucu önbelleği), görsel ekranlar, favoriler ve sonuç bildirimi
+
+**Neden:** Bilanço takvimi resmî olmayan Nasdaq uç noktasına bağlıydı (kırılgan, sürpriz/gerçek EPS yok). Kaan görsel bir takvim, sürpriz yüzdesi, grafikler, favori yıldızı ve gerçek EPS açıklanınca bildirim istedi. Anahtar yalnız sunucuda kalır.
+
+**Ne:**
+- **Sunucu (`server/app`):** `GET /earnings?from&to&watch` (x-app-key, en çok 31 gün, varsayılan bugün..+6); `GET /earnings/history?symbol`; `POST /earnings/favs {token,symbols}`. Finnhub `calendar/earnings`, `stock/profile2` (piyasa değeri, haftalık), `stock/earnings` (24 sa). SQLite tabloları: earn_items/days/fetch_log (önceden), earn_caps, earn_hist, earn_favs, earn_notified. Tick 15 dk, bugün−3..+14; geçmiş günler 08:00 ve 16:30 ET kontrol noktalarından sonra bir kez yenilenir (gerçek EPS dolsun).
+- **Küçük şirket filtresi:** ≥ 2 mlr $ veya izleme listesi / favori. Değeri bilinmeyen küçük şirket gizli. `watch` parametresi uygulama tarafından izleme + favori sembollerinden gönderilir.
+- **Favori bildirimi (seçim: sunucu push):** Sunucu zaten Expo push gönderiyor (`push_tokens`, Akış ve raporlar). Uygulama favorileri ve Expo tokenını sunucuya bildirir; yeni çekimde favori sembolün `epsActual`'i boştan dolunca o cihaza push atılır (aynı cihaz+gün+sembol bir kez). Yerel bildirim yolu eklenmedi: uygulama kapalıyken de çalışır, OTA gerektirmez. Sınır: cihaz push kaydı (izin) yoksa token yoktur; favori yerel kalır, bildirim gelmez.
+- **Uygulama:** `src/lib/earnings/{model,calendar,charts,client}.ts` (saf + istemci), `src/ui/{earnStore.ts,EarnCharts.tsx}` (favoriler, SVG grafikler), `src/screens/{Bilanco,BilancoDetay}.tsx` (yeniden tasarım: ay/hafta ızgarası, gün sayaçları, BMO/AMC gruplu sıkı satırlar, yıldız; detayda EPS/gelir kartları, EPS geçmişi, beklenen hareket ve strike OI/hacim çubukları, 5 gün akış primi, haber). `src/ui/flowPush.ts` → `currentPushToken()` eklendi.
+- **Kaldırıldı:** `src/lib/earnings/fetch.ts` (Nasdaq), eski `parseEarningsCalendar` / `parseUsd` / `summarizeChain` yolu.
+- **Beklenen hareket:** en yakın vade (≥ bilanço günü) ATM straddle (call orta + put orta) ÷ spot.
+- **Sürpriz:** (gerçek − beklenti) / |beklenti| × 100, kodda hesaplanır; yeşil pozitif, kırmızı negatif.
+
+**Dosyalar:** `server/app/{earnings.ts,http.ts,main.ts,push.ts,sources.ts,store.ts}`, `server/README.md`; `src/lib/earnings/*`, `src/ui/{earnStore.ts,EarnCharts.tsx,flowPush.ts}`, `src/screens/{Bilanco,BilancoDetay}.tsx`; testler `test/earnings.test.ts` (saf), `test/earnings-server.test.ts` (sahte kaynak + `:memory:` SQLite); `package.json` (test betiği).
+
+**Doğrulama:** `npm test` ✓ (yeni iki bilanço testi dahil); `npx eslint` (değişen uygulama dosyaları) ✓; `npm run flow:selftest` ✓; `npx tsc --noEmit`: uygulama tarafında hata yok; sunucu dosyalarında yalnız önceden var olan `node:*` / `@types/node` eksikliği hataları (`config.ts`, `poller.ts`, `store.ts`; bu ortamda `@types/node` yok, AGENTS.md notu). Canlı Finnhub çağrısı YAPILMADI (anahtar bu oturumda kullanılmadı); görsel kontrol Expo Go'da yapılmadı.
+
+**Açık / dikkat:**
+- **Deploy yapılmadı.** Sunucuda `server/deploy.sh` ve yeni tablolar için yeniden başlatma gerekir. Uygulama OTA yayınlanmadı (Kaan isteyince).
+- Finnhub `profile2` ve `stock/earnings` ücretsiz planda kısıtlı olabilir. 403 alınırsa piyasa değeri bilinmez → küçük şirketler (izleme dışı) hiç görünmez. İlk canlı çekimde doğrulanmalı.
+- Piyasa değeri tüm takvim penceresi için birkaç tick'te dolar (tick başına 120 sorgu); ilk açılışta liste eksik görünebilir.
+- Favori yıldızı bildirim izni ister (`syncEarnFavsToServer` → `currentPushToken`). Favori yoksa açılışta izin istenmez.
+- Gelir sürpriz yüzdesi yok (yalnız EPS için); gelir gerçek/beklenti gösterilir.
+- Sürpriz yüzdesi beklenti sıfır/negatifken yanıltıcı olabilir; kodda beklenti 0 ise null.
+
 ## 2026-11-14 — Claude — Akış: filtreler, Dağılım, kural yorumu, AI yorum (Haiku)
 
 **Neden:** Kaan Akış olaylarını daraltmak, strike bazında call/put primini görmek ve okunabilir bir yorum istedi. Yorum ücretsiz ve kural tabanlı; Haiku yorumu yalnız butona basınca, sunucuda üretilir (anahtar uygulamada yok).

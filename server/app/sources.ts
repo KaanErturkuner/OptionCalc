@@ -74,6 +74,18 @@ export class FinnhubClient {
     const from = new Date(sinceMs).toISOString().slice(0, 10);
     return parseFinnhubNews(await this.get(`/company-news?symbol=${encodeURIComponent(sym)}&from=${from}&to=${today}`), sym, sinceMs);
   }
+  /** Bilanço takvimi (aralık, ham yanıt; doğrulama src/lib/earnings/model.ts'te). Anahtar başlıkta; hata metni sırsız. */
+  calendarEarnings(from: string, to: string): Promise<unknown> {
+    return this.get(`/calendar/earnings?from=${from}&to=${to}`);
+  }
+  /** Şirket profili (piyasa değeri: marketCapitalization, milyon USD). Ham yanıt; doğrulama src/lib/earnings/model.ts'te. */
+  profile(sym: string): Promise<unknown> {
+    return this.get(`/stock/profile2?symbol=${encodeURIComponent(sym)}`);
+  }
+  /** Geçmiş bilanço çeyrekleri (ham dizi; doğrulama parseFinnhubHistory). */
+  earningsHistory(sym: string): Promise<unknown> {
+    return this.get(`/stock/earnings?symbol=${encodeURIComponent(sym)}`);
+  }
   /** Bilanço takvimi: tek istek, izleme listesi için satır satır (null = tarih yok) */
   async earnings(from: string, to: string, tickers: string[]): Promise<{ ticker: string; date: string | null }[]> {
     const j = await this.get(`/calendar/earnings?from=${from}&to=${to}`);

@@ -47,6 +47,26 @@ export class ExpoPush implements PushSender {
     return sent;
   }
 
+  /** Belirli tokenlara bildirim (ör. favori bilanço sonucu). Döner: başarılı ticket sayısı. Token/içerik loglanmaz. */
+  async sendTo(msgs: { to: string; title: string; body: string; data: Record<string, unknown> }[]): Promise<number> {
+    let sent = 0;
+    for (let i = 0; i < msgs.length; i += 100) {
+      const chunk = msgs.slice(i, i + 100).map(m => ({ ...m, sound: 'default', priority: 'high', channelId: 'flow' }));
+      const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' };
+      if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
+      const r = await this.fetchImpl(EXPO_URL, { method: 'POST', headers, body: JSON.stringify(chunk), signal: AbortSignal.timeout(15000) });
+      const j: any = await r.json().catch(() => null);
+      const tickets: any[] = Array.isArray(j?.data) ? j.data : [];
+      tickets.forEach((t, k) => {
+        if (t?.status === 'ok') { sent++; return; }
+        const code = t?.details?.error;
+        if (code === 'DeviceNotRegistered' && chunk[k]) this.store.removePushToken(chunk[k].to);
+        this.log(`bildirim başarısız: ${code ?? 'bilinmeyen'}`);
+      });
+    }
+    return sent;
+  }
+
   async send(events: FlowEvent[]): Promise<{ sent: number; ids: number[] }> {
     const tokens = this.store.pushTokens();
     if (!tokens.length || !events.length) return { sent: 0, ids: [] };

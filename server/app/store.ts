@@ -6,6 +6,7 @@ import type { Baseline, ChainRow } from '../../src/lib/flow/detect.ts';
 import type { FlowEvent } from '../../src/lib/flow/model.ts';
 import { FLOW_DAYS_MAX, oldestTradingDay } from '../../src/lib/flow/days.ts';
 import type { ReportSections } from '../../src/lib/reports/types.ts';
+import type { EarningsItem } from '../../src/lib/earnings/model.ts';
 
 /** Olay saklama: son N işlem günü (akış penceresi en çok FLOW_DAYS_MAX; bir fazlası tampon) */
 export const RETAIN_TRADING_DAYS = FLOW_DAYS_MAX;
@@ -52,6 +53,18 @@ export class Store {
       CREATE TABLE IF NOT EXISTS coach_karne (day TEXT PRIMARY KEY, ts INTEGER NOT NULL, model TEXT NOT NULL, body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS flow_yorum (ticker TEXT NOT NULL, day TEXT NOT NULL, ts INTEGER NOT NULL, model TEXT NOT NULL, text TEXT NOT NULL,
         PRIMARY KEY (ticker, day));
+      CREATE TABLE IF NOT EXISTS earn_items (date TEXT NOT NULL, symbol TEXT NOT NULL, hour TEXT NOT NULL,
+        eps_est REAL, eps_act REAL, rev_est REAL, rev_act REAL, surprise REAL, quarter INTEGER, year INTEGER,
+        PRIMARY KEY (date, symbol));
+      CREATE TABLE IF NOT EXISTS earn_days (day TEXT PRIMARY KEY, fetched INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS earn_fetch_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, range_from TEXT NOT NULL,
+        range_to TEXT NOT NULL, rows INTEGER NOT NULL, ok INTEGER NOT NULL, err TEXT);
+      CREATE INDEX IF NOT EXISTS earn_fetch_log_at ON earn_fetch_log (at);
+      CREATE TABLE IF NOT EXISTS earn_caps (symbol TEXT PRIMARY KEY, at INTEGER NOT NULL, cap_usd REAL);
+      CREATE TABLE IF NOT EXISTS earn_hist (symbol TEXT PRIMARY KEY, at INTEGER NOT NULL, body TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS earn_favs (token TEXT NOT NULL, symbol TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (token, symbol));
+      CREATE TABLE IF NOT EXISTS earn_notified (token TEXT NOT NULL, date TEXT NOT NULL, symbol TEXT NOT NULL, at INTEGER NOT NULL,
+        PRIMARY KEY (token, date, symbol));
     `);
     // Geçmiş sürüm migrasyonu: örnek rapor bayrağı (eski satırlar 0 = gerçek rapor)
     const rcols = (this.db.prepare('PRAGMA table_info(reports)').all() as { name: string }[]).map(c => c.name);
@@ -335,6 +348,93 @@ export class Store {
   /** Bugünden (ET) önceki günlerin yorumlarını siler. Dönen: silinen satır sayısı. */
   flowYorumPurge(today: string): number {
     return Number(this.db.prepare('DELETE FROM flow_yorum WHERE day < ?').run(today).changes);
+  }
+
+  // ── bilanço takvimi (Finnhub önbelleği; bkz. server/app/earnings.ts) ──
+  /** Aralığı atomik yazar: önce aralıktaki eski satırlar silinir (Finnhub aralık yanıtı yetkilidir), gün izleri ve günlük güncellenir. */
+  replaceEarnRange(from: string, to: string, items: EarningsItem[], days: string[], at: number): void {
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare('DELETE FROM earn_items WHERE date >= ? AND date <= ?').run(from, to);
+      const ins = this.db.prepare(`INSERT INTO earn_items (date, symbol, hour, eps_est, eps_act, rev_est, rev_act, surprise, quarter, year)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      for (const it of items) ins.run(it.date, it.symbol, it.hour, it.epsEstimate, it.epsActual, it.revenueEstimate, it.revenueActual, it.surprisePct, it.quarter, it.year);
+      const up = this.db.prepare('INSERT INTO earn_days (day, fetched) VALUES (?, ?) ON CONFLICT (day) DO UPDATE SET fetched = excluded.fetched');
+      for (const d of days) up.run(d, at);
+      this.db.exec('COMMIT');
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+  /** Gün → son başarılı çekim (UTC ms); yalnız [from,to] içindekiler */
+  earnFetchedDays(from: string, to: string): Map<string, number> {
+    const m = new Map<string, number>();
+    for (const r of this.db.prepare('SELECT day, fetched FROM earn_days WHERE day >= ? AND day <= ?').all(from, to) as { day: string; fetched: number }[])
+      m.set(r.day, Number(r.fetched));
+    return m;
+  }
+  /** Aralık satırları (önbellek). Piyasa değeri earn_caps'ten; bilinmiyorsa null. */
+  earnItems(from: string, to: string): EarningsItem[] {
+    type R = { date: string; symbol: string; hour: string; eps_est: number | null; eps_act: number | null; rev_est: number | null; rev_act: number | null; surprise: number | null; quarter: number | null; year: number | null; cap_usd: number | null };
+    return (this.db.prepare(`SELECT e.*, c.cap_usd FROM earn_items e LEFT JOIN earn_caps c ON c.symbol = e.symbol
+      WHERE e.date >= ? AND e.date <= ? ORDER BY e.date, e.symbol`).all(from, to) as unknown as R[]).map(r => ({
+      date: r.date, symbol: r.symbol, hour: (['bmo', 'amc', 'dmh'] as string[]).includes(r.hour) ? r.hour as EarningsItem['hour'] : '',
+      epsEstimate: r.eps_est, epsActual: r.eps_act, revenueEstimate: r.rev_est, revenueActual: r.rev_act,
+      surprisePct: r.surprise, quarter: r.quarter, year: r.year, marketCapUsd: r.cap_usd,
+    }));
+  }
+  /** Aralıktaki satırların "tarih|sembol" → epsActual dolu muydu (yeni gerçek tespiti için) */
+  earnActualMap(from: string, to: string): Map<string, boolean> {
+    const m = new Map<string, boolean>();
+    for (const r of this.db.prepare('SELECT date, symbol, eps_act FROM earn_items WHERE date >= ? AND date <= ?').all(from, to) as { date: string; symbol: string; eps_act: number | null }[])
+      m.set(r.date + '|' + r.symbol, r.eps_act != null);
+    return m;
+  }
+  /** Aralıktaki, piyasa değeri bilinmeyen ya da haftadan eski olan semboller (doldurma sırası) */
+  earnCapsDue(from: string, to: string, staleBefore: number, limit: number): string[] {
+    return (this.db.prepare(`SELECT DISTINCT e.symbol FROM earn_items e LEFT JOIN earn_caps c ON c.symbol = e.symbol
+      WHERE e.date >= ? AND e.date <= ? AND (c.symbol IS NULL OR c.at < ?) ORDER BY e.symbol LIMIT ?`)
+      .all(from, to, staleBefore, limit) as { symbol: string }[]).map(r => r.symbol);
+  }
+  /** Piyasa değeri (USD; null = Finnhub'da yok) */
+  earnSetCap(symbol: string, at: number, capUsd: number | null): void {
+    this.db.prepare('INSERT INTO earn_caps (symbol, at, cap_usd) VALUES (?, ?, ?) ON CONFLICT (symbol) DO UPDATE SET at = excluded.at, cap_usd = excluded.cap_usd').run(symbol, at, capUsd);
+  }
+  earnHistGet(symbol: string): { at: number; body: string } | null {
+    const r = this.db.prepare('SELECT at, body FROM earn_hist WHERE symbol = ?').get(symbol) as { at: number; body: string } | undefined;
+    return r ? { at: Number(r.at), body: r.body } : null;
+  }
+  earnHistPut(symbol: string, at: number, body: string): void {
+    this.db.prepare('INSERT INTO earn_hist (symbol, at, body) VALUES (?, ?, ?) ON CONFLICT (symbol) DO UPDATE SET at = excluded.at, body = excluded.body').run(symbol, at, body);
+  }
+  /** Cihazın favori listesi (tam değiştirme). */
+  earnFavsSet(token: string, symbols: string[], at: number): void {
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare('DELETE FROM earn_favs WHERE token = ?').run(token);
+      const ins = this.db.prepare('INSERT INTO earn_favs (token, symbol, at) VALUES (?, ?, ?)');
+      for (const s of symbols) ins.run(token, s, at);
+      this.db.exec('COMMIT');
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+  earnFavTokenCount(): number {
+    return Number((this.db.prepare('SELECT COUNT(DISTINCT token) AS n FROM earn_favs').get() as { n: number }).n);
+  }
+  /** Sembol → favori yapan tokenlar */
+  earnFavTokens(symbol: string): string[] {
+    return (this.db.prepare('SELECT token FROM earn_favs WHERE symbol = ?').all(symbol) as { token: string }[]).map(r => r.token);
+  }
+  /** Bildirim tekilleştirme: ilk kez ekleniyorsa true (aynı token+gün+sembol bir kez gönderilir) */
+  earnNotifyOnce(token: string, date: string, symbol: string, at: number): boolean {
+    return Number(this.db.prepare('INSERT OR IGNORE INTO earn_notified (token, date, symbol, at) VALUES (?, ?, ?, ?)').run(token, date, symbol, at).changes) > 0;
+  }
+  earnLog(at: number, from: string, to: string, rows: number, ok: boolean, err: string | null): void {
+    this.db.prepare('INSERT INTO earn_fetch_log (at, range_from, range_to, rows, ok, err) VALUES (?, ?, ?, ?, ?, ?)').run(at, from, to, rows, ok ? 1 : 0, err);
+    this.db.prepare('DELETE FROM earn_fetch_log WHERE at < ?').run(at - 30 * 86400000);
+  }
+  /** Eski takvim satırları (60 gün öncesi) ve eski bildirim izleri */
+  earnPrune(beforeDay: string, beforeMs: number): void {
+    this.db.prepare('DELETE FROM earn_items WHERE date < ?').run(beforeDay);
+    this.db.prepare('DELETE FROM earn_days WHERE day < ?').run(beforeDay);
+    this.db.prepare('DELETE FROM earn_notified WHERE at < ?').run(beforeMs);
   }
 
   close(): void { this.db.close(); }
