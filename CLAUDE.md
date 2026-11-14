@@ -17,3 +17,6 @@ environment doesn't expand `@AGENTS.md`, open it directly. Essentials:
 
 > **Türkçe özet:** Bu repo Claude ve Grok arasında ortak. Ayrıntılı kurallar `AGENTS.md`'de. Commit öncesi `npm run check`; görevler
 > `docs/TASKS.md`; bitince CHANGELOG'a not; token'lar asla repoya girmez; Expo'ya yayın yalnızca Kaan isteyince.
+
+## Expo'ya yayınlama (OTA)
+Expo Go + OTA yalnız (native/TestFlight yok). Ön koşullar (EXPO_TOKEN, git'e girmeyen .env içinde EXPO_PUBLIC_FLOW_API_KEY), adımlar, doğrulama, geri alma ve koordinasyon: `HANDOFF_CLAUDE.md` §15. Sırları asla commit etme/yazdırma; `src/lib/flow/client.ts` içindeki ENV_FLOW_KEY yedeğini silme.
