@@ -7,6 +7,10 @@ import * as X from '../src/lib/flow/proxy.ts';
 import * as M from '../src/lib/flow/model.ts';
 import * as DY from '../src/lib/flow/days.ts';
 import * as R from '../src/lib/flow/reconstruct.ts';
+import * as FL from '../src/lib/flow/filter.ts';
+import * as DI from '../src/lib/flow/distribution.ts';
+import * as YO from '../src/lib/flow/yorum.ts';
+import * as AI from '../src/lib/flow/aiyorum.ts';
 
 let fail = 0;
 const ok = (name: string, cond: boolean, info = '') => { if (!cond) fail++; console.log((cond ? 'OK  ' : 'FAIL') + ' ' + name + (info && !cond ? ' — ' + info : '')); };
@@ -178,6 +182,95 @@ ok('contractLabel', M.contractLabel({ ticker: 'QQQ', expiry: '2026-11-20', strik
   ok('çubuk: en az bir olay, reconstructed, ts ≤ kapanış', timed.length >= 1 && timed.every(e => e.reconstructed && e.ts <= close), JSON.stringify(timed.map(e => ({ ts: e.ts, dv: e.dv, prem: e.prem }))));
   // 15 dk soğuma: tek büyük artış tek olay olmalı (100 sonra 400 aynı soğumada değil 1 saat arayla)
   ok('çubuk: 1 saat aralıklı iki artış soğumayı geçer (ikincisi 400≥200)', timed.some(e => e.dv === 400) || timed.length >= 1);
+}
+
+
+// ───── 7) Akış filtreleri (Bugün / Dün / vade / min prim / taraf / hisse) ─────
+{
+  const EV = (o: Partial<M.FlowEvent> & { id: number }): M.FlowEvent => ({ ts: 1000 + o.id, day: '2026-11-16', ticker: 'QQQ', occ: 'O' + o.id, expiry: '2026-11-16',
+    side: 'call', strike: 585, dv: 100, volume: 100, oi: 50, bid: 1, ask: 1.2, mid: 1.1, prem: 100000, volOi: 2, confirmed: true, wide: false, pushed: false,
+    underlying: 580, ...o } as M.FlowEvent);
+  const a = EV({ id: 1, prem: 600000 });                                                       // QQQ call, bugün, 0DTE
+  const b = EV({ id: 2, ticker: 'SPY', side: 'put', strike: 580, day: '2026-11-13', expiry: '2026-11-20', prem: 60000 }); // SPY put, dün, haftalık
+  const c = EV({ id: 3, ticker: 'QQQ', side: 'put', strike: 575, expiry: '2026-11-20', prem: 20000 });                 // QQQ put, bugün, haftalık
+  const d = EV({ id: 4, ticker: 'NVDA', strike: 900, day: '2026-11-13', expiry: '2026-11-19', prem: 1200000 });       // NVDA call, dün, Perşembe vadesi (diğer)
+  const all = [a, b, c, d];
+  const mon = Date.parse('2026-11-16T15:00:00Z');
+  const ids = (xs: M.FlowEvent[]) => xs.map(x => x.id).join(',');
+  const base = FL.DEFAULT_FILTERS;
+
+  const dt = FL.dayTargets(mon);
+  ok('gün: Pazartesi → Bugün 2026-11-16, Dün 2026-11-13', dt.bugun === '2026-11-16' && dt.dun === '2026-11-13', JSON.stringify(dt));
+  ok('filtre: varsayılan (3 gün, Hepsi) hepsini geçirir', ids(FL.applyFlowFilters(all, base, mon)) === '1,2,3,4');
+  ok('filtre: hisse QQQ', ids(FL.applyFlowFilters(all, { ...base, ticker: 'QQQ' }, mon)) === '1,3');
+  ok('filtre: taraf call', ids(FL.applyFlowFilters(all, { ...base, side: 'call' }, mon)) === '1,4');
+  ok('filtre: taraf put', ids(FL.applyFlowFilters(all, { ...base, side: 'put' }, mon)) === '2,3');
+  ok('filtre: Bugün → yalnız 2026-11-16 olayları', ids(FL.applyFlowFilters(all, { ...base, day: 'bugun' }, mon)) === '1,3');
+  ok('filtre: Dün → önceki işlem günü (13 Kas)', ids(FL.applyFlowFilters(all, { ...base, day: 'dun' }, mon)) === '2,4');
+  ok('filtre: min prim 100 bin $ (≥)', ids(FL.applyFlowFilters(all, { ...base, minPrem: 100000 }, mon)) === '1,4');
+  ok('filtre: vade 0DTE (expiry = day)', ids(FL.applyFlowFilters(all, { ...base, expiry: 'zero' }, mon)) === '1');
+  ok('filtre: vade haftalık (Cuma 11-20)', ids(FL.applyFlowFilters(all, { ...base, expiry: 'weekly' }, mon)) === '2,3');
+  ok('filtre: Perşembe vadesi (Cuma açık) haftalık sayılmaz', FL.expiryKind(d) === 'other' && !FL.isWeeklyExpiry('2026-11-19'));
+  ok('vade: 2027-03-25 (Cuma 26 Mart tatil) haftalık', FL.isWeeklyExpiry('2027-03-25') && !FL.isWeeklyExpiry('2027-03-24'));
+  ok('vade: Cuma vadesi haftalık, Pazartesi vadesi değil', FL.isWeeklyExpiry('2026-11-20') && !FL.isWeeklyExpiry('2026-11-16'));
+  const comb = ids(FL.applyFlowFilters(all, { ...base, ticker: 'QQQ', day: 'bugun', side: 'call', minPrem: 500000, expiry: 'zero' }, mon));
+  ok('birleşik filtre: QQQ + Bugün + call + ≥500 bin + 0DTE → 1', comb === '1', comb);
+
+  const sat = Date.parse('2026-11-14T15:00:00Z');   // Cumartesi
+  ok('hafta sonu: Bugün (14 Kas) boş', FL.applyFlowFilters(all, { ...base, day: 'bugun' }, sat).length === 0);
+  ok('hafta sonu: Dün = 13 Kas (Cuma)', ids(FL.applyFlowFilters(all, { ...base, day: 'dun' }, sat)) === '2,4' && FL.dayTargets(sat).dun === '2026-11-13');
+
+  ok('tickersIn: DEFAULT sırası önce, sonra alfabetik', FL.tickersIn([{ ticker: 'ZZZ' }, { ticker: 'SPY' }, { ticker: 'AAA' }, { ticker: 'QQQ' }, { ticker: 'NVDA' }]).join(',') === 'QQQ,SPY,NVDA,AAA,ZZZ');
+  const vf = FL.validFilters({ ticker: 'qqq', side: 'x', day: 'dun', minPrem: 999, expiry: 'weekly' });
+  ok('validFilters: geçersiz alanlar varsayılana, geçerli dun/weekly korunur', vf.ticker === null && vf.side === 'all' && vf.minPrem === 0 && vf.day === 'dun' && vf.expiry === 'weekly', JSON.stringify(vf));
+  const vp = FL.validPrefs({ view: 'dagilim', dagTicker: 'NVDA', filters: { ticker: 'QQQ' } });
+  ok('validPrefs: view/dagTicker/filtre yüklenir; bozuk girdi varsayılan', vp.view === 'dagilim' && vp.dagTicker === 'NVDA' && vp.filters.ticker === 'QQQ' && FL.validPrefs(null).view === 'liste' && FL.validPrefs({ dagTicker: 'x y' }).dagTicker === null);
+
+  // ───── Dağılım: toplama, spot, en yakın strike ─────
+  const ag = DI.aggregateByStrike([EV({ id: 10, strike: 585, side: 'call', prem: 100, dv: 10 }), EV({ id: 11, strike: 585, side: 'call', prem: 50, dv: 5, expiry: '2026-11-20' }),
+    EV({ id: 12, strike: 585, side: 'put', prem: 30, dv: 4 }), EV({ id: 13, strike: 590, side: 'call', prem: 10, dv: 1 })]);
+  ok('toplama: 585 call 150 / put 30 / kontrat 15 / 4, net 120 (iki vade birleşir)', ag[1].strike === 585 && ag[1].callPrem === 150 && ag[1].putPrem === 30 && ag[1].callDv === 15 && ag[1].putDv === 4 && ag[1].net === 120, JSON.stringify(ag));
+  ok('toplama: farklı strike ayrı satır, yüksekten düşüğe', ag.length === 2 && ag[0].strike === 590 && ag[0].callPrem === 10);
+  ok('toplama: boş girdi → []', DI.aggregateByStrike([]).length === 0);
+  const rowsX = [{ strike: 590, callPrem: 1, putPrem: 0, callDv: 0, putDv: 0, net: 1, total: 1 }, { strike: 585, callPrem: 2, putPrem: 0, callDv: 0, putDv: 0, net: 2, total: 2 }, { strike: 580, callPrem: 0, putPrem: 0, callDv: 0, putDv: 0, net: 0, total: 0 }];
+  ok('atm: spot 583,4 → 585 (en yakın)', DI.atmStrike(rowsX, 583.4) === 585 && DI.atmStrike(rowsX, null) === null);
+  ok('spotOf: en son non-null underlying (ts)', DI.spotOf([{ ts: 100, id: 1, underlying: 580 }, { ts: 200, id: 2, underlying: null }, { ts: 150, id: 3, underlying: 581 }]) === 581);
+  ok('spotOf: eşit ts → büyük id', DI.spotOf([{ ts: 100, id: 5, underlying: 582 }, { ts: 100, id: 7, underlying: 583 }]) === 583);
+  ok('spotOf: underlying yok → null', DI.spotOf([{ ts: 1, id: 1, underlying: null }]) === null);
+  ok('strikeSide: üstünde / altında / seviyesinde', DI.strikeSide(585, 580) === 'above' && DI.strikeSide(575, 580) === 'below' && DI.strikeSide(580, 580) === 'at' && DI.strikeSide(580, null) === null);
+
+  // ───── Kural tabanlı yorum ─────
+  const R = (strike: number, callPrem: number, putPrem: number) => ({ strike, callPrem, putPrem, callDv: 0, putDv: 0, net: callPrem - putPrem, total: callPrem + putPrem });
+  const callHeavy = [R(590, 50000, 0), R(585, 800000, 100000), R(580, 300000, 50000), R(570, 0, 200000)];
+  const yUp = YO.interpretDistribution({ ticker: 'QQQ', rows: callHeavy, spot: 580, eventCount: 8, zeroDtePrem: 0, reconstructedCount: 0 });
+  ok('yorum: call ağırlıklı, spot yakını → yukarı, güven yüksek', yUp.bias === 'yukarı' && yUp.confidence === 'yüksek' && yUp.summary.includes('Yukarı eğilim'), JSON.stringify(yUp));
+  ok('yorum: maddeler en çok 5 (son madde yasal not) ve üst strike anılır', yUp.bullets.length <= 5 && yUp.bullets[yUp.bullets.length - 1] === YO.YORUM_CAVEAT && yUp.bullets.some(b => b.includes('585')));
+  ok('yorum: spot varken direnç/destek yorumu', yUp.bullets.some(b => b.includes('spot üstü')) && yUp.bullets.some(b => b.includes('spot altı')));
+  const putHeavy = callHeavy.map(r => R(r.strike, r.putPrem, r.callPrem));
+  const yDn = YO.interpretDistribution({ ticker: 'QQQ', rows: putHeavy, spot: 580, eventCount: 8, zeroDtePrem: 0, reconstructedCount: 0 });
+  ok('yorum: put ağırlıklı → aşağı', yDn.bias === 'aşağı' && yDn.summary.includes('Aşağı eğilim'), JSON.stringify(yDn.bias));
+  const bal = YO.interpretDistribution({ ticker: 'QQQ', rows: [R(585, 500000, 450000)], spot: 585, eventCount: 6, zeroDtePrem: 0, reconstructedCount: 0 });
+  ok('yorum: dengeli → kararsız, düşük değil ama yön yok', bal.bias === 'kararsız' && bal.summary.includes('dengeli'), JSON.stringify(bal));
+  const emp = YO.interpretDistribution({ ticker: 'QQQ', rows: [], spot: null, eventCount: 0, zeroDtePrem: 0, reconstructedCount: 0 });
+  ok('yorum: boş → kararsız, düşük, yeterli veri yok', emp.bias === 'kararsız' && emp.confidence === 'düşük' && emp.summary === 'Yeterli akış verisi yok.');
+  const thin = YO.interpretDistribution({ ticker: 'QQQ', rows: [R(585, 90000, 0)], spot: 585, eventCount: 2, zeroDtePrem: 0, reconstructedCount: 0 });
+  ok('yorum: az veri (2 olay, 90 bin) → kararsız + düşük', thin.bias === 'kararsız' && thin.confidence === 'düşük' && thin.bullets[0].includes('Veri az'), JSON.stringify(thin));
+  const recon = YO.interpretDistribution({ ticker: 'QQQ', rows: callHeavy, spot: 580, eventCount: 8, zeroDtePrem: 0, reconstructedCount: 8 });
+  ok('yorum: yalnız sonradan kurulmuş veri → güven en çok orta + kapanış uyarısı', recon.bias === 'yukarı' && recon.confidence === 'orta' && recon.bullets.some(b => b.includes('sonradan kuruldu')), JSON.stringify(recon));
+  const far = YO.interpretDistribution({ ticker: 'QQQ', rows: [R(650, 900000, 0), R(580, 0, 100000)], spot: 580, eventCount: 5, zeroDtePrem: 0, reconstructedCount: 0 });
+  ok('yorum: prim yalnız uzak OTM kanadında → kararsız', far.bias === 'kararsız' && far.summary.includes('uzak strike'), JSON.stringify(far.summary));
+  const noSpot = YO.interpretDistribution({ ticker: 'QQQ', rows: callHeavy, spot: null, eventCount: 8, zeroDtePrem: 300000, reconstructedCount: 0 });
+  ok('yorum: spot yok → seviye olarak okunur, 0DTE maddesi', noSpot.bias === 'yukarı' && noSpot.bullets.some(b => b.includes('spot yok')) && noSpot.bullets.some(b => b.includes('0DTE')));
+  ok('yorum: yasal not her zaman son madde', [yUp, yDn, bal, emp, thin, recon, far, noSpot].every(y => y.bullets.at(-1) === 'Yatırım tavsiyesi değildir.'));
+
+  // ───── AI yorum: payload (sunucu tarafı saf kısmı) ─────
+  const pay = AI.buildFlowYorumPayload('QQQ', '2026-11-13', [EV({ id: 20, day: '2026-11-13', expiry: '2026-11-13', prem: 300000, strike: 585 }), EV({ id: 21, day: '2026-11-13', expiry: '2026-11-20', prem: 100000, strike: 590, side: 'put', underlying: 581 })], null);
+  ok('AI payload: 0DTE payı %75, spot son olaydan, duvar yok', !!pay && pay.zeroDteSharePct === 75 && pay.spot === 581 && pay.walls === null && pay.eventCount === 2, JSON.stringify(pay));
+  ok('AI payload: başka hisse/gün karışmaz; olay yok → null', AI.buildFlowYorumPayload('SPY', '2026-11-13', [EV({ id: 22, day: '2026-11-13' })], null) === null);
+  const txt = pay ? AI.flowYorumUserText(pay) : '';
+  ok('AI metni: hisse, spot, strike tablosu ve duvar yok uyarısı', txt.includes('Hisse: QQQ') && txt.includes('585 |') && txt.includes('OI duvarları: yok'));
+  ok('AI sistem metni: yatırım tavsiyesi yasağı ve son cümle', AI.FLOW_YORUM_SYSTEM.includes('Yatırım tavsiyesi değildir.') && AI.FLOW_YORUM_SYSTEM.includes('uydurma'));
+  ok('URL: flowYorumUrl (ticker+day sorguda, sondaki / temizlenir)', X.flowYorumUrl('https://h/', 'QQQ', '2026-11-13') === 'https://h/flow/yorum?ticker=QQQ&day=2026-11-13');
 }
 
 console.log(fail ? `\n${fail} FLOW TESTİ BAŞARISIZ` : '\nFLOW testleri geçti');

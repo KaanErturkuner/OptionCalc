@@ -4,6 +4,8 @@
  *  GET  /status                 — (anahtar) yapılandırma özeti, kredi geçmişi, son tarama
  *  GET  /flow?days=&sinceId=&limit= — (anahtar) son N işlem günü (varsayılan 3, en çok 5) olayları, yeni → eski
  *  GET  /flow/summary           — (anahtar) bugün ticker bazında teyitli prim dengesi
+ *  GET  /flow/yorum?ticker=&day= — (anahtar) kayıtlı AI yorumu (ticker+gün başına tek satır; 404 yoksa)
+ *  POST /flow/yorum?ticker=&day= — (anahtar) AI yorumu üret (Haiku) ve kaydı ÜZERİNE YAZ; gövde yok
  *  POST /push/register {token}  — (anahtar) Expo push tokenı kaydı
  *  POST /push/unregister {token}— (anahtar)
  *  GET  /reports?limit=         — (anahtar) son raporlar, yeni → eski, tam metin (en çok 50, varsayılan 10)
@@ -28,12 +30,15 @@ import { BudgetError, creditDay, type MdClient } from './md.ts';
 import type { Poller } from './poller.ts';
 import { errText } from './poller.ts';
 import { Coach, CoachError } from './coach.ts';
+import { FlowYorum, YorumError } from './flowyorum.ts';
 
-export interface Deps { cfg: Config; store: Store; md: MdClient; poller: Poller; now?: () => number; coach?: Coach }
+export interface Deps { cfg: Config; store: Store; md: MdClient; poller: Poller; now?: () => number; coach?: Coach; yorum?: FlowYorum }
 
 const MAX_BODY = 4096;
 const MAX_COACH_BODY = 6 * 1024 * 1024;   // base64 (4 MB görüntü ≈ 5,6 MB) + JSON
 const MAX_PUSH_TOKENS = 50;
+const TICKER_RE = /^[A-Z][A-Z0-9.\-]{0,9}$/;
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Sabit zamanlı anahtar karşılaştırması (özet üzerinden: uzunluk sızıntısı yok) */
 export function keyOk(given: string | undefined, expected: string): boolean {
@@ -112,6 +117,7 @@ export function createHandler(d: Deps) {
       if (method === 'GET' && path === '/flow/summary') {
         return send(res, 200, { day: etDate(t), rows: d.store.summary(etDate(t)) });
       }
+      if (path === '/flow/yorum') return flowYorumRoute(res, url, method);
       if (method === 'POST' && (path === '/push/register' || path === '/push/unregister')) {
         const raw = await readBody(req);
         if (raw == null) return send(res, 413, { error: 'istek çok büyük' });
@@ -141,6 +147,27 @@ export function createHandler(d: Deps) {
       if (!res.headersSent) send(res, 500, { error: 'sunucu hatası' });
     }
   };
+
+  /** /flow/yorum: ticker+gün başına tek kayıt. Girdi doğrulanır; payload sunucuda kurulur (istemci gövdesi yok). */
+  async function flowYorumRoute(res: ServerResponse, url: URL, method: string) {
+    if (!d.yorum) return send(res, 503, { error: 'AI yorum kapalı' });
+    const ticker = url.searchParams.get('ticker') ?? '';
+    const day = url.searchParams.get('day') ?? '';
+    if (!TICKER_RE.test(ticker)) return send(res, 400, { error: 'geçersiz hisse' });
+    if (!DAY_RE.test(day)) return send(res, 400, { error: 'day=YYYY-MM-DD gerekli' });
+    try {
+      if (method === 'GET') {
+        const r = d.yorum.get(ticker, day);
+        return r ? send(res, 200, r) : send(res, 404, { error: 'Henüz AI yorumu yok' });
+      }
+      if (method === 'POST') return send(res, 200, await d.yorum.generate(ticker, day));
+      return send(res, 405, { error: 'yöntem desteklenmiyor' });
+    } catch (e) {
+      if (e instanceof YorumError) return send(res, e.status, { error: e.message });
+      console.error('akış yorumu hatası: ' + errText(e));
+      return send(res, 502, { error: 'AI yorum geçici olarak kullanılamıyor' });
+    }
+  }
 
   /** /coach*: her isteğin sonucu tek satırda loglanır (durum, süre, gövde boyutu, mime, kısa hata). Görüntü verisi/anahtar YOK. */
   async function coachRoute(req: IncomingMessage, res: ServerResponse, url: URL, method: string, path: string) {

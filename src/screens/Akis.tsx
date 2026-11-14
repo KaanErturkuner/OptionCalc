@@ -1,17 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Btn, Card, tap } from '@/ui/controls';
+import { Card, Seg, Btn, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import { registerFlowPush } from '@/ui/flowPush';
+import { akisPrefs, useAkisPrefs } from '@/ui/akisStore';
+import { AkisFiltre } from '@/ui/AkisFiltre';
+import { AkisListe } from '@/ui/AkisListe';
+import { AkisDagilim } from '@/ui/AkisDagilim';
 import { loadState } from '@/lib/state';
-import { fetchFlow, type FlowFeed } from '@/lib/flow/client';
-import { contractLabel, fmtIst, fmtIstTime, fmtUsdShort, type FlowEvent } from '@/lib/flow/model';
-import { RECONSTRUCTED_LABEL } from '@/lib/flow/reconstruct';
+import { fetchFlow, flowKeyOf, type FlowFeed } from '@/lib/flow/client';
+import { fmtIst, type FlowEvent } from '@/lib/flow/model';
 import { groupByDay, FLOW_DAYS_DEFAULT } from '@/lib/flow/days';
+import { applyFlowFilters, dayTargets, tickersIn, type AkisView, type FlowFilters } from '@/lib/flow/filter';
+import { aggregateByStrike, distSummary, spotOf } from '@/lib/flow/distribution';
+import { interpretDistribution } from '@/lib/flow/yorum';
 import { fmt } from '@/lib/format';
-import { flowKeyOf } from '@/lib/flow/client';
-import { closeMs } from '@/lib/usmarket';
 
 const REFRESH_MS = 60000;
 
@@ -21,15 +25,19 @@ export default function Akis({ active }: { active: boolean }) {
   const [feed, setFeed] = useState<FlowFeed | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [noKey, setNoKey] = useState(false);
+  const [flowKey, setFlowKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [push, setPush] = useState<string | null>(null);
+  const { filters, view, dagTicker } = useAkisPrefs();
+
+  useEffect(() => { akisPrefs.load(); }, []);
 
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
       const st = await loadState();
       const key = flowKeyOf(st?.flowKey);
-      setNoKey(!key);
+      setNoKey(!key); setFlowKey(key);
       if (!key) { setErr(null); setFeed(null); return; }
       const f = await fetchFlow(key, { limit: 2000, days: FLOW_DAYS_DEFAULT });
       setFeed(f); setErr(null);
@@ -49,9 +57,46 @@ export default function Akis({ active }: { active: boolean }) {
     return () => { clearTimeout(first); clearInterval(id); };
   }, [active, refresh]);
 
-  const events: FlowEvent[] = feed?.events ?? [];
+  const events: FlowEvent[] = useMemo(() => feed?.events ?? [], [feed]);
   const now = feed?.serverTime ?? 0; // feed yoksa olay da yok; render içinde Date.now() kullanılmaz
-  const groups = groupByDay(events, now);
+  const tickers = useMemo(() => tickersIn(events), [events]);
+  const filtered = useMemo(() => applyFlowFilters(events, filters, now), [events, filters, now]);
+  const groups = useMemo(() => groupByDay(filtered, now), [filtered, now]);
+
+  // Dağılım: hisse seçimi (taraf filtresi yok sayılır ki çağrı ve put birlikte görünsün)
+  const pickBase = useMemo(() => applyFlowFilters(events, { ...filters, side: 'all', ticker: null }, now), [events, filters, now]);
+  const pickTickers = useMemo(() => tickersIn(pickBase), [pickBase]);
+  const topTicker = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of pickBase) m.set(e.ticker, (m.get(e.ticker) ?? 0) + e.prem);
+    let best: string | null = null, bv = -1;
+    for (const [t, v] of m) if (v > bv) { best = t; bv = v; }
+    return best;
+  }, [pickBase]);
+  const dagActive: string | null = filters.ticker ?? (dagTicker && pickTickers.includes(dagTicker) ? dagTicker : topTicker);
+  const dagEvents = useMemo(() => dagActive ? applyFlowFilters(events, { ...filters, ticker: dagActive }, now) : [], [events, filters, now, dagActive]);
+  const dagRows = useMemo(() => aggregateByStrike(dagEvents), [dagEvents]);
+  // Spot: hissenin tüm yüklü olaylarında en son underlying (filtreden bağımsız)
+  const dagSpot = useMemo(() => dagActive ? spotOf(events.filter(e => e.ticker === dagActive)) : null, [events, dagActive]);
+  const interp = useMemo(() => {
+    if (!dagActive) return null;
+    const s = distSummary(dagEvents);
+    return interpretDistribution({ ticker: dagActive, rows: dagRows, spot: dagSpot, eventCount: s.eventCount, zeroDtePrem: s.zeroDtePrem, reconstructedCount: s.reconstructedCount });
+  }, [dagActive, dagEvents, dagRows, dagSpot]);
+
+  // AI yorum günü: Bugün/Dün ise o ET günü; 3 gün ise hissenin en yeni olay günü. Yalnız o gün olay varsa.
+  const aiDay = useMemo(() => {
+    if (!dagActive) return null;
+    const { bugun, dun } = dayTargets(now);
+    const want = filters.day === 'bugun' ? bugun : filters.day === 'dun' ? dun : null;
+    const days = events.filter(e => e.ticker === dagActive).map(e => e.day);
+    if (want) return days.includes(want) ? want : null;
+    return days.length ? days.reduce((a, b) => (b > a ? b : a)) : null;
+  }, [dagActive, events, filters.day, now]);
+
+  const setFilters = (p: Partial<FlowFilters>) => akisPrefs.patchFilters(p);
+  const setView = (v: AkisView) => akisPrefs.set({ view: v });
+
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }}
       contentContainerStyle={{ padding: 12, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 40, gap: 10 }}
@@ -80,55 +125,39 @@ export default function Akis({ active }: { active: boolean }) {
         </Text>
       </Card>
 
+      {feed && !err && !noKey ? (
+        <AkisFiltre filters={filters} tickers={tickers} shown={view === 'liste' ? filtered.length : dagEvents.length}
+          total={events.length} onChange={setFilters} />
+      ) : null}
+
+      {feed && !err && !noKey ? (
+        <Seg<AkisView> value={view} onChange={setView} options={[['liste', 'Liste'], ['dagilim', 'Dağılım']]} />
+      ) : null}
+
       {events.length === 0 && feed && !err ? (
         <Card><Text style={{ color: C.muted, fontSize: 13 }}>Henüz olağandışı olay yok.</Text></Card>
       ) : null}
 
-      {groups.map(g => (
-        <View key={g.day} style={{ gap: 10 }}>
-          <Text accessibilityRole="header" style={{ color: C.muted, fontSize: 13, fontWeight: '800', marginTop: 6, marginLeft: 4 }}>
-            {g.label} · {g.items.length} olay
-          </Text>
-          {g.items.some(e => e.reconstructed) ? (
-            <Text style={{ color: C.warn, fontSize: 11, lineHeight: 16, marginLeft: 4, marginBottom: 2 }}>
-              Bu gün canlı taranmadı. Olaylar kapanış zincirindeki gün içi toplam hacimden {RECONSTRUCTED_LABEL.toLowerCase()} (2 dk tarama değil). Saat kapanıştır (16:00 ET); gün içi an uydurulmadı.
-            </Text>
-          ) : null}
-          {g.items.map(e => (
-          <Card key={e.id}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: C.text, fontSize: 15, fontWeight: '800' }}>{contractLabel(e)}</Text>
-              <Text style={{ color: e.side === 'call' ? C.pos : C.neg, fontSize: 12, fontWeight: '800' }}>{e.side === 'call' ? 'CALL' : 'PUT'}</Text>
-            </View>
-            <Text style={{ color: C.text, fontSize: 13, marginTop: 4 }}>
-              Hacim Δ {fmt(e.dv, 0)} · prim ~{fmtUsdShort(e.prem)} · orta {fmt(e.mid, 2)}
-            </Text>
-            <Text style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>
-              OI {fmt(e.oi, 0)} · Hacim/OI {fmt(e.volOi, 2)} · {eventTimeLabel(e)}
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-              {e.reconstructed
-                ? <Badge text={RECONSTRUCTED_LABEL} color={C.warn} />
-                : <Badge text={e.confirmed ? 'Teyitli (canlı)' : 'Teyitsiz'} color={e.confirmed ? C.pos : C.muted} />}
-              {e.wide ? <Badge text="Geniş spread" color={C.warn} /> : null}
-              {e.pushed ? <Badge text="Bildirim gönderildi" color={C.blue} /> : null}
-            </View>
-          </Card>
-          ))}
-        </View>
-      ))}
+      {events.length > 0 && view === 'liste' && filtered.length === 0 ? (
+        <Card><Text style={{ color: C.muted, fontSize: 13 }}>Bu filtrelere uyan olay yok.</Text></Card>
+      ) : null}
+      {events.length > 0 && view === 'liste' && filtered.length > 0 ? <AkisListe groups={groups} /> : null}
+
+      {events.length > 0 && view === 'dagilim' ? (
+        dagActive && interp ? (
+          <AkisDagilim
+            ticker={dagActive} rows={dagRows} spot={dagSpot} interp={interp}
+            reconstructed={dagEvents.some(e => e.reconstructed)}
+            tickerChoices={filters.ticker == null ? pickTickers : null}
+            activeTicker={dagActive}
+            onPickTicker={t => akisPrefs.set({ dagTicker: t })}
+            flowKey={flowKey}
+            aiDay={aiDay}
+          />
+        ) : (
+          <Card><Text style={{ color: C.muted, fontSize: 13 }}>Bu filtrelere uyan olay yok.</Text></Card>
+        )
+      ) : null}
     </ScrollView>
-  );
-}
-
-/** Yeniden kurulmuş ve zamanı kapanışsa "kapanış"; çubuktan gelen gerçek an varsa İstanbul saati. */
-function eventTimeLabel(e: FlowEvent): string {
-  if (e.reconstructed && Math.abs(e.ts - closeMs(e.day)) < 60000) return 'kapanış (16:00 ET)';
-  return `${fmtIstTime(e.ts)} İST`;
-}
-
-function Badge({ text, color }: { text: string; color: string }) {
-  return (
-    <Text style={{ color, fontSize: 11, fontWeight: '700', borderWidth: 1, borderColor: color, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>{text}</Text>
   );
 }

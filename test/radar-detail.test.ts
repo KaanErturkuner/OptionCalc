@@ -2,6 +2,7 @@
 import * as D from '../src/lib/radar/detail.ts';
 import type { Chain, OptQuote } from '../src/lib/market/types.ts';
 import { closeMs } from '../src/lib/usmarket.ts';
+import * as Y from '../src/lib/radar/yorum.ts';
 
 let fail = 0;
 const ok = (name: string, cond: boolean, info = '') => { if (!cond) fail++; console.log((cond ? 'OK  ' : 'FAIL') + ' ' + name + (info && !cond ? ' — ' + info : '')); };
@@ -87,6 +88,27 @@ const mf = D.markerFracs({ spot: 100, callWall: 105, putWall: null, flip: 130, m
 const mfOf = (k: string) => mf.find(x => x.key === k)!.f;
 ok('markerFracs: spot 2, call duvarı 1, put duvarı null', mfOf('spot') === 2 && mfOf('callWall') === 1 && mfOf('putWall') === null);
 ok('markerFracs: aralık dışı flip null, max pain 1.5 (enterpolasyon)', mfOf('flip') === null && mfOf('maxPain') === 1.5);
+
+// ───── 7) Zincir kural yorumu (interpretChain) ─────
+{
+  const NOM = { spot: null, callWall: null, putWall: null, flip: null, maxPain: null } as D.Markers;
+  const rowsZ = [{ k: 95, callOi: 100, putOi: 500, callVol: 0, putVol: 0 }, { k: 100, callOi: 500, putOi: 400, callVol: 0, putVol: 0 }, { k: 105, callOi: 2000, putOi: 50, callVol: 0, putVol: 0 }];
+  const up = Y.interpretChain({ spot: 100, rows: rowsZ, marks: { spot: 100, callWall: 105, putWall: 95, flip: 98, maxPain: 104 }, sumCallOi: 5000, sumPutOi: 2000 });
+  ok('chain: call OI ağır (P/C 0,4) + spot max pain altında → yukarı, güven orta', up.bias === 'yukarı' && up.confidence === 'orta' && up.summary.includes('Yukarı'), JSON.stringify(up));
+  ok('chain: madde sayısı ≤ 5, son madde yasal not', up.bullets.length <= 5 && up.bullets.at(-1) === 'Yatırım tavsiyesi değildir.');
+  ok('chain: gamma flip ve max pain maddesi (yaklaşık / kanıtlanmamış dili)', up.bullets.some(b => b.includes('gamma flip') && b.includes('yaklaşık')) && up.bullets.some(b => b.includes('Max pain')));
+  const dn = Y.interpretChain({ spot: 90, rows: rowsZ, marks: { spot: 90, callWall: 105, putWall: 95, flip: null, maxPain: 85 }, sumCallOi: 1000, sumPutOi: 3000 });
+  ok('chain: put OI ağır (P/C 3) + spot put duvarının altı + max pain altı → aşağı', dn.bias === 'aşağı' && dn.bullets.some(b => b.includes('put duvarı') && b.includes('altında')), JSON.stringify(dn));
+  const between = Y.interpretChain({ spot: 100, rows: rowsZ, marks: { spot: 100, callWall: 105, putWall: 95, flip: null, maxPain: 100 }, sumCallOi: 1000, sumPutOi: 1000 });
+  ok('chain: dengeli OI, iki duvar arası, max pain spota yakın → kararsız', between.bias === 'kararsız' && between.bullets.some(b => b.includes('iki duvar arasında')), JSON.stringify(between.bias));
+  ok('chain: güven yüksek olamaz (zayıf sinyal kuralı)', up.confidence !== 'yüksek' && dn.confidence !== 'yüksek');
+  const empty = Y.interpretChain({ spot: 100, rows: [], marks: NOM, sumCallOi: 0, sumPutOi: 0 });
+  ok('chain: OI yok → kararsız, düşük, çökmez', empty.bias === 'kararsız' && empty.confidence === 'düşük' && empty.summary === 'Yeterli zincir verisi yok.');
+  const noMarks = Y.interpretChain({ spot: 100, rows: rowsZ, marks: { ...NOM, spot: 100 }, sumCallOi: 2000, sumPutOi: 1000 });
+  ok('chain: duvar/max pain/flip eksik → çökmez, güven düşük', noMarks.confidence === 'düşük' && noMarks.bullets.some(b => b.includes('hesaplanamadı')) && noMarks.bullets.length <= 5, JSON.stringify(noMarks));
+  const noSpot = Y.interpretChain({ spot: null, rows: rowsZ, marks: NOM, sumCallOi: 2000, sumPutOi: 1000 });
+  ok('chain: spot yok → kararsız, düşük', noSpot.bias === 'kararsız' && noSpot.confidence === 'düşük');
+}
 
 console.log(fail ? `\n${fail} BAŞARISIZ` : '\nTüm radar-detay testleri geçti');
 if (fail) process.exit(1);

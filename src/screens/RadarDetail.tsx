@@ -14,6 +14,8 @@ import { num, trDate } from '@/lib/format';
 import { istanbulStamp } from '@/lib/watchlist/model';
 import { closeMs, DAY_MS } from '@/lib/usmarket';
 import { bucketRows, markers, nearestExpiry, strikeRows, windowRows, type Markers, type Metric, type StrikeRow } from '@/lib/radar/detail';
+import { interpretChain } from '@/lib/radar/yorum';
+import { YorumBox } from '@/ui/YorumBox';
 
 const WINDOW_PCT = 0.25, MAX_BARS = 80, CHAIN_LIMIT = 80;
 type St = { status: 'loading' } | { status: 'error'; err: string } | { status: 'ready'; ch: Chain; provider: 'marketdata' | 'cboe'; expiry: string; at: number };
@@ -53,6 +55,8 @@ export default function RadarDetail({ ticker, onBack }: { ticker: string; onBack
   const marks: Markers = useMemo(() => ready && spot ? markers(ready.ch, spot, ready.at) : { spot: null, callWall: null, putWall: null, flip: null, maxPain: null }, [ready, spot]);
   const sumCall = all.reduce((a, r) => a + r.callOi, 0), sumPut = all.reduce((a, r) => a + r.putOi, 0);
   const days = ready ? Math.max(0, Math.round((closeMs(ready.expiry) - ready.at) / DAY_MS)) : 0;
+  // Kural tabanlı zincir yorumu (ücretsiz; AI yorum yok). Spot yoksa gösterilmez.
+  const chainYorum = ready && spot ? interpretChain({ spot, rows: all, marks, sumCallOi: sumCall, sumPutOi: sumPut }) : null;
   const chartW = winW - 24 - 28;
 
   return (
@@ -88,6 +92,13 @@ export default function RadarDetail({ ticker, onBack }: { ticker: string; onBack
               <Stat k="P/C (OI)" v={sumCall > 0 ? num(sumPut / sumCall, 2) : '—'} />
             </View>
           </Card>
+
+          {chainYorum ? (
+            <Card title="Yorum">
+              <YorumBox y={chainYorum} />
+              <Text style={[s.hint, { marginTop: 8 }]}>Kural tabanlı, OI ağırlıklı ve yaklaşık. Gamma flip ve max pain kanıtlanmış sinyaller değildir.</Text>
+            </Card>
+          ) : null}
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 6 }}>
             <Seg<Metric> options={[['oi', 'Açık pozisyon'], ['vol', 'Hacim']]} value={metric} onChange={setMetric} small />

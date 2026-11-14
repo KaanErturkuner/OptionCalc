@@ -50,6 +50,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS hist_chain (src_day TEXT NOT NULL, ticker TEXT NOT NULL, asof INTEGER NOT NULL, data TEXT NOT NULL,
         PRIMARY KEY (src_day, ticker));
       CREATE TABLE IF NOT EXISTS coach_karne (day TEXT PRIMARY KEY, ts INTEGER NOT NULL, model TEXT NOT NULL, body TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS flow_yorum (ticker TEXT NOT NULL, day TEXT NOT NULL, ts INTEGER NOT NULL, model TEXT NOT NULL, text TEXT NOT NULL,
+        PRIMARY KEY (ticker, day));
     `);
     // Geçmiş sürüm migrasyonu: örnek rapor bayrağı (eski satırlar 0 = gerçek rapor)
     const rcols = (this.db.prepare('PRAGMA table_info(reports)').all() as { name: string }[]).map(c => c.name);
@@ -295,6 +297,22 @@ export class Store {
     return Number(r.n) > 0;
   }
   snapPrune(day: string): void { this.db.prepare('DELETE FROM snap WHERE day < ?').run(day); }
+
+  // ── Akış AI yorumu: ticker+gün başına TEK satır (geçmiş yok). Yazma üzerine yazar; saklama yalnız o ET günü için. ──
+  flowYorumGet(ticker: string, day: string): { ticker: string; day: string; ts: number; model: string; text: string } | null {
+    const r = this.db.prepare('SELECT ticker, day, ts, model, text FROM flow_yorum WHERE ticker = ? AND day = ?').get(ticker, day) as
+      { ticker: string; day: string; ts: number; model: string; text: string } | undefined;
+    return r ?? null;
+  }
+  flowYorumPut(r: { ticker: string; day: string; ts: number; model: string; text: string }): void {
+    this.db.prepare(`INSERT INTO flow_yorum (ticker, day, ts, model, text) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT (ticker, day) DO UPDATE SET ts = excluded.ts, model = excluded.model, text = excluded.text`)
+      .run(r.ticker, r.day, r.ts, r.model, r.text);
+  }
+  /** Bugünden (ET) önceki günlerin yorumlarını siler. Dönen: silinen satır sayısı. */
+  flowYorumPurge(today: string): number {
+    return Number(this.db.prepare('DELETE FROM flow_yorum WHERE day < ?').run(today).changes);
+  }
 
   close(): void { this.db.close(); }
 }

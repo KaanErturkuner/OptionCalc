@@ -7,13 +7,14 @@ import { Store } from './store.ts';
 import { FixtureSource, type FixturePoll } from './fixture.ts';
 import { Poller } from './poller.ts';
 import { ExpoPush, eventMessage } from './push.ts';
-import { keyOk, RateLimit } from './http.ts';
+import { createHandler, keyOk, RateLimit } from './http.ts';
 import { MdClient, BudgetError } from './md.ts';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import type { FlowEvent } from '../../src/lib/flow/model.ts';
 import { Coach, CoachError } from './coach.ts';
+import { FlowYorum } from './flowyorum.ts';
 import { ANTHROPIC_URL } from '../../src/lib/coach/anthropic.ts';
 
 let fail = 0;
@@ -99,6 +100,7 @@ async function main() {
   ok('bütçe: tokensız çağrı engellenir, ağa çıkılmaz', blocked && fetched === 0);
 
   await coachSelftest();
+  await flowYorumSelftest();
 }
 
 /** 6) Koç uçtan uca (SAHTE Anthropic + Yahoo; ağ YOK, ücret YOK): dolum çıkarma → eşleştirme → koçluk → karne;
@@ -291,6 +293,114 @@ async function coachSelftest() {
   ok('nokta-zamanlı akış: ts < 500 yalnız ilk olay (dV 10)', st.flowAgg(DAYX, 500).reduce((a, x) => a + x.contracts, 0) === 10);
   ok('akış yok (poll kaydı yok) → pollSeenBefore false', !st.pollSeenBefore('2026-11-16', 1e15) && st.pollSeenBefore(DAYX, 500));
   st.close();
+}
+
+/*
+ * Akış AI yorumu (Haiku): ticker+gün başına TEK satır (üzerine yazma, geçmiş yok), gün sonu silme, HTTP eşlemesi
+ * (400 / 401 / 404 / 503 / 502), anahtar sızıntısı yok. Ağ YOK: sahte fetch.
+ */
+async function flowYorumSelftest() {
+  const KEY = 'sk-ant-SELFTEST-YORUM-0000';
+  const APP = 'app-selftest-yorum-0000';
+  const DAY = '2026-11-16', DAY_OLD = '2026-11-13';
+  let clock = Date.parse(DAY + 'T15:00:00Z');   // Pazartesi 18:00 İst
+  let mode: 'ok' | 'e500' | 'e401' | 'e404model' = 'ok';
+  let version = 0;
+  const reqs: { model: string; key: string; system: string; user: string; maxTokens: number }[] = [];
+  const logs: string[] = [];
+  const bodies: string[] = [];
+  const fake = (async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url) !== ANTHROPIC_URL) return new Response('{}', { status: 404 });
+    const body = JSON.parse(String(init?.body));
+    reqs.push({ model: body.model, key: String((init?.headers as Record<string, string>)['x-api-key']), system: body.system, user: body.messages[0].content[0].text, maxTokens: body.max_tokens });
+    if (mode === 'e500') return new Response(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'boom ' + KEY } }), { status: 500 });
+    if (mode === 'e401') return new Response(JSON.stringify({ error: { type: 'authentication_error', message: 'bad key' } }), { status: 401 });
+    if (mode === 'e404model' && body.model === 'bad-model') return new Response(JSON.stringify({ error: { type: 'not_found_error', message: 'model: bad-model' } }), { status: 404 });
+    version++;
+    return new Response(JSON.stringify({ content: [{ type: 'text', text: `Yorum sürüm ${version}: yukarı eğilim, 585 direnç. Yatırım tavsiyesi değildir.` }], usage: { input_tokens: 300, output_tokens: 80 }, stop_reason: 'end_turn' }), { status: 200 });
+  }) as typeof fetch;
+
+  const store = new Store(':memory:');
+  const evBase = { occ: 'QQQ_SELFTEST', ticker: 'QQQ', side: 'call', strike: 585, dv: 100, volume: 100, oi: 50, bid: 1, ask: 1.2, mid: 1.1, volOi: 2, confirmed: true, wide: false, pushed: false, reconstructed: false };
+  store.insertEvent({ ...evBase, ts: Date.parse(DAY + 'T14:00:00Z'), day: DAY, expiry: DAY, prem: 110000, underlying: 580 } as never);
+  store.insertEvent({ ...evBase, ts: Date.parse(DAY + 'T14:30:00Z'), day: DAY, expiry: '2026-11-20', side: 'put', strike: 580, prem: 90000, underlying: 581 } as never);
+  store.insertEvent({ ...evBase, ts: Date.parse(DAY_OLD + 'T14:00:00Z'), day: DAY_OLD, expiry: '2026-11-20', strike: 590, prem: 120000, underlying: 579 } as never);
+  const cfgOf = (over: Record<string, unknown> = {}) => ({ ...loadConfig({ FLOW_DB: ':memory:', CREDENTIALS_DIRECTORY: '/nonexistent' }), appKey: APP, anthropicKey: KEY, coachModel: 'claude-haiku-5-5', coachFallbackModel: '', rateLimitPerMin: 1000, ...over });
+  const yorum = new FlowYorum({ cfg: cfgOf(), store, f: fake, now: () => clock, log: m => logs.push(m) });
+  const handler = createHandler({ cfg: cfgOf(), store, md: {} as never, poller: {} as never, yorum });
+  const call = async (method: string, path: string, key: string | null = APP): Promise<{ status: number; body: string }> => {
+    const res = { status: 0, body: '', headersSent: false, writeHead(s: number) { this.status = s; this.headersSent = true; return this; }, end(b?: string) { this.body = b ?? ''; }, once() {} };
+    await handler({ url: path, method, headers: key ? { 'x-app-key': key } : {}, on() {} } as never, res as never);
+    bodies.push(res.body);
+    return { status: res.status, body: res.body };
+  };
+  const rowCount = (day?: string) => day
+    ? (store.db.prepare('SELECT COUNT(*) AS n FROM flow_yorum WHERE day = ?').get(day) as { n: number }).n
+    : (store.db.prepare('SELECT COUNT(*) AS n FROM flow_yorum').get() as { n: number }).n;
+  const Q = `?ticker=QQQ&day=${DAY}`;
+
+  // 1) Yetki ve girdi doğrulama
+  ok('yorum: anahtarsız GET → 401', (await call('GET', '/flow/yorum' + Q, null)).status === 401);
+  ok('yorum: geçersiz hisse → 400', (await call('POST', `/flow/yorum?ticker=qqq&day=${DAY}`)).status === 400);
+  ok('yorum: geçersiz gün → 400', (await call('POST', '/flow/yorum?ticker=QQQ&day=2026/11/16')).status === 400);
+  ok('yorum: kayıt yok → GET 404', (await call('GET', '/flow/yorum' + Q)).status === 404);
+  ok('yorum: akış yok gün → POST 404 (Haiku çağrılmaz)', await call('POST', '/flow/yorum?ticker=QQQ&day=2026-11-10').then(r => r.status === 404 && r.body.includes('Bu gün için akış yok.')) && reqs.length === 0);
+
+  // 2) Anahtar yok → 503 (Türkçe), Haiku çağrılmaz
+  const noKey = new FlowYorum({ cfg: cfgOf({ anthropicKey: '' }), store, f: fake, now: () => clock, log: m => logs.push(m) });
+  const nk = await noKey.generate('QQQ', DAY).then(() => null, e => e as { status?: number; message?: string });
+  ok('yorum: anthropic anahtarı yok → 503 Türkçe mesaj', nk?.status === 503 && /Anthropic anahtarı yok/.test(nk?.message ?? ''), JSON.stringify(nk));
+
+  // 3) Başarılı üretim ve kayıt (tek satır)
+  const p1 = await call('POST', '/flow/yorum' + Q);
+  const j1 = JSON.parse(p1.body || '{}');
+  ok('yorum: POST → 200, metin ve stored=true', p1.status === 200 && j1.text?.includes('Yorum sürüm 1') && j1.stored === true && j1.model === 'claude-haiku-5-5', p1.body.slice(0, 200));
+  ok('yorum: Haiku isteği: anahtar başlıkta, max_tokens 1200, hisse ve tablo payload’da', reqs.length === 1 && reqs[0].key === KEY && reqs[0].maxTokens === 1200 && reqs[0].user.includes('Hisse: QQQ') && reqs[0].user.includes('585 |'), JSON.stringify(reqs[0]?.maxTokens));
+  ok('yorum: duvar yoksa istem “yok” der (uydurma yok)', reqs[0].user.includes('OI duvarları: yok'));
+  ok('yorum: GET kayıtlı metni verir (stored=true)', (await call('GET', '/flow/yorum' + Q)).body.includes('Yorum sürüm 1'));
+
+  // 4) Yenile: üzerine yazar, geçmiş yok (satır sayısı 1)
+  const p2 = await call('POST', '/flow/yorum' + Q);
+  ok('yorum: yenileme yeni metin verir', p2.body.includes('Yorum sürüm 2'));
+  ok('yorum: yenileme sonrası tek satır (geçmiş/sürüm yok)', rowCount() === 1 && rowCount(DAY) === 1);
+  ok('yorum: GET en yeni metni verir (sürüm 2)', (await call('GET', '/flow/yorum' + Q)).body.includes('Yorum sürüm 2'));
+
+  // 5) Duvar anlık görüntüsü varsa istemde yer alır
+  store.snapPut(DAY, 'QQQ', 'last', clock, { spot: 581, callWall: 590, putWall: 575, flip: 578, maxPain: 583, expiry: '2026-11-20', at: clock });
+  await call('POST', '/flow/yorum' + Q);
+  ok('yorum: kayıtlı duvarlar istemde (call duvarı 590, put duvarı 575)', reqs.at(-1)!.user.includes('call duvarı 590') && reqs.at(-1)!.user.includes('put duvarı 575'));
+
+  // 6) Hata yolları: eski metin korunur, anahtar sızmaz
+  const beforeErr = (await call('GET', '/flow/yorum' + Q)).body;
+  mode = 'e500';
+  const e500 = await call('POST', '/flow/yorum' + Q);
+  const afterErr = (await call('GET', '/flow/yorum' + Q)).body;
+  ok('yorum: Anthropic 500 → 502; hata yazmaz, eski metin kalır', e500.status === 502 && afterErr === beforeErr, `status=${e500.status}`);
+  mode = 'e401';
+  const e401 = await call('POST', '/flow/yorum' + Q);
+  ok('yorum: Anthropic 401 → 503 (sunucu anahtarı geçersiz)', e401.status === 503 && e401.body.includes('Anthropic anahtarı geçersiz'), e401.body);
+  mode = 'ok';
+  const dumpBad = bodies.join('\n') + logs.join('\n');
+  ok('yorum: anahtar hiçbir yanıtta ve logda yok', !dumpBad.includes(KEY) && !dumpBad.includes(APP), 'sızıntı');
+  const yorumNoFb = new FlowYorum({ cfg: cfgOf({ coachModel: 'bad-model' }), store, f: fake, now: () => clock, log: m => logs.push(m) });
+  mode = 'e404model';
+  const rej = await yorumNoFb.generate('QQQ', DAY).then(() => null, e => e as { status?: number; message?: string });
+  ok('yorum: model reddi, yedek yok → 502 (sessiz geçiş yok)', rej?.status === 502, JSON.stringify(rej));
+  const yorumFb = new FlowYorum({ cfg: cfgOf({ coachModel: 'bad-model', coachFallbackModel: 'claude-haiku-5-5' }), store, f: fake, now: () => clock, log: m => logs.push(m) });
+  const fb = await yorumFb.generate('QQQ', DAY);
+  ok('yorum: model reddi, yedek var → yedekle başarılı', fb.model === 'claude-haiku-5-5' && fb.stored === true);
+  mode = 'ok';
+
+  // 7) Gün sonu: eski gün satırı silinir; bugünden eski günler için saklama yok
+  store.flowYorumPut({ ticker: 'QQQ', day: DAY_OLD, ts: clock, model: 'x', text: 'eski' });
+  ok('yorum: önceki gün satırı GET’te silinir → 404', (await call('GET', `/flow/yorum?ticker=QQQ&day=${DAY_OLD}`)).status === 404 && rowCount(DAY_OLD) === 0);
+  clock = Date.parse('2026-11-17T15:00:00Z');   // ertesi gün (Salı)
+  ok('yorum: ertesi gün → bugünkü satır da silinir (GET 404)', (await call('GET', '/flow/yorum' + Q)).status === 404 && rowCount() === 0);
+  const past = await call('POST', '/flow/yorum' + Q);
+  ok('yorum: eski gün için POST yanıt döner ama saklamaz (stored=false)', past.status === 200 && JSON.parse(past.body).stored === false && rowCount() === 0);
+
+  ok('yorum: anahtar yanıtlarda ve logda yok (son kontrol)', !(bodies.join('\n') + logs.join('\n')).includes(KEY));
+  store.close();
 }
 
 main().then(() => {

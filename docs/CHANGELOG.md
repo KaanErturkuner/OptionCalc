@@ -1,5 +1,30 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude — Akış: filtreler, Dağılım, kural yorumu, AI yorum (Haiku)
+
+**Neden:** Kaan Akış olaylarını daraltmak, strike bazında call/put primini görmek ve okunabilir bir yorum istedi. Yorum ücretsiz ve kural tabanlı; Haiku yorumu yalnız butona basınca, sunucuda üretilir (anahtar uygulamada yok).
+
+**Ne:**
+- **Filtreler** (Liste ve Dağılım ortak): hisse (DEFAULT_TICKERS önce), taraf, gün (Bugün / Dün / 3 gün, ET takvimi, hafta sonunda Bugün boş kalır), min prim (50 bin / 100 bin / 500 bin / 1 M$), vade (0DTE / Haftalık; Cuma tatilse önceki işlem günü). Tercihler `akis-filters-v1` anahtarında (AsyncStorage), `AppState`'e girmez.
+- **Dağılım:** strike bazında call/put prim ve kontrat, net; ayrıştırıcı çubuklar (put sola kırmızı, call sağa yeşil, ortak ölçek); spot'a en yakın strike vurgulu. Hisse seçilmemişse filtredeki en çok primli hisse.
+- **Kural yorumu** (`src/lib/flow/yorum.ts`, `src/lib/radar/yorum.ts`): yön, güven, en çok 5 madde; yalnız sonradan kurulmuş veri varsa güven en çok orta; "Yatırım tavsiyesi değildir." her zaman son madde. Radar detayına da aynı kutu eklendi (OI, P/C, duvarlar, max pain, gamma flip; güven asla yüksek değil).
+- **AI yorum** (`GET|POST /flow/yorum?ticker=&day=`): payload sunucuda kurulur (akış olayları + varsa kayıtlı duvar anlık görüntüsü); istemci tablo göndermez. Haiku tek çağrı, max 1200 token, 90 sn zaman aşımı.
+- **Saklama (Kaan kuralı):** ticker+gün başına EN FAZLA bir satır (`flow_yorum`, SQLite). "Yenile" satırın üzerine yazar; geçmiş, sürüm ve liste yok. Satır yalnız o ET günü için tutulur; bugünden önceki satırlar her yorum isteğinde silinir. Eski gün için POST metni döner ama saklanmaz. Yenileme hata verirse eski metin kalır.
+- **Hatalar (Türkçe):** 400 geçersiz hisse/gün; 401/403 anahtar; 404 akış yok / henüz yorum yok; 503 sunucuda Anthropic anahtarı yok; 504 / 502 Haiku zaman aşımı ya da hata. Anahtar yanıtta ve logda yok (selftest kontrol eder).
+
+**Dosyalar:** `src/lib/flow/{filter,distribution,yorum,aiyorum}.ts` (yeni), `src/lib/flow/{client,proxy}.ts`, `src/lib/radar/yorum.ts` (yeni), `src/ui/{akisStore,AkisFiltre,AkisListe,AkisDagilim,AkisYorum,YorumBox}.tsx|ts` (yeni), `src/screens/{Akis,RadarDetail}.tsx`, `server/app/{flowyorum.ts (yeni),http.ts,store.ts,main.ts,selftest.ts}`, testler `test/flow.test.ts`, `test/radar-detail.test.ts`.
+
+**Doğrulama:** `npx tsc --noEmit` ✓; `npm test` ✓ (flow ve radar-detay bölümleri dahil); `npx eslint` (değişen dosyalar) ✓; `npm run flow:selftest` ✓ (83 kontrol, yorum bölümü dahil; sahte Haiku, ağ yok).
+
+**Sunucu dağıtımı:** `server/deploy.sh` 2026-11-14 çalıştı; `optioncalc-flow` active; `/health` 200; kimlikli GET `/flow/yorum` → 404 "Henüz AI yorumu yok", geçersiz hisse → 400. Canlı POST (Haiku) yapılmadı: maliyet nedeniyle.
+
+**Açık / sonraki:**
+- Uygulama OTA ile yayınlanmadı ve commit atılmadı (koordinatör).
+- AI yorumu filtreleri uygulamaz: sunucu o hisse ve günün tüm akışını kullanır. Arayüzde yazılı.
+- POST için ayrı günlük kota yok; genel 120 istek/dk sınırı geçerli. Maliyet izlenmeli.
+- Haiku yorumunun gerçek veride kalitesi henüz denenmedi.
+- Bu ortamda `@types/node` yok; sunucu dosyaları tam tip denetiminden geçmedi (selftest çalışma zamanını doğrular).
+
 ## 2026-11-14 — Cuma (2026-11-13) akış ekranı: gerçek EOD zincirden sonradan kurma
 
 **Neden:** Akış tarayıcısı Cuma günü henüz çalışmıyordu; Akış ekranında 13/11 boştu. Kaan örnek veri değil gerçek veri istedi; kredi tavanı bu iş için 50.000’e kadar onaylandı.

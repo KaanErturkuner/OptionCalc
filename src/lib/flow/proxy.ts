@@ -55,3 +55,8 @@ export function flowEventsUrl(base: string, opts: { sinceId?: number; limit?: nu
 export function isExpoPushToken(t: string): boolean {
   return /^Expo(nent)?PushToken\[[A-Za-z0-9_\-]{8,128}\]$/.test(t);
 }
+/** AI yorum uç noktası (Haiku, ticker+gün başına tek kayıt): GET ve POST aynı URL. Sorgu: ticker, day (YYYY-MM-DD). */
+export function flowYorumUrl(base: string, ticker: string, day: string): string {
+  const p = new URLSearchParams({ ticker, day });
+  return `${base.replace(/\/+$/, '')}/flow/yorum?${p.toString()}`;
+}

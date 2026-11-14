@@ -22,6 +22,7 @@ import { REPORT_KINDS, type ReportKind } from '../../src/lib/reports/schedule.ts
 import { Reporter } from './reporter.ts';
 import { YahooClient, FinnhubClient } from './sources.ts';
 import { Coach } from './coach.ts';
+import { FlowYorum } from './flowyorum.ts';
 
 const log = (m: string) => console.log(`${new Date().toISOString()} ${m}`);
 const args = process.argv.slice(2);
@@ -89,7 +90,8 @@ async function serve(cfg: Config) {
   const coach = new Coach({ cfg, store });
   const coachTimer = setInterval(() => { void coach.autoKarneTick(); }, 60000);
   log(`koç: anahtar ${cfg.anthropicKey ? 'var' : 'yok'}, model ${cfg.coachModel}${cfg.coachFallbackModel ? ' (yedek ' + cfg.coachFallbackModel + ')' : ''}, oto-karne ${cfg.coachAuto ? 'açık' : 'kapalı'}`);
-  const handler = createHandler({ cfg, store, md, poller, coach });
+  const yorum = new FlowYorum({ cfg, store });
+  const handler = createHandler({ cfg, store, md, poller, coach, yorum });
   const server = createServer((req, res) => { void handler(req, res); });
   server.listen(cfg.port, cfg.host, () => log(`dinleniyor ${cfg.host}:${cfg.port}`));
   const timer = poller.start();
