@@ -751,6 +751,16 @@ Kaan'ın talebiyle (`docs/tasks/FLOW.md`). Commit'ler: `95f2b71` (sunucu + saf a
 
 **Sonraki:** Başkan (Grok) inceleme. Veri zip'i gelince adım 9–11 (ayrıca TASKS #26).
 
+## 2026-11-14 — Claude — [claude] coach: yükleme gövdesi sunucuyla hizalandı
+
+**Ne:** Koç ekran görüntüsü yüklemesi her görüntüde "Reddedildi (HTTP 400): Görüntü verisi yok" veriyordu. Kök neden: istemci `uploadScreenshot` gövdesini `{base64, mime, day}` gönderiyordu, sunucu `coachImage` ise `{image, mime, day}` bekliyor (`server/app/coach.ts`). Gövde artık `{image, mime, day}`. Bu yüzden karne de "koçluk kaydı yok" (404) veriyordu; dolum kaydolmadığı için.
+
+**Dosyalar:** `src/lib/coach/client.ts`.
+
+**Doğrulama:** `npm run check` yeşil. Gerçek telefon yüklemesi henüz denenmedi; Başkan'ın 22 görüntülük yüklemesiyle doğrulanmalı.
+
+**Not:** Bu dal `origin/master` ile birleştirildi (master'daki Koç kodu bu dala geldi). Yeni paketler (`expo-image-picker`, `expo-image-manipulator`) için `npm ci` gerekti.
+
 ## 2026-11-14 — Claude — [claude] radar: giriş ve skor algoritması
 
 **Ne:**

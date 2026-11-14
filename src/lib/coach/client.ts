@@ -74,9 +74,9 @@ export function fetchCoachDay(key: string, day: string, b?: string): Promise<Coa
   return needKey(key) ?? call<CoachDayView>(`${base(b)}/coach?day=${encodeURIComponent(day)}`, { headers: hdr(key) });
 }
 
-/** Tek ekran görüntüsü: sunucu çıkarır, eşleştirir, eşleşen yeni işlemler için koçluk üretir (en çok birkaç). */
+/** Tek ekran görüntüsü (gövde: {image, mime, day} — sunucu sözleşmesi, server/app/coach.ts coachImage). Sunucu çıkarır, eşleştirir, eşleşen yeni işlemler için koçluk üretir (en çok birkaç). */
 export function uploadScreenshot(key: string, img: { base64: string; mime: 'image/png' | 'image/jpeg'; day: string }, b?: string): Promise<UploadResult> {
-  return needKey(key) ?? call<UploadResult>(`${base(b)}/coach`, { method: 'POST', headers: hdr(key, true), body: JSON.stringify(img), timeoutMs: 150000 });
+  return needKey(key) ?? call<UploadResult>(`${base(b)}/coach`, { method: 'POST', headers: hdr(key, true), body: JSON.stringify({ image: img.base64, mime: img.mime, day: img.day }), timeoutMs: 150000 });
 }
 
 /** Bekleyen koçlukları işler (sunucu tek istekte birkaç işlem yapar; döngüyü istemci sürer). */
