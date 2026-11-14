@@ -1,5 +1,30 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude (commit prefix [grok], Kaan isteği) — uyarlanabilir çıkış (ÇIK/TUT/DİKKAT) ve rejim histerezisi
+
+**Neden:** Kaan onayı (2026-11-14, bu oturum): "düşünsün eğer dönüyorsa piyasa geçsin, yok devam edeceğine dair gösterge olursa devam". T1/T2 sabit tetikleri yerine açık kâğıt pozisyonda dönüş ↔ devam tartısı istendi. Rejim değişimleri 13/11 20:00–20:40 arasında ham olarak titreşiyordu (TASKS D14).
+
+**Ne:**
+- **Uyarlanabilir çıkış** `src/lib/signals/adaptive.ts` (saf): girişten beri lehte uç noktadan karşı hareket ≥ %0,3 olunca değerlendirilir. Dönüş (aleyhte) puanı: VWAP kaybı 2, hacimli ters mum 2, 5 dk dip/tepe kırılımı 2, onaylı rejim aleyhte 2, momentum ters 1. Devam (lehte): VWAP doğru tarafta 2, HH/HL veya LH/LL korunuyor 2, hacimli trend mumu 1, onaylı rejim lehte 1, momentum yönde 1. Dönüş > devam → **ÇIK** (kapatır); devam > dönüş → **TUT**; eşit → **DİKKAT** (izle, çıkış yok). Ağırlıklar `ADAPT` sabitleri. Neden satırı tek satır Türkçe ("ÇIK: VWAP kaybı + hacimli ters mum + …; devam kanıtı zayıf").
+- **riskwatch**: uyarlanabilir girdi varsa T1/T2/T3 yerine kullanılır. Sıra: hedef → %67 prim stopu (değişmedi) → 15:45 → ÇIK → T4–T7. ÇIK her kâr düzeyinde çıkarır. Girdi tanımsızsa eski T1–T7 davranışı aynen.
+- **Histerezis** `src/lib/market/regime.ts`: ham rejim 5 dk kapanışlarında ölçülür; yeni rejim ardışık `HYST_BARS = 2` kapanış görülmeden onaylanmaz (ilk ölçüm doğrudan). `regimeTrace`, `confirmedRegimeAt` (raw + confirmed + pending), `regimeChanges` artık onaylı değişimleri verir. Rapor (`intra.ts`, yeni alanlar `rawKind`, `pending`; "Onay bekleniyor" satırı), Sonuç/Fırsat kartı (`regimeSummary`) ve risk izleyici onaylı rejimi kullanır.
+- Paper: `OpenPosition.adaptive` (son karar); DİKKAT geçişinde bir kez bildirim; ÇIK kapanış metni karar nedenini taşır. Fırsat ekranı açık pozisyonda "Uyarlanabilir çıkış: …" satırı.
+- **Yahoo niteliksel geri test** `backtest/riskwatch-replay.mts` (MarketData yok; 429 için üstel bekleme ve önbellek `/workspace/backtest/yahoo/`). Çıktı: `/workspace/backtest/reports/riskwatch-replay-2026-11-12_13.md`, özet `docs/reports/riskwatch-replay-2026-11-12_13.md`.
+
+**Sonuçlar (kısa):** 4 hipotetik pozisyonda 4 ÇIK; 3'ü erken (fiyat sonra pozisyon yönünde devam etti, +0,33% / +1,44% / +0,47% en iyi), 1 yatay. Histerezis: QQQ 12/11 16 → 10 değişim, SPY 12/11 15 → 7, QQQ 13/11 12 → 8, SPY 13/11 12 → 10. 13/11 20:20 tek kapanışlık sıçrama elendi; 20:25 karışık → 20:40 konsolidasyon onaylı kaldı (≥10 dk sürdü).
+
+**Dosyalar:** `src/lib/signals/adaptive.ts` (yeni), `src/lib/signals/riskwatch.ts`, `src/lib/market/regime.ts`, `src/lib/reports/intra.ts`, `src/lib/reports/types.ts`, `src/lib/paper/engine.ts`, `src/lib/paper/types.ts`, `src/ui/signalScan.ts`, `src/ui/firsatStore.ts`, `src/screens/Firsat.tsx`, `test/adaptive.test.ts` (yeni, 25 kontrol; `package.json` test zinciri), `backtest/riskwatch-replay.mts` (yeni), `docs/reports/riskwatch-replay-2026-11-12_13.md`, `docs/TASKS.md` (#41, D14).
+
+**Doğrulama:** `npm run check` geçti (test, typecheck, lint, bt:selftest, flow:selftest). Sunucu: `server/deploy.sh` (src/lib değişti) → `optioncalc-flow` active (06:41 UTC). Geri test çalıştı (Yahoo, 4 pozisyon, 2 gün).
+
+**Açık / devir:**
+- ÇIK eşiği sıkılığı: 4 örnekte 3 erken çıkış; karşı hareket %0,3 gürültü seviyesinde. Eşik (örn. %0,5 veya ÇIK için yapısal teyit şartı) veya W_MOM ağırlığı Kaan kararı; şimdilik spec'e göre (%0,3, dominans).
+- Giriş noktaları hindsight (dip = pencere min'i); test çıkış davranışını ölçer, giriş kalitesini değil. Opsiyon primi modellenmedi (kâğıt sonuç değil).
+- Histerezis tam süzme değil (20:25–20:40 karışık kaldı). Daha sert istenirse `REGIME_K.HYST_BARS` (3).
+- Örnek raporlar (13/11) DB'de yeniden üretilmedi (isteğe bağlı; sunucu DB'sine yazılmadı). Histerezis etkisi yukarıdaki tablo ve geri test raporunda.
+- Yahoo bu kutuda 429 veriyor; geri test yeniden koşulacaksa önbellek varsa ondan çalışır.
+- Yayın yok (Expo'ya dokunulmadı), push yok, MarketData çağrısı yok, ücretli Anthropic çağrısı yok.
+
 ## 2026-11-14 — Grok — [grok] reports: 21:00 ara raporu, seans rejimi, onaylı dönüş, senaryo olasılıkları
 
 **Neden:** Kaan: 13/11'de piyasa 18:00–20:00 İst arasında sıkıştı, ama 20:00 raporu hâlâ düşüş bekliyordu — eğilim kuralı açılıştan beri ortalamaya bakıyordu, rejimi görmüyordu. Ayrıca dönüş tespiti Sonuç/Fırsat kartlarında yoktu.
