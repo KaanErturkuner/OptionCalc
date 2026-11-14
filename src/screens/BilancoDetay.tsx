@@ -129,9 +129,7 @@ export default function BilancoDetay({ row, onBack }: { row: EarningsItem; onBac
         {!chain && !chainErr ? <Text style={{ color: C.muted, fontSize: 13 }}>Yükleniyor…</Text> : null}
         {chain ? (
           <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-              <Seg<'oi' | 'vol'> small options={[['oi', 'OI'], ['vol', 'Hacim']]} value={metric} onChange={setMetric} />
-            </View>
+            <Seg<'oi' | 'vol'> small options={[['oi', 'OI'], ['vol', 'Hacim']]} value={metric} onChange={setMetric} style={{ alignSelf: 'stretch' }} />
             <Text style={{ color: C.text, fontSize: 13 }}>
               {move ? `±$${move.straddle.toFixed(2).replace('.', ',')} (%${move.pct.toFixed(1).replace('.', ',')})` : 'Beklenen hareket hesaplanamadı'}
               <Text style={{ color: C.muted }}>{`  · vade ${chain.expiry} · spot ${chain.spot.toFixed(2).replace('.', ',')}`}</Text>

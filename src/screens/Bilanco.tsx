@@ -105,10 +105,8 @@ export default function Bilanco({ active, onBack }: { active: boolean; onBack?: 
       contentContainerStyle={{ paddingTop: insets.top + (onBack ? 8 : 12), paddingHorizontal: 14, paddingBottom: 30, gap: 12 }}
       refreshControl={<RefreshControl refreshing={busy} onRefresh={() => { tap(); void load(true); }} tintColor={C.muted} />}>
       {onBack ? <Btn label="‹ Menü" onPress={() => { tap(); onBack(); }} style={{ alignSelf: 'flex-start', minHeight: 44 }} /> : null}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text style={{ color: C.text, fontSize: 22, fontWeight: '800' }}>Bilanço</Text>
-        <Seg<Mode> small options={[['month', 'Ay'], ['week', 'Hafta']]} value={mode} onChange={changeMode} />
-      </View>
+      <Text style={{ color: C.text, fontSize: 22, fontWeight: '800' }}>Bilanço</Text>
+      <Seg<Mode> options={[['month', 'Ay'], ['week', 'Hafta']]} value={mode} onChange={changeMode} style={{ alignSelf: 'stretch' }} />
 
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
         <Pressable onPress={() => step(-1)} hitSlop={10} accessibilityRole="button" accessibilityLabel={mode === 'month' ? 'Önceki ay' : 'Önceki hafta'} style={{ padding: 8, minWidth: 44, alignItems: 'center' }}><Text style={{ color: C.blue, fontSize: 22 }}>‹</Text></Pressable>
