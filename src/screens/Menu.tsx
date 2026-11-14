@@ -8,11 +8,12 @@ import Raporlar from '@/screens/Raporlar';
 import Koc from '@/screens/Koc';
 import Haberler from '@/screens/Haberler';
 import Bilanco from '@/screens/Bilanco';
+import KorkuAcgozluluk from '@/screens/KorkuAcgozluluk';
 import { useWatch } from '@/ui/watchStore';
 import { Btn, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 
-export type CardId = 'journal' | 'watch' | 'reports' | 'coach' | 'news' | 'earnings';
+export type CardId = 'journal' | 'watch' | 'reports' | 'coach' | 'news' | 'earnings' | 'sentiment';
 interface MenuCard { id: CardId; icon: string; title: string; desc: (ctx: { watchCount: number }) => string }
 
 /** Kart kaydı: sıra = ekranda görünen sıra */
@@ -22,6 +23,7 @@ const CARDS: MenuCard[] = [
   { id: 'reports', icon: '▤', title: 'Raporlar', desc: () => 'Piyasa öncesi, açılış +30 dk / +1,5 / +2,5 sa, gün sonu' },
   { id: 'coach', icon: '✎', title: 'Koç', desc: () => 'Midas ekran görüntüsü → işlem geri bildirimi ve günlük karne' },
   { id: 'news', icon: '▦', title: 'Haberler', desc: () => 'Takip listesi haberleri, çok kaynaklı, Türkçe başlıklar' },
+  { id: 'sentiment', icon: '◐', title: 'Korku ve Açgözlülük', desc: () => 'Piyasa duygu ölçeği (0–100): VIX, SPY momentumu, güvenli liman, tahvil talebi' },
   { id: 'earnings', icon: '▣', title: 'Bilanço takvimi', desc: () => 'Hangi gün hangi şirket bilanço açıklıyor · beklenti, haber, zincir, akış' },
 ];
 
@@ -37,6 +39,7 @@ export default function Menu({ active, start = null }: { active: boolean; start?
     coach: <Koc active={active && open === 'coach'} onBack={back} />,
     news: <Haberler active={active && open === 'news'} onBack={back} />,
     earnings: <Bilanco active={active && open === 'earnings'} onBack={back} />,
+    sentiment: <KorkuAcgozluluk active={active && open === 'sentiment'} onBack={back} />,
   };
 
   if (open) {
