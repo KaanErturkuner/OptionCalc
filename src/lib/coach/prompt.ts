@@ -119,6 +119,7 @@ Kurallar:
 - "kapattım", "sattım" → side "sell"; "aldım", "aldım" → side "buy". Kapanış için vade açık pozisyondan alınır
   (aynı tk, k, cp). Açık pozisyon yoksa actions boş bırak ve note'ta yaz.
 - Komutta zaman yoksa t = bugunIst + suAnIst (YYYY-MM-DDTHH:MM). "14:05'teki" gibi saat varsa o günün tarihiyle t yaz.
+- Vade "21.11" gibi GG.AA yazılırsa yıl = bugunIst yılı (o tarih geçmişse sonraki yıl). Vade asla geçmiş yıl olmaz.
 - cp: call → "C", put → "P". q: pozitif tam sayı (adet / kontrat). px: opsiyon primi (dolar; hisse fiyatı değil).
 - "X değil Y olmalı" → yalnız ilgili alanı Y yap (ör. px: Y). Komutta adı geçmeyen alanı set'e koyma.
 - "şu işlem yanlış sil" gibi referans, bağlamda net bir dolumla eşleşmiyorsa delete üretme; note'ta sor.

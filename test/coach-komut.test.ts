@@ -106,5 +106,15 @@ const fills = new Map<number, Fill>([
   ok('değişmeyen alan → "değişiklik yok"; bilinmeyen kimlik → "bulunamadı"', lines[0] === 'Düzelt: #12 değişiklik yok' && lines[1] === 'Sil: #77 (dolum bulunamadı)', lines.join(' | '));
 }
 
+// ───── vade yılı onarımı ─────
+{
+  const r = validateKomut({ actions: [{ op: 'add', fill: { t: '2026-11-14T17:40', tk: 'SPY', exp: '2021-11-21', k: 590, cp: 'P', q: 2, side: 'buy', px: 1.45 } }] }, KNOWN);
+  const a = r.ok ? r.value.actions[0] : null;
+  ok('geçmiş yıl vade → dolum yılına taşınır (2021-11-21 → 2026-11-21)', !!a && a.op === 'add' && a.fill.exp === '2026-11-21', JSON.stringify(a));
+  const r2 = validateKomut({ actions: [{ op: 'add', fill: { t: '2026-12-20T17:40', tk: 'SPY', exp: '2025-01-02', k: 590, cp: 'P', q: 1, side: 'buy', px: 1 } }] }, KNOWN);
+  const a2 = r2.ok ? r2.value.actions[0] : null;
+  ok('GG.AA geçmişse sonraki yıl (01.02 → 2027-01-02)', !!a2 && a2.op === 'add' && a2.fill.exp === '2027-01-02', JSON.stringify(a2));
+}
+
 console.log(fail ? `\n${fail} BAŞARISIZ` : '\nTüm koç komut (saf) testleri geçti');
 process.exit(fail ? 1 : 0);

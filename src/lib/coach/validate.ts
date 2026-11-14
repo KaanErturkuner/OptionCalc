@@ -153,6 +153,18 @@ const isYmdValid = (s: string): boolean => {
   return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === s;
 };
 
+/** Vade, dolum gününden önce olamaz. Model yılı yanlış yazarsa (ör. "21.11" → 2021-11-21) aynı GG.AA dolum yılına,
+ *  o da geçmişse sonraki yıla taşınır. Dönüş: düzeltilmiş vade ve düzeltildi mi. */
+export function fixExpYear(exp: string, tDay: string): { exp: string; fixed: boolean } {
+  if (!YMD.test(exp) || !YMD.test(tDay) || exp >= tDay) return { exp, fixed: false };
+  const y = Number(tDay.slice(0, 4));
+  for (const yy of [y, y + 1]) {
+    const c = `${yy}${exp.slice(4)}`;
+    if (isYmdValid(c) && c >= tDay) return { exp: c, fixed: true };
+  }
+  return { exp, fixed: false };
+}
+
 /** Tek alan denetimi. Dönüş: normalleştirilmiş değer veya hata metni. */
 function komutField(key: KomutFieldKey, v: unknown): { ok: true; v: string | number } | { ok: false; msg: string } {
   const bad = (m: string) => ({ ok: false as const, msg: `${key}: ${m}` });
@@ -208,6 +220,10 @@ export function validateKomut(input: unknown, knownIds: ReadonlyMap<number, stri
       }
       if (err) { drop(err); continue; }
       if (!Object.keys(out).length) { drop(`update #${id}: değişecek alan yok`); continue; }
+      if (out.exp != null && out.t != null) {
+        const fx = fixExpYear(out.exp as string, (out.t as string).slice(0, 10));
+        if (fx.fixed) { warnings.push(`#${id} vade yılı düzeltildi: ${out.exp} → ${fx.exp}`); out.exp = fx.exp; }
+      }
       if (out.t != null) {
         const c = checkFillTime(out.t as string, (out.exp as string | undefined) ?? curExp);
         if (c.corrected) { out.t = c.t; warnings.push(`#${id} ${c.warn ?? ''}`); }
@@ -227,6 +243,9 @@ export function validateKomut(input: unknown, knownIds: ReadonlyMap<number, stri
       }
       if (err) { drop(err); continue; }
       const fill = out as unknown as KomutFill;
+      const fx = fixExpYear(fill.exp, fill.t.slice(0, 10));
+      if (fx.fixed) { warnings.push(`ekle: vade yılı düzeltildi: ${fill.exp} → ${fx.exp}`); fill.exp = fx.exp; }
+      if (fill.exp < fill.t.slice(0, 10)) { drop(`ekle: vade (${fill.exp}) dolum gününden önce`); continue; }
       const c = checkFillTime(fill.t, fill.exp);
       if (c.corrected) { fill.t = c.t; warnings.push(`ekle: ${c.warn ?? ''}`); }
       else if (c.warn) warnings.push(`ekle: ${c.warn}`);
