@@ -13,7 +13,7 @@ const at = (day: string, kind: S.ReportKind) => S.slotsFor(day).find(s => s.kind
 // ───── 1) Zamanlama: normal kış haftası (US EST, İst = UTC+3) ─────
 {
   const d = '2026-11-16';                    // Pazartesi; US EST: açılış 09:30 ET = 17:30 İst
-  ok('kış: 5 slot', S.slotsFor(d).length === 5);
+  ok('kış: 6 slot (piyasa öncesi, 4 ara, gün sonu)', S.slotsFor(d).length === 6);
   ok('kış: piyasa öncesi 17:00 İst', ist(at(d, 'premarket').atMs) === '17:00', ist(at(d, 'premarket').atMs));
   ok('kış: açılış +30 dk 18:00 İst', ist(at(d, 'intra1').atMs) === '18:00');
   ok('kış: açılış +1,5 sa 19:00 İst', ist(at(d, 'intra2').atMs) === '19:00');

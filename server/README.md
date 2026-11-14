@@ -233,23 +233,25 @@ hız sınırı (gap/daily) → karne → anahtar sızıntısı yok. Saf eşleşt
 | Rapor | Zaman (İst, kış / yaz) | İçerik |
 |---|---|---|
 | Piyasa öncesi | açılış −30 dk (17:00 / 16:00) | Asya (Nikkei, Hang Seng), Avrupa (FTSE, DAX), vadeliler (ES, NQ), izleme listesi ön piyasa, haberler, makro (FOMC/CPI/NFP), bilanço, beklenti |
-| Açılış +30 dk, +1,5 sa, +2,5 sa | 18:00 / 19:00 / 20:00 (yaz: −1 sa) | Açılıştan beri hareket, duvar kayması (açılış → şimdi: call/put duvarı, gamma flip, max pain), opsiyon birikimi, haberler, beklenti |
+| Açılış +30 dk, +1,5 sa, +2,5 sa, +3,5 sa | 18:00 / 19:00 / 20:00 / **21:00** (yaz: −1 sa) | Açılıştan beri hareket, **şu ana kadar ne oldu** (açılış, seans yükseği/dibi, VWAP, rejim değişimleri, en sert 15 dk), **rejim** (konsolidasyon bant / trend / onaylı dönüş), **bundan sonra** devam · dönüş · yatay olasılıkları (kural tabanlı, toplam 100) ve tetikleyiciler; duvar kayması, birikim, haberler |
 | Gün sonu | kapanış +30 dk (yaz 23:30; kış 00:30) | Gün değişimi, duvar kayması, SMA20/50/200, birikim, haberler, yarın beklentisi |
 
-- Zamanlar ABD açılış/kapanışına çapalıdır (ET, DST dâhil): ABD tatilinde rapor yok; erken kapanış (13:00 ET) günlerinde gün sonu kapanışa göre kayar.
+- Zamanlar ABD açılış/kapanışına çapalıdır (ET, DST dâhil): ABD tatilinde rapor yok; erken kapanış (13:00 ET) günlerinde gün sonu kapanışa göre kayar; 21:00 (açılış +3,5 sa) erken kapanışta atlanır.
+- **Rejim** (`src/lib/market/regime.ts`, eşikler `REGIME_K`): QQQ (yoksa SPY) 1 dk barları Yahoo'dan (önceki 4 gün dâhil, yalnız rapor anından önce tamamlananlar). Konsolidasyon: son 75 dk aralığı ≤ 3,5×ATR14(5 dk) ve ≤ seansın %50'si, ve hacim düşük (≤ 0,8×) ya da ≥ 3 VWAP geçişi; onaylı dönüş: seans uç noktasından ≥ %0,3 ters hareket ve son 30 dk'da ≥ 2 teyit (VWAP geri alma/kaybı, 1,5× hacimli ters mum, 5 dk yapı). Konsolidasyonda karar BEKLE + bant kırılım tetikleyicileri ("bant üstü X → CALL, bant altı Y → PUT").
+- Rejim yoksa (erken seans, bar yok) karar eski eğilim kuralıyla verilir.
 - **Veri:** duvarlar poller'ın önbelleğe aldığı zincirlerden (MarketData'ya EK kredi yok). Yahoo chart (anahtarsız, seri, 350 ms aralık). Finnhub (haber, bilanço) — anahtar `/etc/optioncalc-flow/finnhub_key` (root 600), systemd `LoadCredential`; **anahtar URL'de değil, `X-Finnhub-Token` başlığında gider**.
 - Kaynak hatası → metinde “veri alınamadı” satırı; rapor yine üretilir. Saklama 30 gün (`reports` tablosu). Her rapor sonunda kısa Expo push (kayıtlı tokenlara).
 - **Yapılandırılmış bölümler** (`reports.sections` JSON, `src/lib/reports/sections.ts`): özet (CALL/PUT/BEKLE, ana seviyeler, tek cümle plan), metrikler, duvarlar (merdiven uygulamada bu seviyelerden çizilir), takvim (ET + İst, etki), haberler (etki etiketi), akış yığını, gün sonu incelemesi (beklenti–gerçek, duvar kayması okları, yarın planı). Push metni yine kısa düz metindir. Şema: `ReportSections` (`src/lib/reports/types.ts`).
 - Kapatma: `REPORTS=off` (ortam). Finnhub anahtarı yoksa haber/bilanço “veri alınamadı” olur.
 - **Kuru çalıştırma** (ağ YOK, DB YOK, push YOK; sentetik fixture):
   ```bash
-  node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON server/app/main.ts --report-dry-run premarket   # premarket | intra1 | intra2 | intra3 | eod
+  node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON server/app/main.ts --report-dry-run premarket   # premarket | intra1 | intra2 | intra3 | intra4 | eod
   ```
 - Sınır: duvar anlık görüntüsü, akış tarayıcısı çalışırken alınır (seans dışında ve tarayıcı kapalıyken rapor “anlık görüntü yok” der). Gün içi birikim yalnız eşik üstü olaylardan toplanır (dV).
 
 ### Örnek raporlar (geçmiş gün, nokta-zamanlı)
 
-`server/app/backfill.ts` bir geçmiş işlem günü için 5 raporu yeniden kurar (17:00 / 18:00 / 19:00 / 20:00 İst, gün sonu).
+`server/app/backfill.ts` bir geçmiş işlem günü için 6 raporu yeniden kurar (17:00 / 18:00 / 19:00 / 20:00 / 21:00 İst, gün sonu; yaz saatinde ara raporlar 1 saat erken).
 **Nokta-zamanlı:** her rapor yalnız kendi anından önce **tamamlanmış** veriyi görür (`src/lib/reports/pit.ts`):
 
 - Yahoo barları yalnız `t + süre ≤ rapor anı` ise; `period2` = rapor anı (sonrası istenmez). Günlük kapanış yalnız 16:00 ET rapor anından önceyse.

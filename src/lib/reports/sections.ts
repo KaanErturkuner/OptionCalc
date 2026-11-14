@@ -8,6 +8,7 @@ import { contractLabel } from '../flow/model.ts';
 import { etMs, istHmOf, type MacroLite } from '../calendar/releases.ts';
 import { istHm } from './schedule.ts';
 import { biasOf, intraDirection, openBias, pctTr } from './rules.ts';
+import { intraOf } from './intra.ts';
 import type {
   Bias, Chip, CalItem, FlowSection, FlowTop, Impact, KeyLevel, Move, NewsCard, NewsLite, ReportInput, ReportSections,
   ShiftRow, Tone, WallRow,
@@ -194,15 +195,23 @@ export function eodReview(input: ReportInput, actual: Bias, dataOk: boolean, row
   };
 }
 
-/** Tüm bölümler (tek giriş noktası). Saf: aynı girdi → aynı çıktı. */
+/** Tüm bölümler (tek giriş noktası). Saf: aynı girdi → aynı çıktı. Ara raporda rejim (bant, dönüş) eski yönü ezer. */
 export function buildSections(input: ReportInput): ReportSections {
-  const { bias, dataOk } = decideBias(input);
+  const intra = intraOf(input);
+  const rule = decideBias(input);
+  const useIntra = intra?.bias != null;                 // rejim "erken" değilse rejim kararı; değilse eğilim kuralı
+  const bias: Bias = useIntra ? intra!.bias! : rule.bias;
+  const dataOk = useIntra ? true : rule.dataOk;
   const walls = wallRows(input);
   const primary = primaryWall(walls);
-  const plan = planText(bias, dataOk, primary);   // gün sonunda bu plan "yarın" planıdır (kapanış seviyeleri ile)
+  const plan = useIntra ? intra!.plan : planText(bias, dataOk, primary);
+  const band = useIntra && intra?.band ? intra.band : null;
+  const bandLevels: KeyLevel[] = band ? [
+    { label: 'Bant üstü', value: levelText(band.high) ?? '—' }, { label: 'Bant altı', value: levelText(band.low) ?? '—' },
+  ] : [];
   return {
     v: 1,
-    summary: { bias, dataOk, keyLevels: keyLevelsOf(primary), plan },
+    summary: { bias, dataOk, keyLevels: [...bandLevels, ...keyLevelsOf(primary)], plan, ...(intra ? { regimeLabel: intra.label } : {}) },
     metrics: metricChips(input),
     walls,
     calendar: calendarItems(input),
@@ -211,5 +220,6 @@ export function buildSections(input: ReportInput): ReportSections {
     flow: flowSection(input),
     eod: input.kind === 'eod' ? eodReview(input, bias, dataOk, walls, plan) : null,
     failures: [...input.failures],
+    intra,
   };
 }

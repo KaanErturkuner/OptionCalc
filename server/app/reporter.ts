@@ -10,13 +10,19 @@ import { pctOf, sma } from '../../src/lib/reports/sources.ts';
 import { wallSnapFromRows } from '../../src/lib/reports/walls.ts';
 import type { FlowAgg, Move, MacroLite, NewsLite, Report, ReportInput, SmaRow, WallSnap } from '../../src/lib/reports/types.ts';
 import { eventsOn } from '../../src/lib/calendar/releases.ts';
-import { addDaysStr, isTradingDay } from '../../src/lib/usmarket.ts';
+import { addDaysStr, exDivMs, isTradingDay } from '../../src/lib/usmarket.ts';
+import { endedBy, MIN_MS } from '../../src/lib/reports/pit.ts';
 import type { ChainRow } from '../../src/lib/flow/detect.ts';
 import type { NewsItem } from '../../src/lib/news/types.ts';
 import type { Config } from './config.ts';
 import type { Store } from './store.ts';
 import type { FinnhubClient, YahooClient } from './sources.ts';
 import { errText } from './poller.ts';
+import type { TapeBar } from '../../src/lib/market/regime.ts';
+
+/** Ara raporlar: rejim için 1 dk barlar (önceki seans dâhil; ATR ve hacim için) */
+export const TAPE: string[] = ['QQQ', 'SPY'];
+export const TAPE_LOOKBACK_DAYS = 4;
 
 /** Endeks ve vadeliler (Yahoo sembolleri) */
 export const ASIA: [string, string][] = [['Nikkei 225', '^N225'], ['Hang Seng', '^HSI']];
@@ -36,6 +42,20 @@ export function nextTradingDay(day: string): string {
   let d = addDaysStr(day, 1);
   while (!isTradingDay(d)) d = addDaysStr(d, 1);
   return d;
+}
+
+/** Rejim için 1 dk barlar (QQQ/SPY, son TAPE_LOOKBACK_DAYS gün). Rapor anından sonrası istenmez (period2 = rapor anı) ve kırpılır. */
+export async function tapeOf(yahoo: YahooClient, day: string, nowMs: number, fails: string[]): Promise<{ ticker: string; bars: TapeBar[] }[]> {
+  const out: { ticker: string; bars: TapeBar[] }[] = [];
+  const dayStart = exDivMs(day);
+  for (const t of TAPE) {
+    try {
+      const q = await yahoo.series(t, Math.floor((dayStart - TAPE_LOOKBACK_DAYS * DAY_MS) / 1000), Math.floor(nowMs / 1000), '1m');
+      if (!q) throw new Error('boş yanıt');
+      out.push({ ticker: t, bars: endedBy(q.bars, MIN_MS, nowMs).map(b => ({ t: b.t, o: b.o ?? b.c, h: b.h ?? b.c, l: b.l ?? b.c, c: b.c, v: b.v ?? 0 })) });
+    } catch (e) { fails.push(`Yahoo ${t} 1 dk (rejim) alınamadı (${errText(e)})`); }
+  }
+  return out;
 }
 
 export class Reporter {
@@ -178,7 +198,8 @@ export class Reporter {
       return base;
     }
 
-    // intra1 / intra2 / intra3: açılıştan beri (poller anlık görüntüleri; ek kaynak yok)
+    // intra1..intra4: açılıştan beri (poller anlık görüntüleri; ek kaynak yok) + rejim için 1 dk barlar (Yahoo)
+    base.tape = await tapeOf(yahoo, day, nowMs, fails);
     base.moves = watch.map(t => {
       const o = store.snapGet<WallSnap>(day, t, 'open'), n = store.snapGet<WallSnap>(day, t, 'last');
       return { name: t, pct: o?.spot && n?.spot ? pctOf(n.spot, o.spot) : null, price: n?.spot ?? null };

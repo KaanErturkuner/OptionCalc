@@ -10,6 +10,7 @@ import { etMs, istHmOf, type MacroLite } from '../calendar/releases.ts';
 import type { FlowAgg, Move, NewsLite, Report, ReportInput, WallSnap } from './types.ts';
 import { NA, intraDirection, openBias, pctTr } from './rules.ts';
 import { buildSections } from './sections.ts';
+import { intraOf } from './intra.ts';
 export { BIAS_BAND, intraDirection, openBias, pctTr } from './rules.ts';
 const levelTr = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : fmt(x, x % 1 ? 2 : 0));
 const dayTr = (day: string) => { const [y, m, d] = day.split('-'); return `${d}.${m}.${y}`; };
@@ -111,17 +112,24 @@ function intra(input: ReportInput, ts: number, fails: string[]): Omit<Report, 's
   const fl = flowLines(input.flow, input.basis ? 30 : 5);
   const flNone = input.flowKnown === false ? NA : 'Eşik üstü birikim yok';
   const minsLeft = Math.max(0, Math.round((closeMs(input.day) - ts) / 60000));
+  const iv = intraOf(input);
+  const recapBlock = iv ? ['', 'Şu ana kadar ne oldu', ...iv.recap.map(x => '  ' + x), '',
+    `Rejim: ${iv.label} — ${iv.reason}`, ...(iv.reversal ? [`  ${iv.reversal}`] : []), `  Plan: ${iv.plan}`] : [];
   const lines = [
     header(input.kind, input), '',
     'Açılıştan beri', ...moveRows(input.moves),
     `  Yön: ${dir.label}${dir.avg != null ? ` (ortalama ${sign(dir.avg)}${fmt(dir.avg, 2)}%)` : ''}`,
+    ...recapBlock,
     ...todayMacroBlock(input, ts),
     '', input.basis?.wallsHead ?? 'Duvarlar (açılış → şimdi)', ...wallRows,
     ...(notes.length ? ['', 'Gözlem', ...notes] : []),
     '', input.basis?.flowHead ?? 'Opsiyon birikimi (bugün, en büyük)', ...(fl.length ? fl.map(x => '  ' + x) : [`  ${flNone}`]),
     '', 'Haberler', ...(input.newsOk ? (input.news.length ? newsLines(input.news, 3).map(x => '  ' + x) : ['  Önemli yeni haber yok']) : [`  ${NA}`]),
-    '', 'Beklenti (kural tabanlı)',
-    `  Kalan seans (~${minsLeft} dk): ${dir.label === NA ? 'yön verisi yok' : dir.label === 'yatay' ? 'yatay seyir, duvarlar arasında kalma eğilimi' : `${dir.label} yönlü devam ihtimali; ters yön için gamma flip ve duvar seviyeleri izlenir`}`,
+    ...(iv ? ['', `Bundan sonra ne bekleniyor (${iv.method})`,
+      ...iv.scenarios.map(x => `  ${x.label}: %${x.pct} — tetikleyici: ${x.trigger}`)] : [
+      '', 'Beklenti (kural tabanlı)',
+      `  Kalan seans (~${minsLeft} dk): ${dir.label === NA ? 'yön verisi yok' : dir.label === 'yatay' ? 'yatay seyir, duvarlar arasında kalma eğilimi' : `${dir.label} yönlü devam ihtimali; ters yön için gamma flip ve duvar seviyeleri izlenir`}`,
+    ]),
     ...fails,
     '', 'Kural tabanlı bir özettir; yatırım tavsiyesi değildir.',
   ];

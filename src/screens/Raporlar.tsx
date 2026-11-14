@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Btn, Card, tap } from '@/ui/controls';
 import { C } from '@/ui/theme';
 import {
-  BiasBadge, CalendarTimeline, EodCard, Failures, MetricGrid, NewsList, SectionTitle, SummaryCard, WallsBlock,
+  BiasBadge, CalendarTimeline, EodCard, Failures, IntraBlock, MetricGrid, NewsList, SectionTitle, SummaryCard, WallsBlock,
 } from '@/ui/ReportParts';
 import { loadState } from '@/lib/state';
 import { flowKeyOf } from '@/lib/flow/client';
@@ -16,7 +16,7 @@ import { groupByDay, type ReportBox } from '@/lib/reports/group';
 import type { ReportSections } from '@/lib/reports/types';
 
 const REFRESH_MS = 60000;
-const SUMMARY_TITLE: Record<string, string> = { premarket: 'Bugün için', intra1: 'Şu an', intra2: 'Şu an', intra3: 'Şu an', eod: 'Yarın için' };
+const SUMMARY_TITLE: Record<string, string> = { premarket: 'Bugün için', intra1: 'Şu an', intra2: 'Şu an', intra3: 'Şu an', intra4: 'Şu an', eod: 'Yarın için' };
 /** Duvarlar ve birikim bloğunun açık/kapalı durumu: oturum boyunca (uygulama açık kaldığı sürece) hatırlanır; varsayılan kapalı */
 let wallsOpenSession = false;
 
@@ -34,6 +34,7 @@ function ReportContent({ r, wallsOpen, onToggleWalls }: { r: ReportBox; wallsOpe
   return (
     <View style={{ gap: 12 }}>
       <SummaryCard s={s.summary} title={SUMMARY_TITLE[r.kind] ?? 'Özet'} />
+      {s.intra ? <IntraBlock iv={s.intra} /> : null}
       <SectionTitle>Ölçüler</SectionTitle>
       <MetricGrid chips={s.metrics} />
       <WallsBlock walls={s.walls} flow={s.flow} open={wallsOpen} onToggle={onToggleWalls} />

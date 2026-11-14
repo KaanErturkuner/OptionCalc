@@ -14,7 +14,7 @@
 import { loadConfig } from './config.ts';
 import { Store } from './store.ts';
 import { YahooClient, FinnhubClient } from './sources.ts';
-import { ASIA, EUROPE, FUTURES, VIX, nextTradingDay } from './reporter.ts';
+import { ASIA, EUROPE, FUTURES, VIX, nextTradingDay, tapeOf } from './reporter.ts';
 import { errText } from './poller.ts';
 import { buildReport } from '../../src/lib/reports/text.ts';
 import { slotsFor, istHm, type Slot } from '../../src/lib/reports/schedule.ts';
@@ -166,7 +166,7 @@ async function gatherPit(slot: Slot, deps: { cfg: ReturnType<typeof loadConfig>;
     return base;
   }
 
-  // intra1 / intra2 / intra3: açılıştan rapor anına (1 dk barlar, yalnız bugünkü seans)
+  // intra1..intra4: açılıştan rapor anına (1 dk barlar, yalnız bugünkü seans)
   const ip = { period1: Math.floor((dayStart - DAY_MS) / 1000), period2: Math.floor(cutoff / 1000) };
   for (const t of watch) {
     try {
@@ -180,6 +180,7 @@ async function gatherPit(slot: Slot, deps: { cfg: ReturnType<typeof loadConfig>;
     }
   }
   base.vix = await refMove(VIX[0], VIX[1], false);
+  base.tape = await tapeOf(yahoo, day, cutoff, fails);   // rejim: rapor anından önce tamamlanmış 1 dk barlar
   if (useHist) {
     // Açılış anı (açılış duvarı) yok: yalnız önceki kapanış zincirinden duvar ve birikim; kayma ölçülemez, spot notu yazılmaz
     const rows = watch.map(t => ({ t, h: histOf(prevDay, t) }));

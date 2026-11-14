@@ -1,5 +1,45 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Grok — [grok] reports: 21:00 ara raporu, seans rejimi, onaylı dönüş, senaryo olasılıkları
+
+**Neden:** Kaan: 13/11'de piyasa 18:00–20:00 İst arasında sıkıştı, ama 20:00 raporu hâlâ düşüş bekliyordu — eğilim kuralı açılıştan beri ortalamaya bakıyordu, rejimi görmüyordu. Ayrıca dönüş tespiti Sonuç/Fırsat kartlarında yoktu.
+
+**Ne:**
+- **21:00 ara raporu** (`intra4`): açılış + 3,5 sa. Kış 21:00 İst, yaz 20:00 İst (NY açılışına çapalı, DST ile kayar). Erken kapanış günlerinde (13:00 ET) atlanır. Kutu başlığı "21:00 Raporu". Yaz/kış ara raporları ve etiketleri `schedule.ts` tek kaynak.
+- **Rejim** (`src/lib/market/regime.ts`, saf, eşikler `REGIME_K`): QQQ (yoksa SPY) 1 dk barları, ATR14 5 dk. Konsolidasyon → karar **BEKLE**, etiket "KONSOLİDASYON – bant kırılımını bekle", bant üst/alt + "bant üstü X → CALL, bant altı Y → PUT". Trend (yükseliş/düşüş) ve onaylı dönüş ayrı rejimler; erken seans (<45 dk) eski eğilim kuralına düşer.
+- **Dönüş tespiti** (0DTE): seans uç noktasından ≥ %0,3 ters hareket + son 30 dk içinde ≥ 2 teyit (VWAP geri alma/kaybı [≥15 dk ters tarafta kalıştan sonra], hacim ≥ 1,5× önceki 20 mum ortalaması ve fitil ≥ %50 ya da yutan mum, 5 dk yükselen dip / alçalan tepe kırılımı). 1 teyit = aday (rejimi değiştirmez), ≥2 = onaylı.
+- **Ara rapor bölümleri:** "Şu ana kadar ne oldu" (açılış, seans yükseği/dibi ve saatleri, VWAP, son fiyat, rejim değişimleri, en sert 15 dk hareket), "Rejim" (bant, teyitler), "Bundan sonra ne bekleniyor — kural tabanlı tahmin": devam / dönüş / yatay, tam sayı, toplam 100, her birinde tetikleyici. Taban olasılıklar `BASE` (rejime göre), VWAP tarafı ±5 puan kayar; en büyük kalan yöntemiyle normalize.
+- **Sonuç ve Fırsat kartları:** konsolidasyonda yön **Bekle – bant kırılımı** (bant seviyeleri kartta; BEKLE tetikleyicisi bant üstü/altı), onaylı dönüşte ters yönlü eski puan **Bekle** (dönüş notu kartta). Yön sadece puanla gelir; dönüş tek başına yeni yön vermez.
+- **Uygulama:** `ReportParts.IntraBlock` (rozet, metin satırları, olasılık çubukları renkli). Eski raporlarda `intra` alanı yok → düz metin/eski görünüm.
+
+**Eşikler (kalibrasyon: 13/11 ve 12/11 QQQ/SPY 1 dk, Yahoo):** `ATR_N` 14 (5 dk) · `WINDOW_MIN` 75 · `WINDOW_MIN_OK` 45 · `CONS_RANGE_ATR` 3,5 (ilk değer 3,0; 13/11 13:00 ET penceresi 3,18 ATR olduğu için yükseltildi) · `CONS_SESSION_FRAC` 0,5 · `CONS_VOL_RATIO` 0,8 · `CONS_VWAP_CROSSES` 3 · `TREND_SIDE_FRAC` 0,8 · `TREND_MOVE_ATR` 1,5 · `REV_COUNTER_PCT` 0,3 · `REV_LOOKBACK_MIN` 30 · `REV_CONFIRM` 2 · `REV_VOL_MULT` 1,5 · `REV_WICK_FRAC` 0,5 · `VWAP_HOLD_MIN` 15.
+
+**13/11 yeniden kurulumu (sunucu, nokta-zamanlı, MarketData çağrısı yok, push yok):**
+
+| Rapor (İst) | Rejim (QQQ) | Karar | Devam / Dönüş / Yatay |
+|---|---|---|---|
+| 17:00 piyasa öncesi | — (vadeli skoru +0,11) | BEKLE | — |
+| 18:00 açılış +30 dk | erken seans | PUT (eğilim kuralı) | 38 / 33 / 29 (aşağı devam) |
+| 19:00 açılış +1,5 sa | düşüş trendi (10:00–11:00 ET düşüşü) | PUT | 55 / 25 / 20 |
+| 20:00 açılış +2,5 sa | **konsolidasyon** 671,71–676,30 | **BEKLE** | 25 / 25 / 50 |
+| 21:00 açılış +3,5 sa | **konsolidasyon** 673,54–677,89 | **BEKLE** | 25 / 25 / 50 |
+| Gün sonu 00:30 | — | PUT (gün değişimi) | — |
+
+19:00 İst = 11:00 ET (düşüş penceresi); 20:00 İst = 12:00 ET (sıkışma). Yani 20:00 raporu artık "düşüş bekle" demez. Gün sonu raporu eski kuralı kullanır (sabah BEKLE → gün sonu PUT: ıska).
+
+**Dosyalar:** `src/lib/market/regime.ts` (yeni), `src/lib/reports/intra.ts` (yeni), `schedule.ts` (intra4, INTRA_KINDS), `types.ts`, `sections.ts`, `text.ts`, `sources.ts` (Yahoo h/l/v), `src/lib/signals/verdict.ts` + `trade.ts`, `src/lib/odte/scan.ts`, `src/ui/signalScan.ts` (rejim girdisi), `src/ui/ReportParts.tsx`, `src/screens/Raporlar.tsx`, `server/app/reporter.ts` (tapeOf, TAPE=QQQ/SPY, 4 gün geri), `server/app/backfill.ts`, `server/README.md`. Testler: `test/regime.test.ts` (sentetik: trend, konsolidasyon, V-dönüşü, VWAP geri alma, erken, olasılık toplamı, kart kuralları), `test/reports-intra.test.ts` (DST: kış 21:00 / yaz 20:00, erken kapanış, etiketler, bölümler, geriye uyum); `test/reports.test.ts` (6 slot). `package.json` test zinciri güncellendi.
+
+**Doğrulama:** `npm run check` geçti (test, typecheck, lint, bt:selftest, flow:selftest). Yeni birim testleri: regime 40 kontrol, reports-intra 26 kontrol (hepsi geçti).
+- Sunucu: DB yedeği `/var/lib/optioncalc-flow/flow.db.bak-pre-intra4-20261114T061411Z` (VACUUM INTO, sahip ocflow, mod 600). Dağıtım `server/deploy.sh` → `optioncalc-flow` active.
+- Örnekler: `backfill.ts --day 2026-11-13 --force` (yalnız `ornek:` satırları silindi); 6 satır yazıldı, `intra` bölümü ve bias doğrulandı. Gerçek (canlı) satırlara dokunulmadı.
+
+**Açık / devir:**
+- **riskwatch T1/T2 (açık pozisyon çıkış tetikleri, PLAN §7.3) değiştirilmedi:** kağıt pozisyon çıkışlarını etkiler; yeni 0DTE dönüş tespiti yalnız rapor/Sonuç/Fırsat'ta. Kaan onaylarsa T1/T2 yeni eşiklere bağlanabilir.
+- Rejim gün içinde dalgalanabilir (13/11'de 20:00–20:40 arası çok geçiş; `regimeChanges` bunları listeler). Histerezis eklenmedi.
+- Expo Go'da görsel kontrol yapılmadı (yalnız tip denetimi ve lint); IntraBlock kart boyutu Kaan'da kontrol edilmeli.
+- Yayın yok (Expo'ya dokunulmadı), push yok, MarketData çağrısı yok, ücretli Anthropic çağrısı yok.
+- Sonuç kartı eşiği (MIN_SUM=3) ve Fırsat puanları değişmedi; yalnız rejim kuralı eklendi.
+
 ## 2026-11-14 — Claude — [grok] ui: Fırsat ekranı yeniden tasarlandı (işlem kartları, BEKLE, Detaylar)
 
 - Üstte en güçlü 1–3 fırsat için büyük işlem kartı: ticker, CALL/PUT rozeti, strike (spot'tan OTM $), vade (0DTE / "n gün" + tarih), giriş (orta), stop (−%67), hedef 1:5, yedek 1:4, kademe ve adet (sermaye · %kademe → N kontrat · maliyet), gidiş-dönüş komisyon, stopta/hedefte net tahmini, güç x/5, düz Türkçe gerekçe, gece etiketi ve makro uyarılar.

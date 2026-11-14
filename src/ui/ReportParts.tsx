@@ -8,7 +8,7 @@ import { fmtUsdShort } from '@/lib/flow/model';
 import { ladderLayout, MARK_LABEL, type MarkKey } from '@/lib/reports/ladder';
 import { levelText, shiftArrow } from '@/lib/reports/sections';
 import { wallSummaryLine } from '@/lib/reports/wallSummary';
-import type { Bias, CalItem, Chip, EodReview, FlowSection, Impact, KeyLevel, NewsCard, ReportSections, Tone, WallRow } from '@/lib/reports/types';
+import type { Bias, CalItem, Chip, EodReview, FlowSection, Impact, IntraScenario, IntraView, KeyLevel, NewsCard, ReportSections, Tone, WallRow } from '@/lib/reports/types';
 import { C } from './theme';
 
 const NA = 'veri alınamadı';
@@ -34,6 +34,50 @@ export function BiasBadge({ bias, dataOk = true, size = 'md' }: { bias: Bias; da
   return (
     <View style={{ backgroundColor: color + '26', borderWidth: 1, borderColor: color, borderRadius: 999, paddingHorizontal: size === 'lg' ? 14 : 9, paddingVertical: size === 'lg' ? 5 : 2, alignSelf: 'flex-start' }}>
       <Text style={{ color, fontSize: fs, fontWeight: '900', letterSpacing: 0.6 }}>{bias}</Text>
+    </View>
+  );
+}
+
+/** Olasılık çubuğu: etiket, yüzde, oran çubuğu, tetikleyici. Devam yön rengi; dönüş ters renk; yatay nötr. */
+function ProbRow({ s, dir }: { s: IntraScenario; dir: 'up' | 'down' | null }) {
+  const up = dir !== 'down';
+  const color = s.key === 'yatay' ? C.blue : s.key === 'devam' ? (up ? C.pos : C.neg) : (up ? C.neg : C.pos);
+  return (
+    <View style={{ gap: 4 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+        <Text style={{ color: C.text, fontSize: 13, fontWeight: '700' }}>{s.label}</Text>
+        <Text style={{ color, fontSize: 14, fontWeight: '900', fontVariant: ['tabular-nums'] }}>{`%${s.pct}`}</Text>
+      </View>
+      <View style={{ height: 8, borderRadius: 4, backgroundColor: C.border, overflow: 'hidden' }}>
+        <View style={{ width: `${s.pct}%`, height: 8, borderRadius: 4, backgroundColor: color }} />
+      </View>
+      <Text style={{ color: C.muted, fontSize: 11.5 }}>{s.trigger}</Text>
+    </View>
+  );
+}
+
+/** Ara rapor: şu ana kadar (seans özeti, rejim değişimleri, en sert hareket), rejim + bant, senaryo olasılıkları (kural tabanlı) */
+export function IntraBlock({ iv }: { iv: IntraView }) {
+  const color = iv.bias ? BIAS_COLOR[iv.bias] : C.muted;
+  return (
+    <View style={{ backgroundColor: C.card2, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 12, gap: 10 }}>
+      <SectionTitle>Şu ana kadar ne oldu</SectionTitle>
+      <View style={{ gap: 4 }}>
+        {iv.recap.map((l, i) => <Text key={i} style={{ color: C.text, fontSize: 13, lineHeight: 18 }}>{`• ${l}`}</Text>)}
+      </View>
+      <SectionTitle>Rejim</SectionTitle>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <Pill text={iv.label} color={color} size={12} />
+        {iv.band ? <Text style={{ color: C.text, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{`Bant ${levelText(iv.band.low) ?? '—'}–${levelText(iv.band.high) ?? '—'}`}</Text> : null}
+      </View>
+      <Text style={{ color: C.muted, fontSize: 11.5 }}>{iv.reason}</Text>
+      {iv.reversal ? <Text style={{ color: C.warn, fontSize: 12, fontWeight: '700' }}>{iv.reversal}</Text> : null}
+      <SectionTitle>Bundan sonra ne bekleniyor</SectionTitle>
+      <Text style={{ color: C.muted, fontSize: 11 }}>Kural tabanlı tahmin · yatırım tavsiyesi değildir</Text>
+      <View style={{ gap: 10 }}>
+        {iv.scenarios.map(s => <ProbRow key={s.key} s={s} dir={iv.dir} />)}
+      </View>
+      <Text style={{ color: C.text, fontSize: 13, lineHeight: 19 }}>{iv.plan}</Text>
     </View>
   );
 }

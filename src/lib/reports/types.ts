@@ -1,6 +1,7 @@
 /* Rapor girdi/çıktı tipleri (saf). Sunucu veriyi toplar, bu tiplerle metni ve yapılandırılmış bölümleri üretir; uygulama aynı Report'u gösterir. */
 import type { ReportKind } from './schedule.ts';
 import type { MacroLite } from '../calendar/releases.ts';
+import type { RegimeKind, TapeBar, Band } from '../market/regime.ts';
 export type { MacroLite };
 
 export interface Move { name: string; pct: number | null; price?: number | null }
@@ -39,9 +40,24 @@ export interface EodReview {
   shifts: ShiftRow[];
   plan: string;                     // yarın planı (1 cümle)
 }
+/** Ara rapor senaryosu: devam / dönüş / yatay; pct tam sayı (üçü toplam 100) */
+export interface IntraScenario { key: 'devam' | 'donus' | 'yatay'; label: string; pct: number; trigger: string }
+/** Ara rapor: şu ana kadar (recap) + rejim + senaryolar (kural tabanlı tahmin). Yalnız intra türlerinde. */
+export interface IntraView {
+  method: string; ticker: string; asOf: number;
+  kind: RegimeKind; label: string; reason: string;
+  bias: Bias | null;                // null: rejim "erken" → eğilim kuralı (kayan ortalama) kullanılır
+  dir: 'up' | 'down' | null;
+  band: Band | null;
+  plan: string;
+  recap: string[];
+  scenarios: IntraScenario[];
+  reversal: string | null;          // dönüş adayı / onaylı dönüş özeti
+}
 export interface ReportSections {
   v: 1;
-  summary: { bias: Bias; dataOk: boolean; keyLevels: KeyLevel[]; plan: string };
+  summary: { bias: Bias; dataOk: boolean; keyLevels: KeyLevel[]; plan: string; regimeLabel?: string };
+  intra?: IntraView | null;         // yalnız ara raporlar (eski satırlarda yok)
   metrics: Chip[];
   walls: WallRow[];
   calendar: CalItem[];
@@ -66,6 +82,8 @@ export interface ReportInput {
   earnings: { ticker: string; date: string | null }[] | null;   // null = bilanço bilgisi alınamadı
   sma: SmaRow[];
   failures: string[];                               // "Yahoo: ^N225 alınamadı" gibi
+  /** Ara raporlar: QQQ / SPY 1 dk barları (yalnız rapor anından önce tamamlanmış olanlar; sunucu kırpar) */
+  tape?: { ticker: string; bars: TapeBar[] }[];
   flowKnown?: boolean;                              // false: o an için akış/duvar kaydı yok → "veri alınamadı" (undefined = var)
   /** Aynı günün piyasa öncesi raporundan CALL/PUT/BEKLE (yalnız gün sonu: beklenti–gerçek karşılaştırması). Yoksa null. */
   morningBias?: Bias | null;
