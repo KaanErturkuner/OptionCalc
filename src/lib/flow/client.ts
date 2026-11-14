@@ -7,7 +7,8 @@ export interface FlowFeed { events: FlowEvent[]; serverTime: number; creditsToda
 
 /** EAS/derleme zamanı anahtarı (isteğe bağlı; tercih edilen yol uygulama içi ayar). Expo bunu derleme sırasında gömer. */
 /** Uygulama içi anahtar yoksa derleme zamanı anahtarı */
-export const flowKeyOf = (stored?: string | null): string => (stored ?? '').trim();   // anahtar yalnız cihazda (Hesapla › Ayarlar); paket içine gömülmez
+export const ENV_FLOW_KEY = (process.env.EXPO_PUBLIC_FLOW_API_KEY ?? '').trim();   // paket içi varsayılan (Kaan kararı: elle girmesin)
+export const flowKeyOf = (stored?: string | null): string => (stored ?? '').trim() || ENV_FLOW_KEY;   // cihazdaki anahtar önce, yoksa paket içi
 
 function hdr(key: string) { return { [APP_KEY_HEADER]: key, Accept: 'application/json' }; }
 
