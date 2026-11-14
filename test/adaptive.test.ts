@@ -58,22 +58,24 @@ const now = (b: RG.TapeBar[]) => SS + b.length * MIN;
   ok('put: aşağı hareket lehte, yukarı dönüş → ÇIK', d.verdict === 'CIK' && d.revSig.includes('hacimli ters mum'), `${d.verdict} ${d.reason}`);
 }
 
-// ───── 6) Riskwatch: sert %67 stop her zaman önce; ÇIK kâr düzeyinden bağımsız çıkarır; TUT/DİKKAT çıkarmaz ─────
+// ───── 6) Riskwatch: sert −%40 stop her zaman önce; ÇIK yalnız UYARI (çıkış yok); TUT/DİKKAT çıkarmaz ─────
 const pos = (over: Partial<OpenPosition> = {}): OpenPosition => ({
   id: 'p', ticker: 'QQQ', setup: 'S1', dir: 'call', expiry: '2026-11-12', dte: 0, strike: 100, contracts: 1.5, fill: 1, costBasis: 150,
-  openComm: 0, stopPrem0: 1 / 3, stopPrem: 1 / 3, targetPrem: 3, rPrice: 2 / 3, rDollars: 100, targetR: 3, openedAt: 0, day: '2026-11-12',
+  openComm: 0, stopPrem0: 0.6, stopPrem: 0.6, targetPrem: 3, rPrice: 0.4, rDollars: 40, targetR: 3, openedAt: 0, day: '2026-11-12',
   mode: 'AGRESIF', kademe: 0.5, overnight: false, maxR: 0, warned: false, ...over,
 });
 const adv = (verdict: AD.AdaptVerdict, reason = 'test'): AD.AdaptiveDecision =>
   ({ verdict, counterPct: 0.5, rev: verdict === 'CIK' ? 5 : 0, cont: verdict === 'TUT' ? 3 : 0, revSig: [], contSig: [], regimeAgainst: false, reason });
 const T = (bid: number, a: AD.AdaptiveDecision | null, flags: Record<string, boolean> = {}) => ({ bid, etMin: 600, mode: 'AGRESIF' as const, flags: flags as any, adaptive: a });
 {
-  const d = RW.evaluatePosition(pos(), T(0.3, adv('CIK', 'ÇIK: test')));
-  ok('öncelik: %67 stop ÇIK\'ın önünde (stop nedeni)', d.action === 'close' && d.reason === 'stop', `${d.action} ${d.reason}`);
+  const d = RW.evaluatePosition(pos(), T(0.5, adv('CIK', 'ÇIK: test')));
+  ok('öncelik: −%40 stop (0,60) ÇIK\'ın önünde (stop nedeni)', d.action === 'close' && d.reason === 'stop', `${d.action} ${d.reason}`);
   const h = RW.evaluatePosition(pos(), T(3.1, adv('CIK', 'ÇIK: test')));
   ok('öncelik: hedef ÇIK\'ın önünde', h.action === 'close' && h.reason === 'hedef');
   const c = RW.evaluatePosition(pos(), T(1.2, adv('CIK', 'ÇIK: VWAP kaybı; devam kanıtı zayıf')));
-  ok('ÇIK kârda/zararda çıkarır (1,2 → kâr 0,3R)', c.action === 'close' && c.reason === 'risk' && c.message === 'ÇIK: VWAP kaybı; devam kanıtı zayıf', `${c.action} ${c.message}`);
+  ok('ÇIK yalnız uyarı: çıkış yok (1,2 → kâr 0,5R), mesaj taşır', c.action === 'hold' && c.message === 'ÇIK: VWAP kaybı; devam kanıtı zayıf', `${c.action} ${c.message}`);
+  const c2 = RW.evaluatePosition(pos(), T(1.8, adv('CIK', 'ÇIK: test2')));
+  ok('ÇIK 2R kârda da çıkarmaz (uyarı)', c2.action === 'hold' && c2.message === 'ÇIK: test2', `${c2.action} ${c2.message}`);
   const tut = RW.evaluatePosition(pos(), T(1.2, adv('TUT'), { T1: true, T2: true, T3: true }));
   ok('TUT: eski T1/T2/T3 bayrakları yok sayılır → çıkış yok', tut.action === 'hold', tut.action);
   const dk = RW.evaluatePosition(pos(), T(1.2, adv('DIKKAT', 'DİKKAT: eşit')));
@@ -84,7 +86,7 @@ const T = (bid: number, a: AD.AdaptiveDecision | null, flags: Record<string, boo
   const yok = RW.evaluatePosition(pos(), T(1.2, adv('YOK')));
   ok('YOK: çıkış yok', yok.action === 'hold');
 }
-function bidR(R: number) { return 1 + R * (2 / 3); }
+function bidR(R: number) { return 1 + R * 0.4; }   // 1R = giriş × 0,40
 
 // ───── 7) Rejim histerezisi (saf durum makinesi, 2 ardışık 5 dk kapanış) ─────
 {

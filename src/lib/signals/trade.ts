@@ -5,6 +5,7 @@
 import { MIN_SUM, strengthLabel, type VerdictCard, type VerdictDir, type Crit } from './verdict.ts';
 import type { Band } from '../market/regime.ts';
 import { sizePosition } from '../paper/sizing.ts';
+import { PREMIUM_STOP_PCT } from '../paper/rules.ts';
 import { netPnl } from '../paper/costs.ts';
 import type { Kademe } from '../paper/types.ts';
 import { cardCalendarLines, eventsOn, nextTd, BLOCKING_KEYS } from '../calendar/releases.ts';
@@ -12,8 +13,8 @@ import { etDate } from '../usmarket.ts';
 import { fmt } from '../format.ts';
 
 export const MAX_TRADE_CARDS = 3;
-/** Stop: prim %67 düşüş (giriş × 0,33). */
-export const STOP_PCT = 67;
+/** Stop: prim −%40 düşüş (giriş × 0,60). Tek kaynak: paper/rules.ts. */
+export const STOP_PCT = PREMIUM_STOP_PCT;
 
 const TR_MONTHS = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
 const px = (x: number) => fmt(x, x % 1 ? 2 : 0);   // 690 → "690", 688,5 → "688,50"

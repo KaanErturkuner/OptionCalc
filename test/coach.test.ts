@@ -25,10 +25,11 @@ ok('dteOf: aynı gün 0', dteOf('2026-11-13', '2026-11-13') === 0);
 ok('dteOf: +3 gün = 3', dteOf('2026-11-16', '2026-11-13') === 3);
 ok('dteOf: geçmiş vade → null', dteOf('2026-11-12', '2026-11-13') === null);
 
-// ───── 2) Kurallar (prim stop %67, hedef 1:5 / 1:4) ─────
-ok('stop: giriş 1,00 → 0,33', stopPriceOf(1) === 0.33);
-ok('hedef 1:5: 1,00 → 4,35', targetPriceOf(1, 5) === 4.35, String(targetPriceOf(1, 5)));
-ok('hedef 1:4: 1,00 → 3,68', targetPriceOf(1, 4) === 3.68, String(targetPriceOf(1, 4)));
+// ───── 2) Kurallar (prim stop −%40, hedef 1:5 / 1:4) ─────
+ok('stop: giriş 1,00 → 0,60 (−%40)', stopPriceOf(1) === 0.6, String(stopPriceOf(1)));
+ok('hedef 1:5: 1,00 → 3,00', targetPriceOf(1, 5) === 3, String(targetPriceOf(1, 5)));
+ok('hedef 1:4: 1,00 → 2,60', targetPriceOf(1, 4) === 2.6, String(targetPriceOf(1, 4)));
+ok('Kaan örneği 3,00: stop 1,80 · 1:5 9,00 · 1:4 7,80', stopPriceOf(3) === 1.8 && targetPriceOf(3, 5) === 9 && targetPriceOf(3, 4) === 7.8, `${stopPriceOf(3)} ${targetPriceOf(3, 5)} ${targetPriceOf(3, 4)}`);
 ok('prim değişimi: 1,00 → 0,50 = −50%', premiumPct(1, 0.5) === -50);
 
 const T: ExtractedTrade = { ticker: 'QQQ', side: 'CALL', strike: 600, expiry: '2026-11-13', qty: 2, entryTime: '2026-11-13T18:00', entryPrice: 1, exitTime: '2026-11-13T18:40', exitPrice: 4.4, status: 'kapali', confidence: 'yuksek' };
@@ -153,7 +154,7 @@ ok('anthropic: bozuk yanıt → boş metin', parseMessagesReply({}).text === '')
 // ───── 9) Promptlar: Türkçe, JSON şartı, kurallar ─────
 ok('prompt: sistem metinleri JSON şartı içerir', COACH_SYSTEM.includes('JSON') && EXTRACT_SYSTEM.includes('"fills"') && EXTRACT_SYSTEM.includes('Midas'));
 ok('prompt: kullanıcı metni bağlamı taşır', coachUserText([{ index: 0, trade: {}, rules: [], facts: {}, noData: [] }]).includes('"index":0') && coachUserText([{ index: 0, trade: {}, rules: [], facts: {}, noData: [] }]).includes('TAM 1'));
-ok('prompt: kural özeti (1:5, %67, 16:30)', COACH_SYSTEM.includes('1:5') && COACH_SYSTEM.includes('%67') && COACH_SYSTEM.includes('16:30'));
+ok('prompt: kural özeti (1:5, %40, 16:30)', COACH_SYSTEM.includes('1:5') && COACH_SYSTEM.includes('%40') && !COACH_SYSTEM.includes('%67') && COACH_SYSTEM.includes('16:30'));
 
 console.log(fail ? `\n${fail} BAŞARISIZ` : '\nTüm koç testleri geçti');
 process.exit(fail ? 1 : 0);

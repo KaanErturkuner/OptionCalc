@@ -3,8 +3,9 @@
 import type { Bar } from '../odte/analytics.ts';
 import type { OpenPosition, PaperMode, ExitReason } from '../paper/types.ts';
 import type { AdaptiveDecision } from './adaptive.ts';
+import { PREMIUM_STOP_DROP } from '../paper/rules.ts';
 
-export const PRIM_STOP_MAX = 0.67;      // Kaan kararı (§6.1, K5, D8)
+export const PRIM_STOP_MAX = PREMIUM_STOP_DROP;   // Kaan kararı (2026-11-14): prim stopu −%40 (tek kaynak: paper/rules.ts)
 export const RANGE_BODY_MIN = 0.6;      // T1: gövde/aralık
 export const VOL_SPIKE = 2;             // T1 ve §7.3 hacim oranı
 export const IV_DROP = 0.15;            // T5
@@ -21,7 +22,7 @@ export const TRIGGER_AD: Record<TriggerId, string> = {
   T1: 'ters mum', T2: 'VWAP kaybı', T3: 'rejim dönüşü', T4: 'momentum uyumsuzluğu', T5: 'IV düşüşü', T6: 'teta/zaman', T7: 'kilit seviye',
 };
 
-/** Dayanak stopu ile %67 prim tavanından hangisi yüksekse (daha sıkı) onu al. */
+/** Dayanak stopu ile −%40 prim tavanından hangisi yüksekse (daha sıkı) onu al. */
 export const effectiveStopPrem = (fill: number, dayanakStopPrem: number, pmax = PRIM_STOP_MAX): number =>
   Math.max(dayanakStopPrem, fill * (1 - pmax));
 
@@ -108,8 +109,9 @@ export interface RiskDecision {
 }
 
 /**
- * Tek tick kararı. Sıra: hedef → stop (iz süren dâhil, %67 prim stopu) → 15:45 zorunlu çıkış → uyarlanabilir ÇIK
- * → risk tetikleri (T4–T7 ve, uyarlanabilir yoksa, T1–T3). ÇIK her kâr düzeyinde çıkarır; TUT/DİKKAT çıkarmaz.
+ * Tek tick kararı. Sıra: hedef → stop (iz süren dâhil, −%40 prim stopu) → 15:45 zorunlu çıkış → risk tetikleri
+ * (T4–T7 ve, uyarlanabilir yoksa, T1–T3). Uyarlanabilir ÇIK/TUT/DİKKAT yalnız UYARIDIR: çıkış üretmez (Kaan 2026-11-14);
+ * ÇIK ve DİKKAT mesajı `message` olarak döner, pozisyon açık kalır.
  * Kâr ≥ eşik + tetik → çıkış. 1R–eşik arası + tetik → uyarı, stop girişe; ikinci tetik → çıkış.
  */
 export function evaluatePosition(pos: OpenPosition, t: TickInput): RiskDecision {
@@ -130,8 +132,8 @@ export function evaluatePosition(pos: OpenPosition, t: TickInput): RiskDecision 
     return { action: 'close', reason, pos: next, triggers, message: 'stop vurdu', adaptive: ad };
   }
   if (pos.dte === 0 && t.etMin >= EOD_FORCE_ET_MIN) return { action: 'close', reason: 'zaman', pos: next, triggers, message: '15:45 zorunlu çıkış', adaptive: ad };
-  if (ad?.verdict === 'CIK') return { action: 'close', reason: 'risk', pos: next, triggers, message: ad.reason, adaptive: ad };
-  const note = ad?.verdict === 'DIKKAT' ? ad.reason : undefined;
+  // ÇIK / DİKKAT: yalnız uyarı (mesaj), otomatik çıkış yok.
+  const note = ad?.verdict === 'CIK' || ad?.verdict === 'DIKKAT' ? ad.reason : undefined;
 
   if (!triggered(trig)) return { action: 'hold', pos: next, triggers, message: note, adaptive: ad };
   const threshold = exitThresholdR(t.mode);

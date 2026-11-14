@@ -3,13 +3,14 @@
  * Değerlendirme 5 dk'da bir (uygulamanın yenileme aralığı), yalnızca TAMAMLANMIŞ 1 dk barlarla; hisse başına aynı anda tek pozisyon.
  * Giriş: sinyalden sonraki barın açılışında ASK + kayma. Çıkış: dayanak hedef/stop (aynı barda ikisi → stop), zaman stopu
  * (maxHoldMin) ya da gün sonu 15:45 ET (her DTE; B7 — Kaan kuralı) — BID − kayma. Komisyon kontrat/yön başına (varsayılan 1,50 $).
- * KAAN kuralları (RunOpts.kaan, D12): prim stopu %67 (prim giriş × 0,33'e inerse çık) ve risk bazlı prim hedefi
- * (giriş + N × risk, risk = giriş × 0,67). Her N için ayrı koşu yapılır (1:5, 1:4, 1:2, 1:1,5 sonuç kolonları).
+ * KAAN kuralları (RunOpts.kaan, D12; 2026-11-14 güncellemesi): prim stopu −%40 (prim giriş × 0,60'a inerse çık) ve risk bazlı prim hedefi
+ * (giriş + N × risk, risk = giriş × 0,40). Tek kaynak: src/lib/paper/rules.ts. Her N için ayrı koşu yapılır (1:5, 1:4, 1:2, 1:1,5 sonuç kolonları).
  */
 import { metrics, group, type Day, type Met } from './bt.mts';
 import { defaultCosts, makeSource, type Costs, type QuoteSource, type Side } from './sources.mts';
 import { pickContract, pickStrike, type CommonParams, type DayInfo, type StratCtx, type StratEntry, type Strategy } from '../src/lib/odte/strategies/index.ts';
 import type { Bar } from '../src/lib/odte/analytics.ts';
+import { PREMIUM_STOP_DROP } from '../src/lib/paper/rules.ts';
 
 export interface ETrade {
   strat: string; ticker: string; D: string; m: number; dir: Side; dte: number; K: number;
@@ -17,7 +18,7 @@ export interface ETrade {
   score: number; exitT: number; holdMin: number; src: string; note?: string;
   /** Giriş zamanı (ms). */
   entryT: number;
-  /** Gerçekleşen R (prim riski = giriş × 0,67; komisyon dâhil): net = R × risk − 2 × komisyon */
+  /** Gerçekleşen R (prim riski = giriş × 0,40; komisyon dâhil): net = R × risk − 2 × komisyon */
   R: number;
   /** Prim yolunda hedef seviyesine (R) İLK geçiş bilgisi (yalnız stop'tan önce görülenler). Hesap modu hedefi için kullanılır. */
   hit: Record<number, boolean>;
@@ -26,13 +27,13 @@ export interface ETrade {
 }
 /** Hedef seviyeleri (R): 1:1,5 / 1:2 güvenli mod, 1:4 yedek, 1:5 birincil (Kaan D12). */
 export const HIT_LEVELS = [1.5, 2, 4, 5] as const;
-/** Kaan kuralları (D12): prim stopu = giriş × (1 − pmax); prim hedefi = giriş + targetN × (giriş × pmax). */
+/** Kaan kuralları (D12): prim stopu = giriş × (1 − pmax); prim hedefi = giriş + targetN × (giriş × pmax). pmax = düşüş oranı (0,40). */
 export interface KaanRules { targetN: number; pmax?: number }
-export const KAAN_PMAX = 0.67;
+export const KAAN_PMAX = PREMIUM_STOP_DROP;   // prim stopu −%40 (paper/rules.ts)
 export interface RunOpts { source?: QuoteSource; costs?: Costs;
   /** Diğer sembollerin gün içi 1 dk barları (rejim/sektör stratejileri için): (sembol, gün) → barlar */
   peers?: (symbol: string, D: string) => Bar[] | null;
-  /** Kaan prim kuralları (prim stopu %67 + risk bazlı prim hedefi 1:N). Yoksa yalnız dayanak hedef/stop. */
+  /** Kaan prim kuralları (prim stopu −%40 + risk bazlı prim hedefi 1:N). Yoksa yalnız dayanak hedef/stop. */
   kaan?: KaanRules }
 
 export function dayInfo(d: Day, ratios?: number[]): DayInfo {

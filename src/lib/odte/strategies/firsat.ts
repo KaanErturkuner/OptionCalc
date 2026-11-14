@@ -7,7 +7,7 @@
  *  - Duvarlar (S4) ve haber (S5) bu sarmalayıcıda yok → S4 ve S5 hiç üretmez.
  *  - Strike: varsayılan `oto` (B9, Kaan D8): S ± k × EM0, k = profilin OTM kuralı (QQQ sabit çapa 0,45; NVDA/GLD/SLV oto).
  *    `delta` (targetDelta ile kontrat seçimi) yalnız karşılaştırma içindir (otmMode parametresi).
- *  - Çıkış: prim stopu %67 ve risk bazlı prim hedefi motorda (RunOpts.kaan). maxHoldMin yok (Kaan kuralı yok).
+ *  - Çıkış: prim stopu −%40 ve risk bazlı prim hedefi motorda (RunOpts.kaan). maxHoldMin yok (Kaan kuralı yok).
  *  - Gece taşıma backtest'te yok: pozisyon 15:45 ET'de kapanır (uygulamada takvim kapısına bağlı, §7.8).
  */
 import { COMMON_DEFAULTS, inWindow, type CommonParams, type Strategy, type StratCtx, type StratEntry } from './types.ts';

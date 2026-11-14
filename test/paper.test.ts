@@ -19,7 +19,7 @@ const NOCOST = { commission: 0, slippage: 0, fractional: true };  // Kaan'ın ö
 
 /** Kaan'ın yuvarlak örnekleri: prim stopu giriş/3 (150 → 50), hedef 1:R. */
 function openKaan(acc: PaperAccount, fill: number, rr: number, mode: 'AGRESIF' | 'AGRESIF_4' | 'GUVENLI_KAR' | 'GUVENLI_ZARAR' = 'AGRESIF', day = D): PaperAccount {
-  const stop = fill / 3;
+  const stop = fill * 0.6;   // −%40 stop (paper/rules.ts)
   const rPrice = fill - stop;
   return must(openPosition(acc, { id: 'k', ticker: 'QQQ', setup: 'S1', dir: 'call', expiry: day, dte: 0, strike: 100,
     fill, stopPrem: stop, targetPrem: fill + rr * rPrice, targetR: rr, mode, now: 0, day }));   // D12: 1:N risk bazlı, hedef = giriş + N × risk
@@ -28,45 +28,45 @@ const must = (r: { ok: boolean; reason?: string; acc?: PaperAccount }): PaperAcc
   if (!r.ok || !r.acc) throw new Error('beklenmeyen red: ' + (r as any).reason);
   return r.acc;
 };
-/** Kaan'ın kapanışı: "stop" = giriş/3, "hedef" = 1:R (exit = fill + R × 2/3). */
+/** Kaan'ın kapanışı (−%40): "stop" = giriş × 0,60, "hedef" = 1:R (exit = fill + R × 0,40 × fill). */
 const closeAt = (acc: PaperAccount, exit: number, reason: 'stop' | 'hedef' | 'risk', day = D) => must(closePosition(acc, exit, reason, 0, day));
 
 // ============ §7.2 Kaan'ın örnekleri (1–8) ============
-// 1) Sermaye 300, kademe %50 → pozisyon 150. Prim stopu → R = 100. 1:3 çıkış → +300 → sermaye 600 → sıradaki 300.
+// 1) Sermaye 300, kademe %50 → pozisyon 150. Prim stopu −%40 → R = 60 (1,5 kontrat × 0,40). 1:3 çıkış → +180 → sermaye 480 → sıradaki 240.
 {
   let acc = initAccount(300, NOCOST, D);
   acc = openKaan(acc, 1, 3);
   ok('ör.1: pozisyon 150', near(acc.position!.costBasis, 150));
-  ok('ör.1: R = 100', near(acc.position!.rDollars, 100), String(acc.position!.rDollars));
-  acc = closeAt(acc, 1 + 3 * (2 / 3), 'hedef');
-  ok('ör.1: 1:3 çıkış → +300, sermaye 600', near(acc.capital, 600), String(acc.capital));
+  ok('ör.1: R = 60 (−%40)', near(acc.position!.rDollars, 60), String(acc.position!.rDollars));
+  acc = closeAt(acc, 1 + 3 * 0.4, 'hedef');
+  ok('ör.1: 1:3 çıkış → +180, sermaye 480', near(acc.capital, 480), String(acc.capital));
   ok('ör.1: kazanç sonrası kademe %50 (azami)', acc.kademe === 0.5);
   acc = openKaan(acc, 1, 3);
-  ok('ör.1: sıradaki pozisyon 300 (600 × %50)', near(acc.position!.costBasis, 300), String(acc.position!.costBasis));
+  ok('ör.1: sıradaki pozisyon 240 (480 × %50)', near(acc.position!.costBasis, 240), String(acc.position!.costBasis));
 }
-// 1b) Yuvarlamasız formül: primStopMaks = 0,67 → stop = giriş × 0,33 → R = 100,5 (Kaan'ın "100" yuvarlaması; 0,5 $ sapma)
+// 1b) Kaan örneği (2026-11-14, prim stopu −%40): giriş 3,00 → stop 1,80 → 1R = 1,20 × 100 = 120 $ (1 kontrat, komisyon 0)
 {
-  const fill = 1, stop = effectiveStopPrem(fill, 0, PRIM_STOP_MAX);
-  ok('ör.1 (0,67 formülü): stop = 0,33', near(stop, 0.33));
-  const acc = must(openPosition(initAccount(300, NOCOST, D), { id: 'f', ticker: 'QQQ', setup: 'S1', dir: 'call', expiry: D, dte: 0, strike: 100,
-    fill, stopPrem: stop, targetPrem: 3, targetR: 3, mode: 'AGRESIF', now: 0, day: D }));
-  ok('ör.1 (0,67): R ≈ 100 (±0,6; formül 100,5)', Math.abs(acc.position!.rDollars - 100) <= 0.6, String(acc.position!.rDollars));
+  const fill = 3, stop = effectiveStopPrem(fill, 0, PRIM_STOP_MAX);
+  ok('ör.3,00 (−%40): stop = 1,80', near(stop, 1.8), String(stop));
+  const acc = must(openPosition(initAccount(1000, NOCOST, D), { id: 'f', ticker: 'QQQ', setup: 'S1', dir: 'call', expiry: D, dte: 0, strike: 100,
+    fill, stopPrem: stop, targetPrem: 9, targetR: 5, mode: 'AGRESIF', now: 0, day: D }));
+  ok('ör.3,00 (−%40): R = 120 $ kontrat başına', near(acc.position!.rDollars / acc.position!.contracts, 120), String(acc.position!.rDollars));
 }
-// 2) Sermaye 300, pozisyon 150, işlem 50'ye düşüp kapandı → sermaye 200 → sıradaki kademe %40 → pozisyon 80.
+// 2) Sermaye 300, pozisyon 150, işlem −%40 stop'ta kapandı (−60) → sermaye 240 → sıradaki kademe %40 → pozisyon 96.
 // D12: gün içi %50 düşüş kuralı kaldırıldı (onaysız ek kuraldı); iki kayıp → GUVENLI_ZARAR, DURDU değil.
 {
   let acc = openKaan(initAccount(300, { ...NOCOST, durduEnabled: true }, D), 1, 3);
-  acc = closeAt(acc, 1 / 3, 'stop');
-  ok('ör.2: stop → sermaye 200', near(acc.capital, 200), String(acc.capital));
+  acc = closeAt(acc, 0.6, 'stop');
+  ok('ör.2: stop → sermaye 240', near(acc.capital, 240), String(acc.capital));
   ok('ör.2: kademe %40', acc.kademe === 0.4);
   acc = openKaan(acc, 1, 3);
-  ok('ör.2: pozisyon 80', near(acc.position!.costBasis, 80), String(acc.position!.costBasis));
+  ok('ör.2: pozisyon 96', near(acc.position!.costBasis, 96), String(acc.position!.costBasis));
   // 3) Bir kayıp daha → kademe %30 ve mod GUVENLI_ZARAR (üst üste 2 kayıp)
-  acc = closeAt(acc, 1 / 3, 'stop');
+  acc = closeAt(acc, 0.6, 'stop');
   ok('ör.3: kademe %30', acc.kademe === 0.3, String(acc.kademe));
   ok('ör.3: mod GUVENLI_ZARAR', acc.mode === 'GUVENLI_ZARAR', acc.mode);
-  ok('ör.3: sermaye 146,67 (80 × 2/3 kayıp)', near(acc.capital, 200 - 80 * 2 / 3, 1e-6), String(acc.capital));
-  ok('ör.3 (DURDU açık): gün başı %51 düşüş → yine GUVENLI_ZARAR (DURDU değil)', acc.dayPnl < -150 && acc.mode === 'GUVENLI_ZARAR', acc.mode);
+  ok('ör.3: sermaye 201,6 (96 × 0,40 kayıp)', near(acc.capital, 240 - 96 * 0.4, 1e-6), String(acc.capital));
+  ok('ör.3 (DURDU açık): gün içi kayıp > %30 → yine GUVENLI_ZARAR (DURDU değil)', acc.dayPnl < -90 && acc.mode === 'GUVENLI_ZARAR', acc.mode);
 }
 // 4) Günde üst üste 4 kazanç → mod GUVENLI_KAR, kademe kurala göre (azami %50)
 {
@@ -88,14 +88,14 @@ for (const fractional of [true, false]) {
     if (rnd() < 0.2) acc = startDay(acc, `2026-12-${String((step % 28) + 1).padStart(2, '0')}`);
     const fill = 0.05 + rnd() * (fractional ? 3 : 1.2);
     const r = openPosition(acc, { id: String(step), ticker: 'QQQ', setup: 'S1', dir: 'call', expiry: acc.day, dte: 0, strike: 1,
-      fill, stopPrem: fill / 3, targetPrem: fill * 3, targetR: 3, mode: 'AGRESIF', now: step, day: acc.day });
+      fill, stopPrem: fill * 0.6, targetPrem: fill * 3, targetR: 3, mode: 'AGRESIF', now: step, day: acc.day });
     if (!r.ok) continue;
     opened++;
     const p = r.acc.position!;
     worst = Math.max(worst, p.costBasis / acc.capital);
     if (p.costBasis > acc.capital * 0.5 + 1e-9) bad = true;
     if (!KADEMELER.includes(r.acc.kademe)) badK = true;
-    const exit = rnd() < 0.45 ? fill / 3 : rnd() < 0.5 ? fill : fill * (1 + 3 * rnd());
+    const exit = rnd() < 0.45 ? fill * 0.6 : rnd() < 0.5 ? fill : fill * (1 + 3 * rnd());
     const c = closePosition(r.acc, exit, 'manuel', step, acc.day);
     if (c.ok) acc = c.acc;
   }
@@ -112,8 +112,8 @@ ok('kademe: başabaş değişmez', kademeAfter(0.4, 'basabas') === 0.4);
 // 7) Gün geçişi: gün %30 kademede kapandı → ertesi gün %30 ile başlar (AGRESIF, sayaçlar 0). Kazançla %40.
 {
   let acc = initAccount(300, NOCOST, D);
-  acc = closeAt(openKaan(acc, 1, 3), 1 / 3, 'stop');     // 50 → 40
-  acc = closeAt(openKaan(acc, 1, 3), 1 / 3, 'stop');     // 40 → 30, GUVENLI_ZARAR
+  acc = closeAt(openKaan(acc, 1, 3), 0.6, 'stop');     // 50 → 40
+  acc = closeAt(openKaan(acc, 1, 3), 0.6, 'stop');     // 40 → 30, GUVENLI_ZARAR
   const next = startDay(acc, '2026-11-16');
   ok('ör.7: ertesi gün mod AGRESIF', next.mode === 'AGRESIF', next.mode);
   ok('ör.7: ertesi gün kademe %30 taşınır', next.kademe === 0.3);
@@ -135,14 +135,14 @@ ok('kademe: başabaş değişmez', kademeAfter(0.4, 'basabas') === 0.4);
 
 // ============ §6.1 Kaan'ın R / hedef örnekleri (D12: risk bazlı 1:N) ============
 {
-  // Giriş 150, stop 50 → risk 100. 1:5 hedef = 150 + 5 × 100 = 650 → kazanç +500 = 5R, sermaye 800.
+  // Giriş 150, stop 90 (−%40) → risk 60. 1:5 hedef = 150 + 5 × 60 = 450 → kazanç +300 = 5R, sermaye 600.
   const acc = openKaan(initAccount(300, NOCOST, D), 1.5, 5);
-  const c = closeAt(acc, 6.5, 'hedef');
-  ok('D12: 1:5 hedef: 150 → 650, kazanç +500', near(c.trades[0].netPnl, 500), String(c.trades[0].netPnl));
-  ok('D12: 1:5 kazanç = 5R (R = 100)', near(c.trades[0].rMultiple, 5, 1e-6), String(c.trades[0].rMultiple));
-  ok('D12: sermaye 300 → 800', near(c.capital, 800), String(c.capital));
-  ok('D12: 1:4 hedef = 150 + 4 × 100 = 550 → +400', near(closeAt(openKaan(initAccount(300, NOCOST, D), 1.5, 4), 5.5, 'hedef').trades[0].netPnl, 400));
-  ok('D12: zarar 150 → 50 (−100 = −1R)', near(closeAt(openKaan(initAccount(300, NOCOST, D), 1.5, 5), 0.5, 'stop').trades[0].netPnl, -100));
+  const c = closeAt(acc, 4.5, 'hedef');
+  ok('D12: 1:5 hedef: 150 → 450, kazanç +300', near(c.trades[0].netPnl, 300), String(c.trades[0].netPnl));
+  ok('D12: 1:5 kazanç = 5R (R = 60)', near(c.trades[0].rMultiple, 5, 1e-6), String(c.trades[0].rMultiple));
+  ok('D12: sermaye 300 → 600', near(c.capital, 600), String(c.capital));
+  ok('D12: 1:4 hedef = 150 + 4 × 60 = 390 → +240', near(closeAt(openKaan(initAccount(300, NOCOST, D), 1.5, 4), 3.9, 'hedef').trades[0].netPnl, 240));
+  ok('D12: zarar 150 → 90 (−60 = −1R, −%40)', near(closeAt(openKaan(initAccount(300, NOCOST, D), 1.5, 5), 0.9, 'stop').trades[0].netPnl, -60));
 }
 
 // ============ Komisyon ve maliyet ============
@@ -181,35 +181,35 @@ for (const [name, prev, over, exp] of table) {
 {
   const safe = (acc: PaperAccount, exit: number) => closeAt(openKaan(acc, 1, 3, 'GUVENLI_ZARAR'), exit, 'stop');
   let acc = initAccount(300, NOCOST, D);
-  acc = closeAt(openKaan(acc, 1, 3), 1 / 3, 'stop');
-  acc = closeAt(openKaan(acc, 1, 3), 1 / 3, 'stop');
+  acc = closeAt(openKaan(acc, 1, 3), 0.6, 'stop');
+  acc = closeAt(openKaan(acc, 1, 3), 0.6, 'stop');
   ok('B3: 2 kayıp → GUVENLI_ZARAR, safeLossStreak 0', acc.mode === 'GUVENLI_ZARAR' && acc.safeLossStreak === 0, `${acc.mode} ${acc.safeLossStreak}`);
-  acc = safe(acc, 1 / 3);
+  acc = safe(acc, 0.6);
   ok('B3: güvenli modda 1 kayıp → hâlâ GUVENLI_ZARAR', acc.mode === 'GUVENLI_ZARAR' && acc.safeLossStreak === 1, `${acc.mode} ${acc.safeLossStreak}`);
-  acc = safe(acc, 1 / 3);
+  acc = safe(acc, 0.6);
   ok('B3: güvenli modda 2 kayıp → DURDU', acc.mode === 'DURDU', acc.mode);
   // Kazanç araya girince sayaç sıfırlanır
   let b = initAccount(300, NOCOST, D);
-  b = closeAt(openKaan(b, 1, 3), 1 / 3, 'stop');
-  b = closeAt(openKaan(b, 1, 3), 1 / 3, 'stop');
-  b = safe(b, 1 / 3);
+  b = closeAt(openKaan(b, 1, 3), 0.6, 'stop');
+  b = closeAt(openKaan(b, 1, 3), 0.6, 'stop');
+  b = safe(b, 0.6);
   b = safe(b, 3);                                  // kazanç → safeLossStreak 0, mod GUVENLI_ZARAR kalır (yapışkan)
   ok('B3: güvenli modda kazanç safeLossStreak sıfırlar', b.safeLossStreak === 0 && b.mode === 'GUVENLI_ZARAR', `${b.mode} ${b.safeLossStreak}`);
-  b = safe(b, 1 / 3);
+  b = safe(b, 0.6);
   ok('B3: K ✓ K → hâlâ DURDU değil', b.mode === 'GUVENLI_ZARAR', b.mode);
-  b = safe(b, 1 / 3);
+  b = safe(b, 0.6);
   ok('B3: K ✓ K K → DURDU', b.mode === 'DURDU', b.mode);
 }
 // B4: kademe 30 'a inen tek kayıp güvenli mod yapmaz (lossLandedAt30 kuralı kaldırıldı)
 {
-  const acc = closeAt(openKaan(initAccount(300, NOCOST, D), 1, 3), 1 / 3, 'stop');
+  const acc = closeAt(openKaan(initAccount(300, NOCOST, D), 1, 3), 0.6, 'stop');
   ok('B4: tek kayıpta kademe 40 ve mod AGRESIF', acc.kademe === 0.4 && acc.mode === 'AGRESIF', `${acc.kademe} ${acc.mode}`);
   const low = { ...initAccount(300, NOCOST, D), kademe: 0.3 as const };   // kademe 30, sayaç 0
-  ok('B4: kademe 30 + tek kayıp → AGRESIF', closeAt(openKaan(low, 1, 3), 1 / 3, 'stop').mode === 'AGRESIF');
+  ok('B4: kademe 30 + tek kayıp → AGRESIF', closeAt(openKaan(low, 1, 3), 0.6, 'stop').mode === 'AGRESIF');
 }
 // Başabaş: sayaçları ve kademeyi değiştirmez
 {
-  const acc = closeAt(openKaan(initAccount(300, NOCOST, D), 1, 3), 1 / 3, 'stop');   // 1 kayıp → kademe 40
+  const acc = closeAt(openKaan(initAccount(300, NOCOST, D), 1, 3), 0.6, 'stop');   // 1 kayıp → kademe 40
   const opened = openKaan(acc, 1, 3);
   const be = closeAt(opened, 1, 'stop');                                           // çıkış = giriş → net 0
   ok('başabaş: lossStreak değişmez', be.lossStreak === 1, String(be.lossStreak));
@@ -221,9 +221,9 @@ ok('başabaş: safeLossStreak değişmez', be.safeLossStreak === acc.safeLossStr
 // Gece kapanışı: sayaç kapanış gününe yazılır
 {
   let acc = openKaan(initAccount(300, NOCOST, D), 1, 3);
-  acc = closeAt(acc, 1 / 3, 'stop', '2026-11-16');
+  acc = closeAt(acc, 0.6, 'stop', '2026-11-16');
   ok('gece: kayıp kapanış gününe yazıldı (gün 16 Kas, lossStreak 1)', acc.day === '2026-11-16' && acc.lossStreak === 1);
-  ok('gece: dayPnl yalnız kapanış günü', near(acc.dayPnl, -100));
+  ok('gece: dayPnl yalnız kapanış günü', near(acc.dayPnl, -60));
 }
 // DURDU: 2 + 2 kayıp → yeni pozisyon açılmaz
 {
@@ -238,8 +238,8 @@ ok('tek açık pozisyon kuralı', (() => { const a = openKaan(initAccount(300, N
 // B2 (D12): gün içi %50 düşüş kuralı yok. İki kayıp (gün başı %51) → GUVENLI_ZARAR; DURDU değil.
 {
   let acc = initAccount(300, { ...NOCOST, durduEnabled: true }, D);
-  acc = closeAt(openKaan(acc, 1, 3), 1 / 3, 'stop');     // −100 → 200
-  acc = closeAt(openKaan(acc, 1, 3), 1 / 3, 'stop');     // −53,3 → gün içi düşüş 153,3 ≥ 150
+  acc = closeAt(openKaan(acc, 1, 3), 0.6, 'stop');     // −100 → 200
+  acc = closeAt(openKaan(acc, 1, 3), 0.6, 'stop');     // −53,3 → gün içi düşüş 153,3 ≥ 150
   ok('B2: 2 kayıp, gün başı %51 düşüş → GUVENLI_ZARAR (DURDU değil)', acc.mode === 'GUVENLI_ZARAR', acc.mode);
 }
 // B5: eski şema kaydında DURDU bir kere açılır; güncel şemada kullanıcı ayarı korunur
@@ -290,14 +290,14 @@ ok('T7: seviyeye ≤ 0,1 EM + fitilli ret', t7KeyLevel(100.05, 100, 1, true) && 
 
 const pos = (over: Partial<OpenPosition> = {}): OpenPosition => ({
   id: 'p', ticker: 'QQQ', setup: 'S1', dir: 'call', expiry: D, dte: 0, strike: 100, contracts: 1.5, fill: 1, costBasis: 150,
-  openComm: 0, stopPrem0: 1 / 3, stopPrem: 1 / 3, targetPrem: 3, rPrice: 2 / 3, rDollars: 100, targetR: 3, openedAt: 0, day: D,
+  openComm: 0, stopPrem0: 0.6, stopPrem: 0.6, targetPrem: 3, rPrice: 0.4, rDollars: 40, targetR: 3, openedAt: 0, day: D,
   mode: 'AGRESIF', kademe: 0.5, overnight: false, maxR: 0, warned: false, ...over,
 });
-const bidR = (R: number) => 1 + R * (2 / 3);   // R katı kâr için bid
+const bidR = (R: number) => 1 + R * 0.4;   // R katı kâr için bid (1R = giriş × 0,40)
 const T = (over: Record<string, boolean>, bid: number, mode: 'AGRESIF' | 'GUVENLI_KAR' = 'AGRESIF', etMin = 600) =>
   ({ bid, etMin, mode, flags: over as any });
 
-ok('R ölçümü: bid 1 + 2R·(2/3) → 2R', near(profitR(pos(), bidR(2)), 2));
+ok('R ölçümü: bid 1 + 2R·0,40 → 2R', near(profitR(pos(), bidR(2)), 2));
 {
   const d = evaluatePosition(pos(), T({ T2: true }, bidR(2.5)));
   ok('risk: kâr 2,5R + güçlü tetik → çık (risk)', d.action === 'close' && d.reason === 'risk', JSON.stringify(d.action));
@@ -319,20 +319,20 @@ ok('R ölçümü: bid 1 + 2R·(2/3) → 2R', near(profitR(pos(), bidR(2)), 2));
 ok('risk: 1 zayıf tetik tek başına çıkarmaz (2R altı)', evaluatePosition(pos(), T({ T5: true }, bidR(2.5))).action === 'hold');
 ok('risk: 2 zayıf tetik kâr ≥2R → çıkar', evaluatePosition(pos(), T({ T5: true, T7: true }, bidR(2.2))).action === 'close');
 // İz süren stop: maxR 2 → +1R, 3 → +2R, 4 → +3R
-ok('iz süren: maxR 2 → kilit +1R', near(trailPrem(pos(), 2), 1 + 2 / 3));
-ok('iz süren: maxR 3 → kilit +2R', near(trailPrem(pos(), 3), 1 + 4 / 3));
-ok('iz süren: maxR 4 → kilit +3R', near(trailPrem(pos(), 4), 1 + 2));
-ok('iz süren: maxR 1,9 → kilit yok', near(trailPrem(pos(), 1.9), 1 / 3));
+ok('iz süren: maxR 2 → kilit +1R (1,40)', near(trailPrem(pos(), 2), 1.4));
+ok('iz süren: maxR 3 → kilit +2R (1,80)', near(trailPrem(pos(), 3), 1.8));
+ok('iz süren: maxR 4 → kilit +3R (2,20)', near(trailPrem(pos(), 4), 2.2));
+ok('iz süren: maxR 1,9 → kilit yok (0,60)', near(trailPrem(pos(), 1.9), 0.6));
 {
   const up = evaluatePosition(pos(), T({}, bidR(2.5)));            // maxR 2,5 → stop +1R
-  ok('iz süren stop: 2,5R görüldü → stop +1R', near(up.pos.stopPrem, 1 + 2 / 3, 1e-9));
-  const hit = evaluatePosition(up.pos, T({}, 1.6));                // stop 1,67 altına düştü (bid 1,6)
+  ok('iz süren stop: 2,5R görüldü → stop +1R (1,40)', near(up.pos.stopPrem, 1.4, 1e-9));
+  const hit = evaluatePosition(up.pos, T({}, 1.3));                // stop 1,40 altına düştü (bid 1,3)
   ok('iz süren stop: vurdu → çıkış iz-suren-stop', hit.action === 'close' && hit.reason === 'iz-suren-stop');
 }
-ok('stop: giriş/3 altına düştü → çıkış stop', (() => { const d = evaluatePosition(pos(), T({}, 0.3)); return d.action === 'close' && d.reason === 'stop'; })());
+ok('stop: giriş × 0,60 altına düştü (−%40) → çıkış stop', (() => { const d = evaluatePosition(pos(), T({}, 0.5)); return d.action === 'close' && d.reason === 'stop'; })());
 ok('hedef: bid ≥ hedef → çıkış hedef', (() => { const d = evaluatePosition(pos(), T({}, 3.1)); return d.action === 'close' && d.reason === 'hedef'; })());
 ok('0DTE 15:45 ET zorunlu zaman çıkışı', (() => { const d = evaluatePosition(pos({ dte: 0 }), T({}, bidR(0.5), 'AGRESIF', 945)); return d.action === 'close' && d.reason === 'zaman'; })());
-ok('effectiveStopPrem: dayanak 0,2 < %67 tavanı 0,33 → 0,33', near(effectiveStopPrem(1, 0.2, 0.67), 0.33));
+ok('effectiveStopPrem: dayanak 0,2 < −%40 tavanı (0,60) → 0,60', near(effectiveStopPrem(1, 0.2, 0.4), 0.6));
 
 // ============ Onay akışı (§7.7) ============
 ok('süre: 0DTE 3 dk, 1–3 DTE 5 dk, ayar 7 dk, 0 → 1 dk (kıstırma)', approvalTtlMs(0) === 180000 && approvalTtlMs(2) === 300000
@@ -385,7 +385,7 @@ const ovIn = (over: Record<string, any> = {}) => ({ pos: ovPos(), day: D, S: 100
   ok('gece: kötü senaryo > 1,5R → taşınmaz', !worse.carry && worse.reasons.some(r => r.includes('kötü senaryo')));
 }
 ok('gap: açılış dayanak stopunun ötesinde → gap çıkışı', gapOpenAction({ pos: ovPos(), openUnd: 97.5, openBid: 1.2, stopUnd: 98, etMin: 571 }, 1).action === 'gap-close');
-ok('gap: prim %67 tavanının altında açıldı → gap çıkışı', gapOpenAction({ pos: ovPos({ stopPrem: 0.4 }), openUnd: 100, openBid: 0.3, stopUnd: 98, etMin: 571 }, 1).action === 'gap-close');
+ok('gap: prim −%40 stop seviyesinin altında açıldı → gap çıkışı', gapOpenAction({ pos: ovPos({ stopPrem: 0.4 }), openUnd: 100, openBid: 0.3, stopUnd: 98, etMin: 571 }, 1).action === 'gap-close');
 ok('gap: 09:31 açılış gürültüsü → bekle (T1–T7 devre dışı)', gapOpenAction({ pos: ovPos(), openUnd: 100.5, openBid: 1.5, stopUnd: 98, etMin: 575 }, 1).action === 'wait');
 ok('gap: 09:45 sonrası lehte → iz süren yönet', gapOpenAction({ pos: ovPos(), openUnd: 101, openBid: 1.8, stopUnd: 98, etMin: 600 }, 1).action === 'manage');
 
@@ -393,7 +393,7 @@ ok('gap: 09:45 sonrası lehte → iz süren yönet', gapOpenAction({ pos: ovPos(
 {
   let acc = initAccount(300, NOCOST, D);
   acc = closeAt(openKaan(acc, 1, 3), 3, 'hedef');   // +300
-  acc = closeAt(openKaan(acc, 1, 3), 1 / 3, 'stop'); // kayıp
+  acc = closeAt(openKaan(acc, 1, 3), 0.6, 'stop'); // kayıp
   const s = summarize(acc.trades);
   ok('özet: n=2, kazanma %50, PF = 300/(kayıp)', s.n === 2 && near(s.winPct, 50) && s.pf > 0 && s.longestLossStreak === 1, JSON.stringify(s));
 }

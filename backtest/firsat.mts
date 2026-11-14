@@ -6,7 +6,7 @@
  *   BT_OFFLINE=1 BT_START=2025-11-14 BT_END=2026-11-11 BT_FEE=1.5 node backtest/firsat.mts [--out DIR] [--n 60] [--folds 5] [--paths 10000]
  * Çıktı: <out>/report.json, <out>/tables.md
  *
- * Kurallar (D12): birincil hedef 1:5 (risk bazlı, +5R), yedek 1:4 (MC varyantı), prim stopu %67, komisyon $1,50/kontrat/yön,
+ * Kurallar (D12; 2026-11-14: prim stopu −%40): birincil hedef 1:5 (risk bazlı, +5R), yedek 1:4 (MC varyantı), prim stopu −%40, komisyon $1,50/kontrat/yön,
  * 15:45 ET kapanış (gece taşıma yalnız takvim kapısından geçerse — bkz. kapı sayımı), DURDU açık, kademe 50/40/30, güvenli modda 1:2.
  * Modelleme: fiyatlar önceki gün EOD IV ile modellenir (--source modeled); gerçek gün içi kot yok. Setup'lar peer/VIX kullanmaz (A1 yalnız kendi VWAP'ı).
  */

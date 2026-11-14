@@ -1,23 +1,19 @@
 /*
  * Kaan kuralları — deterministik kontroller (saf). Model yorumu bunların üstüne kurulur; sayılar buradan gelir.
- * Kurallar (Kaan): giriş 16:30–20:00 İst; 0–3 DTE; prim stopu %67 (kalan %33); hedef 1:5 brüt (yedek 1:4).
+ * Kurallar (Kaan): giriş 16:30–20:00 İst; 0–3 DTE; prim stopu −%40 (giriş × 0,60); hedef 1:5 brüt (yedek 1:4). Sayılar paper/rules.ts'ten.
  * Kademe 50/40/30 ve hacim-dönüş çıkışı görüntüden ölçülemez → model yorumlar, "bilinmiyor" işaretlenir.
  */
 import type { ExtractedTrade, RuleFact } from './types.ts';
 import { dteOf, inEntryWindowIst, istHm, istToMs } from './time.ts';
+import { RR_MAIN, RR_FALLBACK, PREMIUM_STOP_PCT, stopPremOf, targetPremOf } from '../paper/rules.ts';
 
-export const STOP_LOSS_PCT = 0.67;   // prim stopu: girişin %67'si kaybedilince çık
-export const RR_MAIN = 5;            // 1:5 brüt
-export const RR_FALLBACK = 4;        // 1:4 yedek
+export { RR_MAIN, RR_FALLBACK, PREMIUM_STOP_PCT } from '../paper/rules.ts';
 
-/** Prim stop seviyesi: giriş × (1 − 0,67) */
-export const stopPriceOf = (entry: number): number => +(entry * (1 - STOP_LOSS_PCT)).toFixed(2);
+/** Prim stop seviyesi: giriş × 0,60 (−%40). Tek kaynak: paper/rules.ts */
+export const stopPriceOf = (entry: number): number => stopPremOf(entry);
 
-/** Hedef seviyesi: giriş + rr × (giriş − stop) (brüt, komisyon hariç) */
-export const targetPriceOf = (entry: number, rr: number): number => {
-  const stop = stopPriceOf(entry);
-  return +(entry + rr * (entry - stop)).toFixed(2);
-};
+/** Hedef seviyesi: giriş + rr × risk, risk = giriş × 0,40 (brüt, komisyon hariç) */
+export const targetPriceOf = (entry: number, rr: number): number => targetPremOf(entry, rr);
 
 /** Prim değişimi (%): (çıkış − giriş) / giriş × 100 */
 export const premiumPct = (entry: number, exit: number): number => +((exit / entry - 1) * 100).toFixed(1);
@@ -42,11 +38,11 @@ export function ruleFacts(t: ExtractedTrade, nowMs?: number): RuleFact[] {
   else out.push({ kural: '0–3 DTE vade', durum: dte <= 3 ? 'uyuyor' : 'uymuyor', aciklama: `${dte} gün vade` });
 
   if (t.entryPrice == null || !(t.entryPrice > 0)) {
-    out.push({ kural: 'Prim stopu %67 / hedef 1:5', durum: 'bilinmiyor', aciklama: 'Giriş primi okunamadı' });
+    out.push({ kural: `Prim stopu −%${PREMIUM_STOP_PCT} / hedef 1:5`, durum: 'bilinmiyor', aciklama: 'Giriş primi okunamadı' });
   } else {
     const e = t.entryPrice;
     out.push({
-      kural: 'Prim stopu %67 / hedef 1:5', durum: 'bilinmiyor',
+      kural: `Prim stopu −%${PREMIUM_STOP_PCT} / hedef 1:5`, durum: 'bilinmiyor',
       aciklama: `Giriş ${e.toFixed(2)} → stop ${stopPriceOf(e).toFixed(2)}, hedef 1:5 ${targetPriceOf(e, RR_MAIN).toFixed(2)} (yedek 1:4 ${targetPriceOf(e, RR_FALLBACK).toFixed(2)})`,
     });
     if (t.exitPrice != null && t.exitPrice >= 0 && t.status === 'kapali') {

@@ -88,7 +88,7 @@ export type GapAction = { action: 'gap-close' | 'manage' | 'wait'; reason?: 'gap
 /**
  * Ertesi sabah gap yönetimi (§7.8):
  *  1) açılış dayanak stopunun ötesindeyse → gap çıkışı (ilk alınabilir bid − kayma; kayıp R'yi aşabilir).
- *  2) prim %67 tavanının altında açıldıysa → gap çıkışı.
+ *  2) prim −%40 stop seviyesinin altında açıldıysa → gap çıkışı.
  *  3) 09:30–09:45 arası yalnız stop ve hedef çalışır; T1–T7 09:45'ten sonra (`wait` döner, çağıran stop/hedefi yine kontrol eder).
  *  4) lehte gap → iz süren stop (`manage`).
  */

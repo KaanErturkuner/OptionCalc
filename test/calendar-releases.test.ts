@@ -62,7 +62,7 @@ const ok = (name: string, cond: boolean, extra = '') => { console.log(`${cond ? 
   ok('9 Ara FOMC + 10 Ara CPI hâlâ engel', !calendarCheck('2026-12-09', '2026-12-10', { kind: 'etf' }, T).ok);
   const pos: OpenPosition = {
     id: 'p', ticker: 'QQQ', setup: 'S1', dir: 'call', expiry: '2026-11-18', dte: 2, strike: 100, contracts: 1, fill: 1, costBasis: 100,
-    openComm: 0, stopPrem0: 1 / 3, stopPrem: 1 / 3, targetPrem: 3, rPrice: 2 / 3, rDollars: 100, targetR: 3, openedAt: 0, day: '2026-11-13',
+    openComm: 0, stopPrem0: 0.6, stopPrem: 0.6, targetPrem: 3, rPrice: 0.4, rDollars: 40, targetR: 3, openedAt: 0, day: '2026-11-13',
     mode: 'AGRESIF', kademe: 0.5, overnight: false, maxR: 0, warned: false,
   };
   const d = overnightDecision({ pos, day: '2026-11-13', S: 100, ivAtm: 0.2, calendar: { ok: true, reasons: [] }, strongTriggerLast30: false, regimeAligned: true, pricer: () => 0.9 });

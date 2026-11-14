@@ -168,7 +168,7 @@ export function buildTradeContext(a: {
 export const KAAN_RULES_TR = [
   'Giriş penceresi: İstanbul 16:30–20:00 arası.',
   'Vade: 0–3 gün (DTE). Strike: oynaklığa göre OTM (≈ 0,5 × beklenen hareket; sayılar: sayilar.otmPerEm).',
-  'Risk/ödül: brüt 1:5 (yedek 1:4). Prim stopu: girişin %67\'si kaybedilince çık (kalan %33).',
+  'Risk/ödül: brüt 1:5 (yedek 1:4). Prim stopu: giriş primi %40 düşünce çık (giriş × 0,60 kalır); risk = giriş × 0,40. Örnek: 3,00 → stop 1,80, hedef 9,00, yedek 7,80.',
   'Kademe: 50/40/30 (kazandıkça adım adım).',
   'Çıkış: yüksek hacimli ters dönüş mumunda çık.',
 ].join('\n');

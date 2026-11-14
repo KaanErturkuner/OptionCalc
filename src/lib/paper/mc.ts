@@ -7,6 +7,7 @@
  * Kaan kuralı (%50, kademe 30/40/50) değişmez. */
 import { initAccount, openPosition, closePosition, startDay } from './account.ts';
 import type { PaperAccount, PaperSettings, PaperMode, Kademe } from './types.ts';
+import { stopPremOf, exitPremForR } from './rules.ts';
 
 /** Mulberry32: tohumlu, tekrarlanabilir PRNG (0..1). */
 export function mulberry32(seed: number): () => number {
@@ -53,8 +54,8 @@ export function outcomeR(o: McOutcome, conv: TargetConvention, N = 5): number {
   return o.R;
 }
 
-/** R cinsinden sonuç → çıkış primi. Giriş = fill, stop = fill/3 → 1R = fill × 2/3: çıkış = fill × (1 + R × 2/3). −1R = stop. */
-export const exitForR = (R: number, fill = 1): number => Math.max(0, fill * (1 + R * (2 / 3)));
+/** R cinsinden sonuç → çıkış primi (−%40 stop): çıkış = fill × (1 + 0,40 × R). −1R = fill × 0,60 = stop. Tek kaynak: paper/rules.ts. */
+export const exitForR = (R: number, fill = 1): number => exitPremForR(R, fill);
 
 export interface McOpts {
   startCapital: number;
@@ -108,7 +109,7 @@ export function runMonteCarlo(days: McOutcome[][], o: McOpts): HorizonStats[] {
           // Hedef çarpanı hesabın moduna bağlı (B8): AGRESIF 1:N, güvenli modlarda 1:2 — güvenli modda 5R kazanç sayılmaz.
           const sigMode = acc.mode as Exclude<PaperMode, 'DURDU'>, n = modeN(sigMode, N);
           const r = openPosition(acc, { id: `mc${p}-${trades}`, ticker: 'MC', setup: 'MC', dir: 'call', expiry: key, dte: 0, strike: 1,
-            fill, stopPrem: fill / 3, targetPrem: exitForR(targetR(conv, n), fill), targetR: n, mode: sigMode, now: d, day: key });
+            fill, stopPrem: stopPremOf(fill), targetPrem: exitForR(targetR(conv, n), fill), targetR: n, mode: sigMode, now: d, day: key });
           if (!r.ok) continue;
           const c = closePosition(r.acc, exitForR(outcomeR(oc, conv, n), fill), 'manuel', d, key);
           if (!c.ok) continue;

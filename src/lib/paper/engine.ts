@@ -70,10 +70,10 @@ export function tickPosition(acc0: PaperAccount, t: TickIn): TickResult {
   if (dec.action === 'close') {
     const r = dec.reason ?? 'stop';
     const trig = dec.triggers.length ? ` (${dec.triggers.join(', ')})` : '';
-    const adaptiveCik = r === 'risk' && dec.adaptive?.verdict === 'CIK' && dec.message;
-    return close({ ...acc, position: dec.pos }, t.bid, r, adaptiveCik ? dec.message! : `${REASON_TEXT[r]}${r === 'risk' ? trig : ''}`);
+    return close({ ...acc, position: dec.pos }, t.bid, r, `${REASON_TEXT[r]}${r === 'risk' ? trig : ''}`);
   }
-  // DİKKAT geçişinde bir kez bildir (TUT sessiz; çıkış yok)
+  // ÇIK / DİKKAT geçişinde bir kez bildir (TUT sessiz). Yalnız uyarı: çıkış yok, −%40 stop ve hedef izlenir.
+  if (dec.adaptive?.verdict === 'CIK' && p.adaptive !== 'CIK') events.push({ kind: 'warn', text: `Başkan, ${dec.adaptive.reason}. Uyarı: çıkmıyorum, −%40 stopu ve hedefi izliyorum.` });
   if (dec.adaptive?.verdict === 'DIKKAT' && p.adaptive !== 'DIKKAT') events.push({ kind: 'info', text: `Başkan, ${dec.adaptive.reason}. Çıkmıyorum, izliyorum.` });
   if (t.qExit?.lod) return close({ ...acc, position: dec.pos }, t.bid, 'risk', 'LOD/HOD kırıldı, çıkıyorum (Qullamaggie uyarlaması — Kaan onayı yok)');
   if (t.qExit?.ema) return close({ ...acc, position: dec.pos }, t.bid, 'iz-suren-stop', '5 dk EMA10 kırıldı, çıkıyorum (Qullamaggie uyarlaması — Kaan onayı yok)');

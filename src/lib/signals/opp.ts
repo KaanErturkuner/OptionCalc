@@ -80,7 +80,7 @@ export function buildOpp(i: OppInput): Opp {
   const q = i.pick.rr;
   const type = i.dir === 'bull' ? 'call' : 'put';
   const fill = q.entry;                                      // ask + kayma (optionRR)
-  const stopPrem = effectiveStopPrem(fill, q.primStop, 0.67);
+  const stopPrem = effectiveStopPrem(fill, q.primStop);
   // Kaan tanımı (D12): hedef = giriş + N × risk, risk = giriş − stop (150, 50 → risk 100; 1:5 → 650). N: sinyal modunun hedef çarpanı.
   const riskPrem = fill - stopPrem;
   const modeN = signalModeFor(i.account.mode, q.rr);

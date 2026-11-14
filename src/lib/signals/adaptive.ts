@@ -4,7 +4,8 @@
  * dönüş kanıtı (aleyhte) ile devam kanıtı (lehte) ağırlıklı puanlanır.
  *   dönüş > devam → ÇIK (riskwatch kapatır) · devam > dönüş → TUT (çıkış yok) · eşit → DİKKAT (izle, çıkış yok).
  * Karşı hareket eşiğine ulaşılmadıysa YOK (karar verilmez). Saf: girdi 1 dk barlar + onaylı rejim; ağ ve durum yok.
- * Sert %67 prim stopu bu modülden ÖNCE değerlendirilir (riskwatch.evaluatePosition sırası).
+ * Sert −%40 prim stopu bu modülden ÖNCE değerlendirilir (riskwatch.evaluatePosition sırası).
+ * ÇIK yalnız UYARIDIR (Kaan 2026-11-14): otomatik çıkış yapmaz; çıkış yalnız sert stop, hedef ve 15:45/gece kuralıyla olur.
  */
 import { type TapeBar, type RegimeKind, MIN_MS, resample5, vwapSeries } from '../market/regime.ts';
 

@@ -53,7 +53,7 @@ ok('parametre örnekleme tekil + varsayılan ilk', (() => { const ps = samplePar
 const m = xmetrics(orbT); ok('metrikler (GA, Sharpe) sonlu', isFinite(m.expPct) && (m.n < 5 || m.ci95[0] <= m.expPct && m.expPct <= m.ci95[1]), JSON.stringify({ n: m.n, e: m.expPct, ci: m.ci95 }));
 ok('kredi tahmini: cached=1, geçmiş zincir=1, 1 ay 1 dk mum≈9', estimateCredits('/options/chain/SPY/?mode=cached') === 1 && estimateCredits('/options/chain/SPY/?date=2026-01-02&from=x') === 1
   && Math.abs(estimateCredits('/stocks/candles/1/SPY/?from=2026-01-01&to=2026-02-01') - 9) <= 1);
-// B7 (Kaan kuralları, D12): komisyon 1,50; 15:45 ET kapanış; prim stopu %67; risk bazlı prim hedefi (giriş + N × risk).
+// B7 (Kaan kuralları, D12; 2026-11-14: stop −%40): komisyon 1,50; 15:45 ET kapanış; prim stopu −%40; risk bazlı prim hedefi (giriş + N × risk).
 const { COMMON_DEFAULTS } = await import('../src/lib/odte/strategies/types.ts');
 const far: any = { id: 'test-far', name: 'far', description: 'uzak dayanak seviyeleri (yalnız prim kuralları çıkarır)', defaults: { ...COMMON_DEFAULTS, startMin: 15, endMin: 380, maxPerDay: 1 },
   space: {}, evaluate: (c: any) => ({ dir: 'call', undTarget: c.S * 2, undStop: c.S * 0.5 }) };
@@ -64,8 +64,8 @@ ok('B7: gün sonu 15:45 ET kapanış (zaman çıkışı)', tEx.length > 0 && tEx
 const kr = runStrategy(days, far, far.defaults, { source: src, kaan: { targetN: 5 } });
 ok('B7: Kaan kuralları yalnız prim çıkışları ve zaman çıkışı üretir', kr.every(t => ['prim-stop', 'prim-target', 'time'].includes(t.why)), kr.map(t => t.why).join(','));
 const ps = kr.filter(t => t.why === 'prim-stop'), pt5 = kr.filter(t => t.why === 'prim-target');
-ok('B7: prim stopu çıkışı ≤ giriş × 0,33 (+ tolerans)', ps.every(t => t.exit <= t.entry * 0.33 + 0.03), ps.map(t => `${t.entry}/${t.exit}`).join(' '));
-ok('B7: prim hedefi çıkışı ≥ giriş + 5 × 0,67 × giriş (− tolerans)', pt5.every(t => t.exit >= t.entry * (1 + 5 * 0.67) - 0.03), pt5.map(t => `${t.entry}/${t.exit}`).join(' '));
+ok('B7: prim stopu çıkışı ≤ giriş × 0,60 (+ tolerans)', ps.every(t => t.exit <= t.entry * 0.6 + 0.03), ps.map(t => `${t.entry}/${t.exit}`).join(' '));
+ok('B7: prim hedefi çıkışı ≥ giriş + 5 × 0,40 × giriş (− tolerans)', pt5.every(t => t.exit >= t.entry * (1 + 5 * 0.4) - 0.03), pt5.map(t => `${t.entry}/${t.exit}`).join(' '));
 // Kaan modunda dayanak hedefi çıkış değildir (yalnız prim hedefi); dayanak stopu çalışmaya devam eder.
 {
   const near: any = { id: 'test-near', name: 'near', description: 'yakın dayanak hedefi', defaults: { ...COMMON_DEFAULTS, startMin: 15, endMin: 380, maxPerDay: 1 },

@@ -4,6 +4,8 @@
 > **Durum:** yeni görev, TASKS #20–#27. **Önkoşul:** Aşama 0 (port) bitmeden diğer aşamalara başlanmaz.
 > **Dil:** uygulama metinleri Türkçe, Kaan'a hitap "Başkan, ...". Kod yorumları Türkçe veya İngilizce.
 > **Bu dosyada token yoktur ve olmayacak.** MarketData token'ı yalnızca `MARKETDATA_TOKEN` ortam değişkeninden okunur.
+>
+> **2026-11-14 güncellemesi (Kaan kararı):** prim stopu **−%40** (giriş × 0,60), eskiden %67. 1R = giriş × 0,40; hedef = giriş + N × risk (1:5 = ×3,0, 1:4 = ×2,6). Bu dosyadaki `%67`, `0,33`, `0,67` geçen yerler tarihseldir. Güncel değerler tek kaynak: `src/lib/paper/rules.ts`. Ayrıca uyarlanabilir ÇIK yalnız uyarıdır (otomatik çıkış yok).
 
 ---
 
@@ -629,7 +631,7 @@ Radar ve 0DTE ekranları değişmeden çalışır; `npm run check` geçer.
 | K2 | Kademe gün geçişi | Kademe ertesi güne taşınır | §7.4, test 7 |
 | K3 | Kâğıt hesaba giriş | Yalnızca Kaan "Onayla"ya basınca; onaylanmayan sinyalin süresi dolar (0DTE 3 dk, 1–3 DTE 5 dk, fiyat kayması %25, stop/hedef yarısı, pencere sonu, geçersizleşme) | §7.7, §8.1 |
 | K4 | Gece taşıma | 1–3 DTE gece taşınması yalnız bilanço + FOMC/CPI/NFP takvim kontrolünden sonra (D12); olay varsa veya takvim bilinmiyorsa 15:45 ET'de kapanır. 0DTE 15:45 ET'de kapanır | §7.3, §7.8 |
-| K5 | Prim stopu | %67 kalır | §6.1 |
+| K5 | Prim stopu | ~~%67 kalır~~ → **−%40** (Kaan, 2026-11-14) | §6.1 |
 | K6 | NVDA/GLD/SLV OTM uzaklığı | Sistem oynaklıktan seçer: `d = k × EM_vade`, ticker başına oto k (60 günlük trend günü uzanması, IV rank düzeltmesi, kMin/kMax); MU/INTC/QQQ çapaları sabit | §4.2, §4.2.1, §6.1 |
 | K7 | Komisyon | Midas 1,50 $/kontrat, açılışta ve kapanışta ayrı; ayardan değiştirilebilir | §6.1, §7.2, §7.5, §9 |
 | K0 | Pozisyon boyutu | Azami %50, kademeler %50/40/30 (Kaan'ın bilinçli tercihi, ilk mesajdan) | §0, §7.2 |

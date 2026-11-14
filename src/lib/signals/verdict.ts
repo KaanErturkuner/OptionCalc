@@ -1,12 +1,13 @@
 /*
  * Net karar ("Sonuç" kartı): yön (CALL / PUT / Bekle), güç 0–5, önerilen vade + strike, giriş (prim orta noktası),
- * stop (%67 prim stopu) ve hedef (1:5, yedek 1:4). Saf: ağ, React ve Node yerleşik modülü yok.
+ * stop (−%40 prim stopu) ve hedef (1:5, yedek 1:4). Saf: ağ, React ve Node yerleşik modülü yok.
  * Kağıt üstü: bu bir tavsiye değildir; motor kanıtlanmış bir avantaj göstermemiştir (AGENTS.md §1).
  *
  * Puanlama şeffaftır: her kriter −1 / 0 / +1 katkı verir (+1 = CALL yönü). Toplam |puan| ≥ 3 ise yön oluşur;
  * güç = min(5, |puan|). Yön yoksa "Bekle"; güç yine de gösterilir (zayıf/çelişkili okuma).
  */
 import { sizePosition } from '../paper/sizing.ts';
+import { RR_MAIN, RR_FALLBACK, stopPremOf, targetPremOf } from '../paper/rules.ts';
 import type { Kademe } from '../paper/types.ts';
 import type { Band, Dir, RegimeKind } from '../market/regime.ts';
 
@@ -151,13 +152,13 @@ export function pickRuleStrike(quotes: QuoteLite[], S: number, dir: 'call' | 'pu
   return best;
 }
 
-/** Prim seviyeleri: giriş = mid; stop = %67 prim stopu (giriş × 0,33); hedef = giriş + R × (giriş − stop), R = 5 ya da 4 */
+/** Prim seviyeleri (Kaan 2026-11-14): giriş = mid; stop = giriş × 0,60 (−%40); risk = giriş − stop; hedef = giriş + N × risk, N = 5 ya da 4 */
 export function levelsFor(entry: number): { entry: number; stop: number; t5: number; t4: number; riskPerContract: number } | null {
   if (!(entry >= 0.05) || !Number.isFinite(entry)) return null;
   const e = Math.round(entry * 100) / 100;
-  const stop = Math.round(e * 0.33 * 100) / 100;
+  const stop = stopPremOf(e);
   const risk = e - stop;
-  return { entry: e, stop, t5: Math.round((e + 5 * risk) * 100) / 100, t4: Math.round((e + 4 * risk) * 100) / 100, riskPerContract: Math.round(risk * 10000) / 100 };
+  return { entry: e, stop, t5: targetPremOf(e, RR_MAIN), t4: targetPremOf(e, RR_FALLBACK), riskPerContract: Math.round(risk * 10000) / 100 };
 }
 
 export const TIER_LABEL = '%50 / %40 / %30 kademe';

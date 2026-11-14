@@ -1,5 +1,25 @@
 # CHANGELOG / devir notları
 
+## 2026-11-14 — Claude (commit prefix [grok], Kaan isteği) — para kuralı: prim stopu −%40 (eskiden %67)
+
+**Neden:** Kaan kararı: sert stop prim girişten %40 düşünce (eskiden %67). Risk = giriş × 0,40; 1:5 hedef = giriş + 5R (×3,0), yedek 1:4 = ×2,6. Örnek: giriş 3,00 → stop 1,80, hedef 9,00, yedek 7,80. Uyarlanabilir ÇIK otomatik çıkış yapmaz, yalnız uyarır.
+
+**Ne:**
+- **Tek kaynak** `src/lib/paper/rules.ts` (`PREMIUM_STOP_DROP = 0.40`, `stopPremOf`, `riskPremOf`, `targetPremOf`, `exitPremForR`, `PREMIUM_STOP_PCT`). Kullanan yerler: `signals/rr.ts`, `signals/riskwatch.ts` (`PRIM_STOP_MAX`, `effectiveStopPrem`), `signals/opp.ts` (eski `0.67` literal'i kaldırıldı), `signals/trade.ts` (`STOP_PCT = 40`, kart stop yüzdesi), `signals/verdict.ts` (`levelsFor`: stop/1:5/1:4), `ui/TradeCard`/`ui/VerdictCard` (etiket), `paper/path.ts` (`exitForRPath`, `stopPrem`), `paper/mc.ts` (`stopPrem: fill/3` → `stopPremOf`), `coach/rules.ts` (`stopPriceOf`, `targetPriceOf`, kural etiketi), `coach/context.ts` (Koç'un KAAN kuralları metni, `%40`), `odte/strategies/firsat.ts` (yorum).
+- **ÇIK yalnız uyarı:** `signals/riskwatch.ts` ÇIK için artık `close` dönmez (`hold` + mesaj). `paper/engine.ts`: ÇIK geçişinde bir kez `warn` olayı (metin korundu); DİKKAT bildirimi aynen. Sert stop, hedef, 15:45 ET ve gece kuralı değişmedi. Çıkış sebebi ÇIK metni kapanış olarak artık üretilmez.
+- **Backtest:** `backtest/engine.mts` `KAAN_PMAX = PREMIUM_STOP_DROP` (0,40); `selftest.mts` B7 eşikleri 0,60 / 0,40. Eski raporlar (%67) yeniden koşulmadı.
+- **Fırsat:** `OpportunityCard` hem "Onay bekliyor" hem "Geçmiş kartlar" içinde `ErrorBoundary` ile sarıldı (önceki hotfix'in açık notu kapandı).
+- **Belgeler:** AGENTS.md (para kuralı + `rules.ts` haritası), CLAUDE.md (özet), `docs/tasks/SINYAL-FIRSAT.md` (2026-11-14 notu, K5 satırı), `docs/tasks/QULLAMAGGIE.md`. Tarihsel handoff ve `docs/reports` dosyaları eski değerleri korur.
+- **Testler güncellendi:** `test/paper.test.ts`, `paper-path.test.ts`, `firsat.test.ts`, `setups.test.ts`, `trade-card.test.ts`, `verdict.test.ts`, `coach.test.ts`, `adaptive.test.ts`. Yeni örnek testi: giriş 3,00 → 1,80 / 9,00 / 7,80 (verdict, coach); ÇIK 0,5R ve 2R'de yalnız uyarı; ÇIK stop'u (0,60) önce gelir.
+
+**Doğrulama:** `npm run check` geçti (test, typecheck, lint, bt:selftest). Sunucu öz-testi de geçti.
+
+**Açık / dikkat:**
+- Gece taşıma kapısı "kötü senaryo ≤ 1,5R" R bazlı olduğu için R artık daha büyük $ (giriş × 0,40): aynı kötü senaryo daha az gece taşımaya izin verir. Kaan'ın kararı gerekir (eşik $ mı R mı).
+- Kayıtlı Sonuç kartları (AsyncStorage, `status`) ve **açık kâğıt pozisyonlar** (`stopPrem0` = eski 1/3) eski stop/hedef değerleriyle kalır; kartlar bir sonraki taramada, açık pozisyon ise kapanana kadar eski %67 stopuyla yönetilir. Açık pozisyonlar için migrasyon yapılmadı (Kaan karar verecek).
+- Test "ÇIK + 1R–2R tetik" durumu (T4–T7) hâlâ mevcut kuralla kapanıyor (R ≥ 2R + tetik); yalnız ÇIK otomatik çıkışı kaldırıldı.
+- Commit yapıldı, push ve Expo yayını yok (Kaan yayınlayacak).
+
 ## 2026-11-14 — Claude (commit prefix [grok] hotfix) — Fırsat ekranı çökmesi (eski Sonuç kartları)
 
 **Neden:** Üretimde Fırsat ekranı "TypeError: Cannot read property 'S' of undefined" ile çöküyordu. `status` kayıtları AsyncStorage'da (firsat-v1) saklanıyor; eski sürümden kalan Sonuç kartlarında `levels` (ve `crits`/`fired`) yok, `tradeOf` ve `triggerText` bunları doğrudan okuyordu.

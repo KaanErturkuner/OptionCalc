@@ -227,7 +227,7 @@ function ctxQ(bars: Bar[], over: Partial<SetupCtx> = {}): SetupCtx {
   const { initAccount, openPosition } = await import('../src/lib/paper/account.ts');
   const D = '2026-11-13';
   const acc = (openPosition(initAccount(300, { commission: 0, slippage: 0 } as any, D), { id: 'q1', ticker: 'QQQ', setup: 'Q1', dir: 'call', expiry: D, dte: 0,
-    strike: 100, fill: 1, stopPrem: 1 / 3, targetPrem: 3, targetR: 5, mode: 'AGRESIF', now: 0, day: D, und: { entry: 100, stop: 99.8, target: 102.8 } } as any) as any).acc;
+    strike: 100, fill: 1, stopPrem: 0.6, targetPrem: 3, targetR: 5, mode: 'AGRESIF', now: 0, day: D, und: { entry: 100, stop: 99.8, target: 102.8 } } as any) as any).acc;
   const base: any = { day: D, now: 1, etMin: 600, bid: 1, flags: {}, S: 99.5, ivAtm: 0.2, calendar: { ok: true, reasons: [] }, strongTriggerLast30: false, regimeAligned: true };
   ok('Q çıkış: ayar kapalı (qExit yok) → pozisyon açık kalır', tickPosition(acc, base).acc.position !== null);
   const on = tickPosition(acc, { ...base, qExit: { lod: true, ema: false } });

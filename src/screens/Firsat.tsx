@@ -184,7 +184,7 @@ export default function Firsat() {
         <Card title="Onay bekliyor">
           <View style={{ gap: 10 }}>
             {pending.slice(0, 6).map(c => (
-              <OpportunityCard key={c.id} c={c} now={now} n={validationN(D.log, c)} open={openId === c.id} toggle={() => setOpenId(openId === c.id ? null : c.id)} locked={!!pos} />
+              <ErrorBoundary key={c.id} label={c.ticker}><OpportunityCard c={c} now={now} n={validationN(D.log, c)} open={openId === c.id} toggle={() => setOpenId(openId === c.id ? null : c.id)} locked={!!pos} /></ErrorBoundary>
             ))}
           </View>
         </Card>
@@ -221,7 +221,7 @@ export default function Firsat() {
               <View style={{ gap: 10 }}>
                 <Text style={{ color: C.muted, fontSize: 12, fontWeight: '700' }}>Geçmiş kartlar</Text>
                 {past.slice(0, 12).map(c => (
-                  <OpportunityCard key={c.id} c={c} now={now} n={validationN(D.log, c)} open={openId === c.id} toggle={() => setOpenId(openId === c.id ? null : c.id)} locked={!!pos} />
+                  <ErrorBoundary key={c.id} label={c.ticker}><OpportunityCard c={c} now={now} n={validationN(D.log, c)} open={openId === c.id} toggle={() => setOpenId(openId === c.id ? null : c.id)} locked={!!pos} /></ErrorBoundary>
                 ))}
               </View>
             ) : null}

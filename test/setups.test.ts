@@ -82,11 +82,11 @@ ok('runSetups izinli setupı çalıştırır', runSetups(ctxOf(s1bars, { allowed
 const stubPricer = (type: 'call' | 'put', S: number, K: number, T: number) => Math.max(0, type === 'call' ? S - K : K - S) + 0.5 * Math.sqrt(Math.max(0, T));
 const rrIn = { type: 'call' as const, S: 100, K: 100, T0: 1 / 252, sigma: 0.3, bid: 1.0, ask: 1.0, und: { entry: 100, stop: 98, target: 104 }, emRemain: 3, sessionLeftMin: 300, slippage: 0 };
 const r0 = optionRR({ ...rrIn, commission: 0 }, stubPricer);
-ok('RR: risk = giriş − max(stop, giriş×0,33) (komisyon 0)', near(r0.risk, 1 - Math.max(r0.primStop, 0.33), 1e-9) && r0.valid, JSON.stringify(r0));
+ok('RR: risk = giriş − max(stop, giriş×0,60) = 0,40 (komisyon 0)', near(r0.risk, 1 - Math.max(r0.primStop, 0.6), 1e-9) && near(r0.risk, 0.4, 1e-9) && r0.valid, JSON.stringify(r0));
 ok('RR: stub fiyatlayıcıda R-çarpanı pozitif ve sonlu', r0.rr > 0 && Number.isFinite(r0.rr), String(r0.rr));
-// Risk bazlı 1:N (D12): hedef prim = giriş + N × risk. Sabit fiyatlayıcı: stopta 1/3, giriş 1 → risk 2/3; 1:5 hedefi = 1 + 5 × 2/3.
+// Risk bazlı 1:N (D12, −%40): hedef prim = giriş + N × risk. Sabit fiyatlayıcı: stopta 0,60, giriş 1 → risk 0,40; 1:5 hedefi = 1 + 5 × 0,40 = 3.
 const exact = (c: number) => optionRR({ ...rrIn, commission: c, und: { entry: 100, stop: 98, target: 104 } },
-  (_t, S) => (S >= 104 ? 1 + 5 * (2 / 3) : S <= 98 ? 1 / 3 : 1));
+  (_t, S) => (S >= 104 ? 1 + 5 * 0.4 : S <= 98 ? 0.6 : 1));
 ok('risk bazlı: hedef 1 + 5 × risk → 1:5 (komisyon 0)', near(exact(0).rr, 5, 1e-3), String(exact(0).rr));
 ok('risk bazlı: komisyon 1,50 $ ile 1:5 altına düşer (iki uçta)', exact(1.5).rr < 5 && exact(1.5).rr > 4.5, String(exact(1.5).rr));
 ok('risk bazlı: ödül = rr × risk', near(exact(0).reward, exact(0).rr * exact(0).risk, 1e-9));

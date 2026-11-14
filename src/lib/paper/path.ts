@@ -5,14 +5,14 @@
  * Hesap modu hedefi (Kaan D12): AGRESIF → 1:N (birincil 5); GUVENLI_KAR / GUVENLI_ZARAR → 1:2 (1:1,5 modellenmedi).
  * Hedef R'ye ulaşılmadıysa işlem gerçekleşen R ile kapanır. Hedef, hit[T] ile belirlenir: stop'tan önce T'ye ulaşıldıysa +T.
  * Varsayım: giriş, sinyal modu ayrımından bağımsız olarak motorun girişi ile aynıdır (skor kapısı backtest'te uygulanmadı).
- * Risk tanımı motorla aynı: prim stopu = giriş × 0,33 → 1R = giriş × 0,67 (kontrat başına).
+ * Risk tanımı motorla aynı (paper/rules.ts): prim stopu = giriş × 0,60 (−%40) → 1R = giriş × 0,40 (kontrat başına).
  */
 import { initAccount, openPosition, closePosition, startDay, summarize } from './account.ts';
 import type { ClosedTrade, PaperAccount, PaperMode, PaperSettings } from './types.ts';
+import { stopPremOf, exitPremForR } from './rules.ts';
 
 /** Engine ile aynı seviyeler (backtest/engine.mts HIT_LEVELS). */
 export const PATH_HIT_LEVELS = [1.5, 2, 4, 5] as const;
-export const PRIM_RISK_SHARE = 0.67;     // 1R = giriş × 0,67 (prim stopu %67)
 
 /** Bir işlemin yol bilgisi (engine ETrade'inden türetilir). */
 export interface PathTrade {
@@ -40,8 +40,8 @@ export function rUnder(t: PathTrade, T: number): number {
   return t.hit[T] ? T : t.R;
 }
 
-/** Çıkış dolumu (kontrat başına $) → R: exit = fill × (1 + 0,67 × R). −1R = fill × 0,33. */
-export const exitForRPath = (R: number, fill: number): number => Math.max(0, fill * (1 + PRIM_RISK_SHARE * R));
+/** Çıkış dolumu (kontrat başına $) → R: exit = fill × (1 + 0,40 × R). −1R = fill × 0,60. (paper/rules.ts) */
+export const exitForRPath = (R: number, fill: number): number => exitPremForR(R, fill);
 
 export interface Counters {
   busy: number; durdu: number; noCapital: number; taken: number;
@@ -63,7 +63,7 @@ export function runTrades(acc0: PaperAccount, trades: PathTrade[], pol: TargetPo
     const mode = acc.mode as Exclude<PaperMode, 'DURDU'>;
     const op = openPosition(acc, {
       id: t.id, ticker: t.ticker, setup: 'FIRSAT', dir: t.dir, expiry: t.D, dte: t.dte, strike: 0,
-      fill: t.fill, stopPrem: t.fill * (1 - PRIM_RISK_SHARE), targetPrem: exitForRPath(T, t.fill), targetR: T,
+      fill: t.fill, stopPrem: stopPremOf(t.fill), targetPrem: exitForRPath(T, t.fill), targetR: T,
       mode, now: t.entryT, day: key,
     });
     if (!op.ok) { c.noCapital++; continue; }

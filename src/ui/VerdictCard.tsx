@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { C } from '@/ui/theme';
 import { fmt } from '@/lib/format';
+import { PREMIUM_STOP_PCT } from '@/lib/paper/rules';
 import { CARD_NOTE } from '@/lib/signals/verdict';
 import { normalizeVerdict } from '@/lib/signals/trade';
 import { cardCalendarLines } from '@/lib/calendar/releases';
@@ -37,7 +38,7 @@ export default function VerdictBlock({ ticker, v: raw }: { ticker: string; v: un
           </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
             <Kv k="Giriş (orta)" v={fmt(v.entry ?? NaN)} />
-            <Kv k="Stop (−%67)" v={fmt(v.stop ?? NaN)} c={C.neg} />
+            <Kv k={`Stop (−%${PREMIUM_STOP_PCT})`} v={fmt(v.stop ?? NaN)} c={C.neg} />
             <Kv k="Hedef 1:5" v={fmt(v.t5 ?? NaN)} c={C.pos} />
             <Kv k="Yedek 1:4" v={fmt(v.t4 ?? NaN)} />
             <Kv k="Kontrat riski" v={`${fmt(v.riskPerContract ?? NaN)} $`} />

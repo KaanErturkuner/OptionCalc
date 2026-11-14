@@ -1,11 +1,12 @@
 /* Opsiyon RR (prim bazlı) — SINYAL-FIRSAT §6.1. Saf; fiyatlayıcı enjekte edilebilir (testler için). */
 import { americanPrice, FAST_STEPS, type OptType } from '../american.ts';
+import { PREMIUM_STOP_DROP } from '../paper/rules.ts';
 
 export const MIN_PER_YEAR = 252 * 390;   // işlem dakikası
 export const RATE = 0.04;
 export const COMMISSION = 1.5;            // kontrat başına, açılış ve kapanışta ayrı (Kaan 2026-11-13)
 export const SLIPPAGE = 0.01;
-export const PRIM_STOP_MAX = 0.67;        // Kaan kararı (D8): prim stopu tavanı
+export const PRIM_STOP_MAX = PREMIUM_STOP_DROP;   // Kaan kararı (2026-11-14): prim stopu −%40 (tek kaynak: paper/rules.ts)
 export const TAU_STOP_MIN = 15;
 export const TAU_TARGET_MIN_MIN = 20;
 

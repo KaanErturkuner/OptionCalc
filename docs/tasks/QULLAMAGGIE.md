@@ -4,7 +4,7 @@ Sahip: Başkan (Grok) tasarım, Claude uygulama. Kaan isteği (2026-11-13): "qua
 **Expo yayını yok, push yok, MarketData'ya bağlanma yok, token yazdırma yok.** Yeni native bağımlılık YOK (OTA, runtime exposdk:58.0.0).
 
 ## 0. Etiket kuralı (zorunlu)
-- Kaan'ın onaylı listesi (D12/D13): risk bazlı brüt 1:5 hedef (1:4 yedek), %67 prim stopu, $1,50/kontrat/yön, yüksek hacimli dönüş mumu çıkışı,
+- Kaan'ın onaylı listesi (D12/D13): risk bazlı brüt 1:5 hedef (1:4 yedek), −%40 prim stopu (2026-11-14; önceden %67), $1,50/kontrat/yön, yüksek hacimli dönüş mumu çıkışı,
   15:45 ET kapanış / takvim kapısı ile gece taşıma, kademe 50/40/30, DURDU, güvenli mod (1:2/1:1,5), 4 kazanç modu, manuel onay.
 - Bunun dışındaki HER kural (Q setup tanımları, LOD çıkış tetiği, 5 dk EMA iz süren stop, eşikler) koda/spec'e
   **"Qullamaggie uyarlaması — Kaan onayı yok"** diye yazılır. Çıkışı/para yönetimini değiştiren uyarlamalar **varsayılan KAPALI**.
@@ -54,7 +54,7 @@ Backtest'te günlük barlar 1 dk gün kayıtlarından türetilir (o,h,l,c,Σv), 
 - Ortam: `unset MARKETDATA_TOKEN; BT_OFFLINE=1 BT_FEE=1.5 BT_START=2025-11-14 BT_END=2026-11-11`.
 - Tickerlar: QQQ, GLD, SLV, NVDA + **MU, INTC** (veri var: `/workspace/backtest/days/` ve `days-dte13/`). SPY günlük: `days/SPY.json` (yoksa RS bileşeni atlanır, raporda yaz).
 - Gruplar: "0DTE/en yakın vade" (`days/`) ve "1–3 DTE" (`days-dte13/`). Not: MU/INTC'nin `days/` kaydı en yakın vade (DTE 0–2) — raporda belirt.
-- Kaan çıkışları aynen (`kaan: { targetN: 5 }`, %67 prim stopu, 15:45 ET, $1,50). Walk-forward 5 kat, ilk %40 seçim; IS/OOS ayrı.
+- Kaan çıkışları aynen (`kaan: { targetN: 5 }`, −%40 prim stopu (2026-11-14; önceden %67), 15:45 ET, $1,50). Walk-forward 5 kat, ilk %40 seçim; IS/OOS ayrı.
 - Parametre uzayı küçük: OR 5|30 dk, hacim eşiği 1,5|2, Q2 gap çarpanı 1,5|2. Tek koşu 10 dk'yı geçerse örneklemi küçült.
 - Tablolar Aşama 6 ile aynı biçim: ticker × grup (OOS), IS vs OOS ($300 replay: n, kazanma, ort. R, nihai, maks. düşüş), setup × ticker kriter kapısı
   (`backtestVerdict`, aynı `FIRSAT_CRITERIA`), MC (birincil + hedef varyantları, "işlem yapamaz" sütunu), kesirli bilgi varyantı.

@@ -15,19 +15,19 @@ function tr(D: string, startMin: number, o: Partial<PathTrade> & { hit?: PathTra
 // 1) hedef politikası: AGRESIF 1:5, güvenli modlar 1:2
 ok('politika: AGRESIF → 5R, GUVENLI_KAR/ZARAR → 2R', targetFor('AGRESIF') === 5 && targetFor('GUVENLI_KAR') === 2 && targetFor('GUVENLI_ZARAR') === 2);
 ok('rUnder: hedefe ulaşıldıysa T, yoksa gerçekleşen R', rUnder(tr('2026-01-05', 60, { hit: { 2: true, 5: false }, R: 0.4, stopped: false }), 2) === 2 && rUnder(tr('2026-01-05', 60, { hit: { 2: true }, R: 0.4, stopped: false }), 5) === 0.4);
-ok('exit: −1R = fill × 0,33; +5R = fill × 4,35', near(exitForRPath(-1, 1), 0.33) && near(exitForRPath(5, 1), 4.35));
+ok('exit: −1R = fill × 0,60; +5R = fill × 3,00 (−%40 stop)', near(exitForRPath(-1, 1), 0.6) && near(exitForRPath(5, 1), 3.0));
 
-// 2) tek kazanç: 300 $, kademe 0,5 → 150 $ bütçe, 1 kontrat (101,5 $). Net = 5R × 0,67 × 100 − 2 × 1,5 = 332 $ → 632 $
+// 2) tek kazanç: 300 $, kademe 0,5 → 150 $ bütçe, 1 kontrat (101,5 $). Net = 5R × 0,40 × 100 − 2 × 1,5 = 197 $ → 497 $
 {
   const r = replayTrades([tr('2026-01-05', 60, { hit: { 5: true }, R: 5, stopped: false })], { startCapital: 300, settings: { commission: 1.5 } });
-  ok('tek 1:5 kazanç: 300 → 632 $ (1 kontrat, net 332 $)', near(r.final, 632, 1e-6), `final=${r.final}`);
+  ok('tek 1:5 kazanç: 300 → 497 $ (1 kontrat, net 197 $)', near(r.final, 497, 1e-6), `final=${r.final}`);
   ok('tek kazanç: sayaç taken=1, kazanç', r.taken === 1 && r.summary.n === 1 && r.summary.winPct === 100);
 }
 
-// 3) tek stop: −1R → net = (0,33 − 1) × 100 − 3 = −70 → 230 $ (kademe 0,5 → 1 kontrat)
+// 3) tek stop: −1R → net = (0,60 − 1) × 100 − 3 = −43 → 257 $ (kademe 0,5 → 1 kontrat)
 {
   const r = replayTrades([tr('2026-01-05', 60, { R: -1, stopped: true })], { startCapital: 300 });
-  ok('tek stop: 300 → 230 $', near(r.final, 230, 1e-6), `final=${r.final}`);
+  ok('tek stop: 300 → 257 $', near(r.final, 257, 1e-6), `final=${r.final}`);
 }
 
 // 4) çakışma: ikinci işlem birincinin bitişinden önce açılmaz

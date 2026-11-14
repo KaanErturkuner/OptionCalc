@@ -19,22 +19,22 @@ const LOSS: McOutcome = { kind: 'stop' };
 ok('RISK: 1:5 → 5R (giriş 150 + 5 × risk 100 = 650 $)', near(targetR('RISK', 5), 5));
 ok('K8 (karşılaştırma): 1:5 → 6R (çıkış 5 × giriş, 750 $)', near(targetR('K8', 5), 6));
 ok('sonuç: hedef → tanımın R değeri, stop → −1R', near(outcomeR({ kind: 'hedef' }, 'RISK', 5), 5) && near(outcomeR({ kind: 'hedef' }, 'K8', 5), 6) && outcomeR(LOSS, 'RISK') === -1);
-ok('çıkış: −1R = stop (fill/3), +1R = fill × 5/3', near(exitForR(-1, 0.8), 0.8 / 3) && near(exitForR(1, 1), 5 / 3));
+ok('çıkış: −1R = stop (fill × 0,60, −%40), +1R = fill × 1,40', near(exitForR(-1, 0.8), 0.8 * 0.6) && near(exitForR(1, 1), 1.4));
 
-// Analitik: 1 gün, 3 kazanç (+1R), komisyon 0, fill 0,80 → 300 → 400 → 533,33 → 711,11
+// Analitik: 1 gün, 3 kazanç (+1R = fill × 0,40), komisyon 0, fill 0,80, kademe 0,5 → her kazanç ×1,2: 300 → 360 → 432 → 518,40
 {
   const r = runMonteCarlo([[W(1), W(1), W(1)]], { startCapital: 300, paths: 20, horizons: [1], fill: 0.8,
     settings: { commission: 0, slippage: 0, fractional: true } });
-  ok('MC analitik: 3 kazanç → 711,11 $', near(r[0].medianCapital, 711.11, 0.01), String(r[0].medianCapital));
+  ok('MC analitik: 3 kazanç → 518,40 $', near(r[0].medianCapital, 518.4, 0.01), String(r[0].medianCapital));
   ok('MC analitik: yol başına 3 işlem, iflas 0', r[0].meanTrades === 3 && r[0].ruinProb === 0);
 }
-// D12 RISK hedefi (5R): fill 1,50 (150 $), risk 100 $ → tek hedef +500 → 800; K8 (6R) → +600 → 900 (karşılaştırma)
+// D12 RISK hedefi (5R, −%40): fill 1,50 (150 $), risk = 0,40 × 150 = 60 $ → tek hedef +300 → 600; K8 (6R) → +360 → 660 (karşılaştırma)
 {
   const s = { commission: 0, slippage: 0, fractional: true };
   const risk = runMonteCarlo([[{ kind: 'hedef' }]], { startCapital: 300, paths: 5, horizons: [1], fill: 1.5, targetConvention: 'RISK', settings: s });
   const k8 = runMonteCarlo([[{ kind: 'hedef' }]], { startCapital: 300, paths: 5, horizons: [1], fill: 1.5, targetConvention: 'K8', settings: s });
-  ok('RISK hedef: 300 → 800 (+500 = 5R, 650 $ çıkış)', near(risk[0].medianCapital, 800, 0.01), String(risk[0].medianCapital));
-  ok('K8 hedef (karşılaştırma): 300 → 900 (+600)', near(k8[0].medianCapital, 900, 0.01), String(k8[0].medianCapital));
+  ok('RISK hedef: 300 → 600 (+300 = 5R, 450 $ çıkış)', near(risk[0].medianCapital, 600, 0.01), String(risk[0].medianCapital));
+  ok('K8 hedef (karşılaştırma): 300 → 660 (+360)', near(k8[0].medianCapital, 660, 0.01), String(k8[0].medianCapital));
 }
 // Tek kayıp: kademe 50 → ilk kayıptan sonra 1 kontrat alınamıyor → her yol iflas
 {
@@ -80,15 +80,15 @@ ok('MC: boş gün kümesi hata verir', (() => { try { runMonteCarlo([[]], { star
   ok('coklu: N seçimi ve en yakın küçük N', outcomeR({ kind: 'coklu', byN: { '5': -1, '2': 2, '1.5': 1.5 } }, 'RISK', 5) === -1
     && outcomeR({ kind: 'coklu', byN: { '5': -1, '2': 2, '1.5': 1.5 } }, 'RISK', 2) === 2
     && outcomeR({ kind: 'coklu', byN: { '5': -1, '1.5': 1.5 } }, 'RISK', 2) === 1.5);
-  // 10 000 $ (iflas eşiğine takılmasın), fill 1,50, komisyon 0: K → K → güvenli modda hedef 2R: 4888,9 + 0,3 × 4888,9 × 4/3 = 6844,4 (5R olsaydı 9777,8)
+  // 10 000 $ (iflas eşiğine takılmasın), fill 1,50, komisyon 0 (−%40, 1R = 0,40): K(0,5) → 8000; K(0,4) → 6720; güvenli 2R (0,3): 6720 + 0,3 × 6720 × 0,8 = 8332,8
   const r = runMonteCarlo([[LOSS, LOSS, { kind: 'hedef' }]], { startCapital: 10000, paths: 3, horizons: [1], fill: 1.5, settings: s0 });
-  ok('güvenli modda hedef = 2R (5R değil): 10 000 → 6844,4', near(r[0].medianCapital, 6844.44, 0.05), String(r[0].medianCapital));
+  ok('güvenli modda hedef = 2R (5R değil): 10 000 → 8332,8', near(r[0].medianCapital, 8332.8, 0.05), String(r[0].medianCapital));
   // coklu: güvenli modda '2' kolonu kullanılır (5R kolonu −1 olsa bile)
   const rc = runMonteCarlo([[LOSS, LOSS, { kind: 'coklu', byN: { '5': -1, '4': -1, '2': 2, '1.5': 1.5 } }]], { startCapital: 10000, paths: 3, horizons: [1], fill: 1.5, settings: s0 });
-  ok('coklu: güvenli modda 1:2 kolonu', near(rc[0].medianCapital, 6844.44, 0.05), String(rc[0].medianCapital));
-  // fixedKademe gün içinde de sabit: 2 kayıp %50 → 1000 × (1 − 0,5 × 2/3)² = 444,4
+  ok('coklu: güvenli modda 1:2 kolonu', near(rc[0].medianCapital, 8332.8, 0.05), String(rc[0].medianCapital));
+  // fixedKademe gün içinde de sabit: 2 kayıp %50 → 1000 × (1 − 0,5 × 0,4)² = 640
   const fk = runMonteCarlo([[LOSS, LOSS]], { startCapital: 1000, paths: 2, horizons: [1], fill: 1.5, settings: s0, fixedKademe: 0.5 });
-  ok('fixedKademe gün içinde sabit (%50, %50)', near(fk[0].medianCapital, 444.44, 0.05), String(fk[0].medianCapital));
+  ok('fixedKademe gün içinde sabit (%50, %50)', near(fk[0].medianCapital, 640, 0.05), String(fk[0].medianCapital));
 }
 
 // Kriterler (§9.4)

@@ -11,6 +11,7 @@ environment doesn't expand `@AGENTS.md`, open it directly. Essentials:
 - **Commits:** `[claude] <area>: <what>`. Never commit tokens, `.env*`, data under `/workspace/backtest/`, `node_modules`, `dist*`.
 - **Secrets:** `EXPO_TOKEN`, `MARKETDATA_TOKEN` only via env. MarketData one-device rule: don't call the API while the phone uses it; never run two API scripts at once.
 - **Publishing:** only when Kaan asks — `npx eas-cli@latest update --branch production --message "..." --non-interactive`.
+- **Para kuralı:** prim stopu −%40 (2026-11-14, eskiden %67); tek kaynak `src/lib/paper/rules.ts`. ÇIK yalnız uyarı.
 - **Status:** waiting on MarketData OPRA approval; plan in `docs/PLAN.md`. Current in-app engine has no proven edge — signals are paper-only.
 - **Language:** UI text Turkish; talk to Kaan in Turkish.
 

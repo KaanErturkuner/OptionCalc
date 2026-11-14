@@ -29,9 +29,9 @@ const BEKLE = card({ ...BASE, vwap: 688, orHigh: 695, orLow: 680, flip: 700 }); 
   const t = T.tradeOf({ ticker: 'QQQ', verdict: BULL }, NOW, { capital: 300, kademe: 0.5, commission: 1.5 })!;
   ok('kart: CALL etiketi, 0DTE + tarih', t.typeLabel === 'CALL' && t.expiryLabel === '0DTE · 16 Kas', t.expiryLabel);
   ok('kart: spot ve OTM uzaklık', t.spot === 690 && near(t.otm, 2.5), `${t.spot} ${t.otm}`);
-  ok('kart: giriş 0,80, stop 0,26 (×0,33), hedef 1:5 = 3,50, yedek 1:4 = 2,96',
-    t.entry === 0.8 && t.stop === 0.26 && t.t5 === 3.5 && t.t4 === 2.96, JSON.stringify([t.entry, t.stop, t.t5, t.t4]));
-  ok('kart: stop yüzdesi 67', t.stopPct === 67);
+  ok('kart: giriş 0,80, stop 0,48 (×0,60), hedef 1:5 = 2,40, yedek 1:4 = 2,08',
+    t.entry === 0.8 && t.stop === 0.48 && t.t5 === 2.4 && t.t4 === 2.08, JSON.stringify([t.entry, t.stop, t.t5, t.t4]));
+  ok('kart: stop yüzdesi 40', t.stopPct === 40);
   ok('kart: gerekçe düz Türkçe, yön öneki', t.rationale.startsWith('Yükseliş yönünde:'), t.rationale);
   ok('kart: güç 5/5 (çok güçlü)', t.strength === 5 && t.strengthText === 'çok güçlü');
   ok('bekle için kart yok', T.tradeOf({ ticker: 'QQQ', verdict: BEKLE }, NOW, null) === null);
@@ -45,9 +45,9 @@ const BEKLE = card({ ...BASE, vwap: 688, orHigh: 695, orLow: 680, flip: 700 }); 
   // bütçe 150 $; kontrat maliyeti 0,80 × 100 + 1,50 = 81,50 → 1 kontrat
   ok('300 $ · %50 → 1 kontrat', s.contracts === 1 && s.tierPct === 50 && s.capital === 300, JSON.stringify(s));
   ok('prim maliyeti 80 $, açılış komisyonu 1,50 $, gidiş-dönüş 3 $', near(s.premiumCost, 80) && near(s.openComm, 1.5) && near(s.rtComm, 3));
-  ok('stopta net ≈ −57 $ (komisyon dâhil)', near(s.stopNet, -57), String(s.stopNet));
-  ok('1:5 hedefte net ≈ +267 $', near(s.targetNet, 267), String(s.targetNet));
-  ok('1:4 yedekte net ≈ +213 $', near(s.targetNet4, 213), String(s.targetNet4));
+  ok('stopta net ≈ −35 $ (komisyon dâhil)', near(s.stopNet, -35), String(s.stopNet));
+  ok('1:5 hedefte net ≈ +157 $', near(s.targetNet, 157), String(s.targetNet));
+  ok('1:4 yedekte net ≈ +125 $', near(s.targetNet4, 125), String(s.targetNet4));
   const big = T.tradeOf({ ticker: 'QQQ', verdict: BULL }, NOW, { capital: 1000, kademe: 0.5, commission: 1.5 })!.sizing!;
   ok('1000 $ · %50 → 6 kontrat (bütçe 500 $)', big.contracts === 6 && near(big.rtComm, 18), JSON.stringify(big));
   const low = T.tradeOf({ ticker: 'QQQ', verdict: BULL }, NOW, { capital: 100, kademe: 0.3, commission: 1.5 })!.sizing!;

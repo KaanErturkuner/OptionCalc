@@ -14,6 +14,7 @@ Read this, then `docs/TASKS.md`, before you change anything. User-facing text in
   - **Hesapla** (`src/screens/Calc.tsx`) — American option pricer (Leisen-Reimer + Richardson, cash dividends), Greeks, P/L chart (pinch-zoom), price × date heatmap, strategies (Long Call/Put + "Diğer").
   - **0DTE** (`src/screens/Odte.tsx`) — scans a watchlist every N minutes, runs the signal engine, local notifications, "✓ Aldım" → position.
   - **Menü** (`src/screens/Menu.tsx`, sekme eskiden Geçmiş) — kart kaydı: **Geçmiş** (`src/screens/Journal.tsx`: signals/positions, paper by default, exit-time and target/stop alerts) and **Takip Listesi** (`src/screens/Watchlist.tsx`: Hesapla'dan eklenen opsiyonların canlı K/Z'si).
+- **Para kuralı (2026-11-14):** prim stopu **−%40** (eskiden %67). Sayılar `src/lib/paper/rules.ts`'te; uyarlanabilir ÇIK yalnız uyarıdır, otomatik çıkış yapmaz (çıkış: −%40 stop, hedef, 15:45 ET / gece kuralı).
 - **No proven edge.** Backtests so far show negative expectancy for the in-app engine. Treat signals as paper-only until `docs/PLAN.md` criteria pass. Never present them as advice.
 
 ## 2. Architecture map
@@ -28,6 +29,7 @@ src/lib/usmarket.ts      NYSE calendar/holidays, ET time helpers, closeMs, marke
 src/lib/state.ts         persisted UI state, price step, table rows
 src/lib/watchlist/       takip listesi: model (kalem, OCC, vade), pl (K/Z), refresh, build (bacak→kalem), view; src/ui/watchStore.ts (depo)
 src/lib/journal.ts       journal model;  src/lib/alerts.ts  target/stop/exit alert logic
+src/lib/paper/rules.ts  PARA KURALLARI — TEK KAYNAK: prim stopu −%40 (giriş × 0,60), 1R = giriş × 0,40, hedef 1:5 = giriş + 5R (×3,0), 1:4 = ×2,6. Yeni kural/sayı yalnız burada; 0,33/0,67/%67 literal'i yazılmaz.
 src/lib/market/          providers: cboe.ts (default, keyless), yahoo.ts, tradier.ts, marketdata.ts (token; mdMode live|cached), bars.ts (1-min bars: Yahoo first, MarketData fallback), index.ts (loadSymbol/loadChain), types.ts
 src/lib/odte/analytics.ts  OI walls, max pain, GEX + gamma flip, P/C, unusual volume, expected move, VWAP, ORB, momentum
 src/lib/odte/signal.ts     in-app engine: features() + decide(); DEFAULT_OPTS (v2), V1_OPTS
