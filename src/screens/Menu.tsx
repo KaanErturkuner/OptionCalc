@@ -2,6 +2,7 @@
 import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import Journal from '@/screens/Journal';
 import Watchlist from '@/screens/Watchlist';
 import Raporlar from '@/screens/Raporlar';
@@ -14,6 +15,9 @@ import { C } from '@/ui/theme';
 
 export type CardId = 'journal' | 'watch' | 'reports' | 'coach' | 'news' | 'earnings';
 interface MenuCard { id: CardId; icon: string; title: string; desc: (ctx: { watchCount: number }) => string }
+
+/** Uygulama sürümü: app.json "version" (EAS/OTA ile aynı kaynak) */
+const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 
 /** Kart kaydı: sıra = ekranda görünen sıra */
 const CARDS: MenuCard[] = [
@@ -69,6 +73,9 @@ export default function Menu({ active, start = null }: { active: boolean; start?
           <Text style={{ color: C.muted, fontSize: 22 }}>›</Text>
         </Pressable>
       ))}
+      <View style={{ marginTop: 8, padding: 14, borderRadius: 18, alignItems: 'center', backgroundColor: C.card, borderWidth: 0.5, borderColor: C.border }}>
+        <Text style={{ color: C.muted, fontSize: 13 }}>Sürüm {APP_VERSION}</Text>
+      </View>
     </ScrollView>
   );
 }
