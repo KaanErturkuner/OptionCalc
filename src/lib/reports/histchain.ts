@@ -1,8 +1,9 @@
 /*
  * Tarihsel (EOD) opsiyon zincirinden rapor girdisi — saf, ağ YOK.
  * MarketData `options/chain?date=` (önceki kapanış) sunucuda çekilir (server/app/histfetch.ts); bu modül satırları
- * duvar anlık görüntüsüne ve birikim listesine çevirir. Birikim = açık pozisyon (OI, D−1 mutabakatı) × orta fiyat × 100:
- * "en büyük OI yoğunluğu". İşlem akışı (dV) DEĞİL; raporda bu ayrım etiketle belirtilir.
+ * duvar anlık görüntüsüne ve birikim listesine çevirir. Birikim = en büyük açık pozisyon (OI, kontrat sayısına göre; D−1
+ * mutabakatı). Değer = OI × orta fiyat × 100 (bilgi amaçlı). İşlem akışı (dV) DEĞİL. OI×fiyat sıralaması derin-ITM
+ * kontratları öne çıkardığı için sıralama kontrat sayısıyla yapılır.
  */
 import type { ChainRow } from '../flow/detect.ts';
 import { flowExpiries } from '../flow/expiry.ts';
@@ -32,12 +33,12 @@ export interface HistSnap {
   expiries: string[];        // gerçekten satır getirilen vadeler
   rows: number;              // toplam kontrat satırı
   wall: WallSnap | null;
-  flow: FlowAgg[];           // ticker başına en büyük OI birikimi (en çok HIST_FLOW_PER_TICKER)
+  flow: FlowAgg[];           // ticker başına en büyük OI (kontrat) birikimi (en çok HIST_FLOW_PER_TICKER)
 }
 
 /**
  * Zincir satırları (vade kümesine süzülmüş; tek ticker) → duvar + birikim.
- * wall: reportDay ve sonrasındaki en yakın vade (wallSnapFromRows ile aynı kural). flow: OI × mid × 100 ile sıralı.
+ * wall: reportDay ve sonrasındaki en yakın vade (wallSnapFromRows ile aynı kural). flow: OI (kontrat) ile sıralı.
  */
 export function histSnapshot(rows: ChainRow[], reportDay: string, asOf: number): { wall: WallSnap | null; flow: FlowAgg[] } {
   const wall = wallSnapFromRows(rows, reportDay, asOf);
@@ -50,6 +51,6 @@ export function histSnapshot(rows: ChainRow[], reportDay: string, asOf: number):
     byTicker.set(r.ticker, list);
   }
   const flow: FlowAgg[] = [];
-  for (const list of byTicker.values()) flow.push(...list.sort((a, b) => b.premium - a.premium).slice(0, HIST_FLOW_PER_TICKER));
+  for (const list of byTicker.values()) flow.push(...list.sort((a, b) => b.contracts - a.contracts).slice(0, HIST_FLOW_PER_TICKER));
   return { wall, flow };
 }

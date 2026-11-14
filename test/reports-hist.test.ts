@@ -31,10 +31,10 @@ ok('duvar: call duvarı = en büyük call OI (585)', snap.wall?.callWall === 585
 ok('duvar: put duvarı = 570', snap.wall?.putWall === 570, String(snap.wall?.putWall));
 ok('duvar: spot satırdan (580)', snap.wall?.spot === 580, String(snap.wall?.spot));
 const top = snap.flow.map(f => `${f.side}${f.strike}@${f.expiry}`);
-ok('birikim: OI 0 ve fiyatsız satır yok', !snap.flow.some(f => f.contracts === 0) && snap.flow.length === 2, JSON.stringify(top));
-ok('birikim: premium = OI × mid × 100 (570 put: 8000×2.1×100)', Math.abs((snap.flow.find(f => f.strike === 570)?.premium ?? 0) - 1680000) < 1e-6, JSON.stringify(top));
-ok('birikim: 585 call (990k) top-2 dışında kalır (600 call 2.75M, 570 put 1.68M)', !snap.flow.some(f => f.strike === 585));
-ok('birikim: 50k OI’li uzak vade (20/11) ticker top-2’ye girer', snap.flow.some(f => f.expiry === '2026-11-20'), JSON.stringify(top));
+ok('birikim: OI 0 ve fiyatsız satır yok', !snap.flow.some(f => f.contracts === 0), JSON.stringify(top));
+ok('birikim: en büyük OI (kontrat) top-2: 600 call (50k) ve 585 call (9k)', snap.flow.length === 2 && snap.flow.some(f => f.strike === 600) && snap.flow.some(f => f.strike === 585), JSON.stringify(top));
+ok('birikim: 570 put (8k OI) ilk ikide değil', !snap.flow.some(f => f.strike === 570));
+ok('birikim: değer = OI × mid × 100 (585 call: 9000×1.1×100)', Math.abs((snap.flow.find(f => f.strike === 585)?.premium ?? 0) - 990000) < 1e-6);
 
 // 3) etiketli duvar satırı: açılış anı yok → kayma yazılmaz; önceki kapanış etiketi ile kayma
 const w = (callWall: number): NonNullable<ReportInput['walls'][number]['now']> => ({ spot: 580, callWall, putWall: 570, flip: 578, maxPain: 580, expiry: '2026-11-13', at: 0 });
